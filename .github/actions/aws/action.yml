@@ -40,7 +40,6 @@ runs:
       uses: actions/github-script@v7
       env:
         TARGET_ENV: ${{ inputs.env }}
-        ACTIONS_STEP_DEBUG: "true"
         SCOPE: "OR.Assets OR.BackgroundTasks  OR.Execution  OR.Folders  OR.Jobs  OR.License OR.Machines OR.Queues OR.Robots  OR.Settings OR.TestDataQueues OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users"
       with:
         script: |
@@ -63,7 +62,7 @@ runs:
             const OR_URL = `${BASE_URL}/${ORG}/${TENANT}/orchestrator_`;
             core.exportVariable('OR_URL', OR_URL);
 
-            const tokenUrl = `${BASE_URL.replace(/\/+$/,'')}/identity_/connect/toke`;
+            const tokenUrl = `${BASE_URL.replace(/\/+$/,'')}/identity_/connect/token`;
             core.debug(`Token URL: ${tokenUrl}`);
             core.debug(`Scope: ${process.env.SCOPE}`);
 
@@ -75,7 +74,7 @@ runs:
 
             const res = await fetch(tokenUrl, {
               method: 'POST',
-              headers: { 'content-type':'application/x-www-form-urlencoded', 'accept':'application/json' },
+              headers: { 'content-type':'application/x-www-form-urlencoded', 'accept':'applicatio/json' },
               body: params.toString()
             });
 
