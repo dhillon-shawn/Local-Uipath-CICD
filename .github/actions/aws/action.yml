@@ -61,14 +61,15 @@ runs:
           const OR_URL = `${BASE_URL}/${ORG}/${TENANT}/orchestrator_`;
           core.exportVariable('OR_URL', OR_URL);
           
-
+          const auth_url = `${BASE_URL.replace(/\/+$/,'')}/identity_/connect/token`;
+          
           const params = new URLSearchParams();
           params.set('grant_type', 'client_credentials');
           params.set('client_id', APP_ID);
           params.set('client_secret', APP_SECRET);
           params.set('scope', process.env.SCOPE);
 
-          const res = await fetch(tokenUrl, {
+          const res = await fetch(auth_url, {
             method: 'POST',
             headers: { 'content-type':'application/x-www-form-urlencoded', 'accept': 'application/json' },
             body: params.toString()
