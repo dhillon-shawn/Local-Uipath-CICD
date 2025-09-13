@@ -23,14 +23,14 @@ runs:
     - name: Configure AWS
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        role-to-assume: ${{ inputs.role_arn }}
+        role-to-assume: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
         aws-region: ${{ inputs.aws_region }}
 
     - name: Get secret JSON as env (UIPATH)
       uses: aws-actions/aws-secretsmanager-get-secrets@v2
       with:
         secret-ids: |
-          UIPATH,${{ inputs.secret_id }}
+          UIPATH,${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
         parse-json-secrets: false
 
     - name: Map vars and fetch token
