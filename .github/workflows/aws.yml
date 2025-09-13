@@ -14,7 +14,9 @@ jobs:
         steps:
 
           - uses: actions/checkout@v4
-          - name: get
+
+
+          - name: get dev
             uses: ./.github/actions/aws
             with:
                 env: "DEV"
@@ -30,7 +32,38 @@ jobs:
                 "${{env.OR_URL}}/odata/Folders"
                 )
                 echo "FOLDERS: $FOLDERS"
+                
+          - name: get prod
+            uses: ./.github/actions/aws
+            with:
+                env: "PROD"
+                role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
+                aws_region: "us-west-2"
+                secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
 
+          - name: Folder
+            run: |
+                FOLDERS=$(curl --location \
+                --header "Authorization: Bearer $TOKEN" \
+                "${{env.OR_URL}}/odata/Folders"
+                )
+                echo "FOLDERS: $FOLDERS"
+                
+          - name: get prod
+            uses: ./.github/actions/aws
+            with:
+                env: "TEST"
+                role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
+                aws_region: "us-west-2"
+                secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
+
+          - name: Folder
+            run: |
+                FOLDERS=$(curl --location \
+                --header "Authorization: Bearer $TOKEN" \
+                "${{env.OR_URL}}/odata/Folders"
+                )
+                echo "FOLDERS: $FOLDERS"
           - name: Dump vars context
             env:
                 VARS_JSON: ${{ toJSON(vars) }}
