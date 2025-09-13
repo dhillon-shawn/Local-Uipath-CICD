@@ -17,6 +17,9 @@ jobs:
             uses: ./.github/actions/aws
             with:
                 env: "DEV"
+                role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
+                aws_region: "us-west-2"
+                secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
 
           - name: Dump GitHub context
             env:
