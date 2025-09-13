@@ -63,7 +63,7 @@ runs:
             const OR_URL = `${BASE_URL}/${ORG}/${TENANT}/orchestrator_`;
             core.exportVariable('OR_URL', OR_URL);
 
-            const tokenUrl = `${BASE_URL.replace(/\/+$/,'')}/identity_/connect/token`;
+            const tokenUrl = `${BASE_URL.replace(/\/+$/,'')}/identity_/connect/toke`;
             core.debug(`Token URL: ${tokenUrl}`);
             core.debug(`Scope: ${process.env.SCOPE}`);
 
