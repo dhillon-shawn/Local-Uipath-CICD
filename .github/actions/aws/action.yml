@@ -64,6 +64,4 @@ runs:
           core.exportVariable('APP_SECRET', appSecret);
       env:
         INPUT_SECRET_ID: ${{ inputs.secret_id }}
-      # Pass inputs to github-script via 'with: inputs' (github-script exposes them via core.getInput)
-      with:
-        result-encoding: string
+
