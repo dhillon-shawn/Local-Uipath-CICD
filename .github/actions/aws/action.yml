@@ -18,5 +18,5 @@ runs:
         uses: aws-actions/aws-secretsmanager-get-secrets@v1
         with:
             secret-ids: |
-                  ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
+               ENV,   ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
             parse-json-secrets: true
