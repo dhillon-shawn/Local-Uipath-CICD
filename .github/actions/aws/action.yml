@@ -1,17 +1,18 @@
+# .github/actions/aws-env-pair/action.yml
 name: "AWS env pair -> APP_ID/APP_SECRET"
-description: "Configure AWS, fetch one JSON secret, map {ENV}_APP_ID/_APP_SECRET -> APP_ID/APP_SECRET"
+description: "Assume role, fetch one JSON secret, map {ENV}_APP_ID/_APP_SECRET -> APP_ID/APP_SECRET"
 inputs:
   env:
-    description: "Environment name, e.g. DEV|STAGE|PROD (case-insensitive)"
+    description: "Environment (e.g. DEV|STAGE|PROD)"
     required: true
   role_arn:
     description: "AWS role to assume (OIDC)"
     required: true
   aws_region:
-    description: "AWS region for Secrets Manager"
+    description: "AWS region"
     required: true
   secret_id:
-    description: "Secret name/ARN that contains DEV_APP_ID, DEV_APP_SECRET, etc."
+    description: "Secret name/ARN containing keys like DEV_APP_ID/DEV_APP_SECRET"
     required: true
 runs:
   using: "composite"
@@ -22,38 +23,37 @@ runs:
         role-to-assume: ${{ inputs.role_arn }}
         aws-region: ${{ inputs.aws_region }}
 
-    # Keep secret as a single JSON string in APP_SECRETS (no blank alias).
-    - name: Get secret as JSON string (env var)
+    # Keep the JSON as a single env var named UIPATH
+    - name: Get secret as JSON string
       uses: aws-actions/aws-secretsmanager-get-secrets@v2
       with:
         secret-ids: |
-          APP_SECRETS,${{ inputs.secret_id }}
+          UIPATH,${{ inputs.secret_id }}
         parse-json-secrets: false
 
-    # Cross-OS JSON parse & export; no bash or PowerShell needed
+    # Cross-OS parse & export (no bash/powershell scripts)
     - name: Map {ENV}_APP_ID/_APP_SECRET -> APP_ID/APP_SECRET
       uses: actions/github-script@v7
       env:
         TARGET_ENV: ${{ inputs.env }}
-        # APP_SECRETS is provided by the previous step as an env var
+        SECRET_NAME: ${{ inputs.secret_id }}
+        # UIPATH env var is provided by the previous step
       with:
         script: |
-          const core = require('@actions/core');
-
           const envName = (process.env.TARGET_ENV || '').trim();
-          if (!envName) { core.setFailed('inputs.env is required'); process.exit(1); }
+          if (!envName) { core.setFailed('inputs.env is required'); return; }
 
           const upper = envName.toUpperCase();
-          const raw = process.env.APP_SECRETS;
-          if (!raw) { core.setFailed('APP_SECRETS is empty. Check your secret alias or aws-secretsmanager-get-secrets step.'); process.exit(1); }
+          const raw = process.env.UIPATH;
+          if (!raw) { core.setFailed('UIPATH env var is empty (check the alias in aws-secretsmanager-get-secrets).'); return; }
 
           let obj;
           try { obj = JSON.parse(raw); }
-          catch (e) { core.setFailed('SecretString is not valid JSON'); process.exit(1); }
+          catch { core.setFailed('SecretString is not valid JSON'); return; }
 
-          // Case-insensitive lookup: normalize keys to UPPERCASE
+          // Case-insensitive: normalize keys to UPPERCASE
           const map = {};
-          for (const [k, v] of Object.entries(obj)) { map[k.toUpperCase()] = v; }
+          for (const [k,v] of Object.entries(obj)) map[k.toUpperCase()] = v;
 
           const idKey = `${upper}_APP_ID`;
           const secretKey = `${upper}_APP_SECRET`;
@@ -62,15 +62,13 @@ runs:
 
           if (!appId || !appSecret) {
             const pref = `${upper}_`;
-            const candidates = Object.keys(map).filter(k => k.startsWith(pref));
-            core.info(`Found keys with prefix '${pref}': ${candidates.join(', ') || '(none)'}`);
-            core.setFailed(`Missing keys '${idKey}' or '${secretKey}' in the JSON of secret '${process.env.SECRET_NAME || '<<secret>>'}'.`);
-            process.exit(1);
+            const candidates = Object.keys(map).filter(k => k.startsWith(pref)).join(', ');
+            core.info(`Found keys with prefix '${pref}': ${candidates || '(none)'}`);
+            core.setFailed(`Missing keys '${idKey}' or '${secretKey}' in secret '${process.env.SECRET_NAME}'.`);
+            return;
           }
 
-          // Mask and export
           core.setSecret(String(appId));
           core.setSecret(String(appSecret));
           core.exportVariable('APP_ID', String(appId));
           core.exportVariable('APP_SECRET', String(appSecret));
-

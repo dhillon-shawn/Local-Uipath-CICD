@@ -3,6 +3,7 @@ name: AWS TEST
 on:
   workflow_dispatch:
   workflow_call:
+  push:
 
 permissions:
     write-all
