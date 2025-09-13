@@ -2,28 +2,44 @@ name: AWS TEST
 
 on:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
-      id-token: write
-      contents: read
+    write-all
 
 jobs:
     Test:
         runs-on: ubuntu-latest
         steps:
-              - name: Configure AWS credentials
-                uses: aws-actions/configure-aws-credentials@v4
-                with:
-                        role-to-assume: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
-                        aws-region: "us-west-2"
-                        role-session-name: GitHubActions-${{ github.run_id }}
 
-              - name: Get secrets from AWS Secrets Manager
-                uses: aws-actions/aws-secretsmanager-get-secrets@v1
-                with:
-                        secret-ids: |
-                            ENV, ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
-                        parse-json-secrets: true
+          - uses: actions/checkout@v4
+          - name: get
+            uses: ./.github/actions/aws
+            with:
+                env: "DEV"
 
-              - name: Echo all environment variables
-                run: env
+          - name: Dump GitHub context
+            env:
+                GITHUB_CONTEXT: ${{ toJson(github) }}
+            run: echo "$GITHUB_CONTEXT"
+          - name: Dump job context
+            env:
+                JOB_CONTEXT: ${{ toJson(job) }}
+            run: echo "$JOB_CONTEXT"
+          - name: Dump steps context
+            env:
+                STEPS_CONTEXT: ${{ toJson(steps) }}
+            run: echo "$STEPS_CONTEXT"
+          - name: Dump runner context
+            env:
+                RUNNER_CONTEXT: ${{ toJson(runner) }}
+            run: echo "$RUNNER_CONTEXT"
+          - name: Dump vars context
+            env:
+                VARS_JSON: ${{ toJSON(vars) }}
+            run: echo "${VARS_JSON}"
+
+          - name: Dump env context
+            env:
+                ENV_JSON: ${{ toJSON(env) }}
+            run: echo "${ENV_JSON}"

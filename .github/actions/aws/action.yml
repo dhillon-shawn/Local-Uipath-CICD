@@ -1,0 +1,22 @@
+name: "Resolve env APP_ID/APP_SECRET from one AWS secret"
+description: "Fetch a single JSON secret and expose APP_ID/APP_SECRET for the selected env"
+inputs:
+  env:
+    description: "Environment name (e.g. dev|stage|prod|DEV|STAGE|PROD)"
+    required: true
+runs:
+  using: "composite"
+  steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+            role-to-assume: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
+            aws-region: "us-west-2"
+            role-session-name: GitHubActions-${{ github.run_id }}
+
+      - name: Get secrets from AWS Secrets Manager
+        uses: aws-actions/aws-secretsmanager-get-secrets@v1
+        with:
+            secret-ids: |
+                  ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
+            parse-json-secrets: true
