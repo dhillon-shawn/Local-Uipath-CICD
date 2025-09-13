@@ -31,13 +31,12 @@ runs:
           UIPATH,${{ inputs.secret_id }}
         parse-json-secrets: false
 
-    # Cross-OS parse & export (no bash/powershell scripts)
-    - name: Map {ENV}_APP_ID/_APP_SECRET -> APP_ID/APP_SECRET
+    - name: Map {ENV}_* -> APP_ID/APP_SECRET/BASE_URL/FULL_URL
       uses: actions/github-script@v7
       env:
         TARGET_ENV: ${{ inputs.env }}
         SECRET_NAME: ${{ inputs.secret_id }}
-        # UIPATH env var is provided by the previous step
+        # UIPATH is set by the previous secrets step
       with:
         script: |
           const envName = (process.env.TARGET_ENV || '').trim();
@@ -55,20 +54,46 @@ runs:
           const map = {};
           for (const [k,v] of Object.entries(obj)) map[k.toUpperCase()] = v;
 
-          const idKey = `${upper}_APP_ID`;
-          const secretKey = `${upper}_APP_SECRET`;
-          const appId = map[idKey];
-          const appSecret = map[secretKey];
+          // Build expected keys
+          const need = [
+            `${upper}_APP_ID`,
+            `${upper}_APP_SECRET`,
+            `${upper}_BASE_URL`,
+            `${upper}_ORG`,
+            `${upper}_TENANT`,
+          ];
 
-          if (!appId || !appSecret) {
+          const missing = need.filter(k => !(k in map) || map[k] === undefined || map[k] === null || String(map[k]).length === 0);
+          if (missing.length) {
             const pref = `${upper}_`;
             const candidates = Object.keys(map).filter(k => k.startsWith(pref)).join(', ');
             core.info(`Found keys with prefix '${pref}': ${candidates || '(none)'}`);
-            core.setFailed(`Missing keys '${idKey}' or '${secretKey}' in secret '${process.env.SECRET_NAME}'.`);
+            core.setFailed(`Missing required keys in secret '${process.env.SECRET_NAME}': ${missing.join(', ')}`);
             return;
           }
 
-          core.setSecret(String(appId));
-          core.setSecret(String(appSecret));
-          core.exportVariable('APP_ID', String(appId));
-          core.exportVariable('APP_SECRET', String(appSecret));
+          const appId = String(map[`${upper}_APP_ID`]);
+          const appSecret = String(map[`${upper}_APP_SECRET`]);
+          let base = String(map[`${upper}_BASE_URL`]);
+          let org = String(map[`${upper}_ORG`]);
+          let tenant = String(map[`${upper}_TENANT`]);
+
+          // Mask secrets
+          core.setSecret(appId);
+          core.setSecret(appSecret);
+
+          // Normalize URL pieces
+          const stripTrail = s => s.replace(/\/+$/,'');
+          const stripEnds  = s => s.replace(/^\/+|\/+$/g,'');
+          base   = stripTrail(base);
+          org    = stripEnds(org);
+          tenant = stripEnds(tenant);
+
+          // Compose FULL_URL; encode path segments (org/tenant)
+          const full = `${base}/${encodeURIComponent(org)}/${encodeURIComponent(tenant)}/odata_`;
+
+          // Export
+          core.exportVariable('APP_ID', appId);
+          core.exportVariable('APP_SECRET', appSecret);
+          core.exportVariable('BASE_URL', base);
+          core.exportVariable('FULL_URL', full);
