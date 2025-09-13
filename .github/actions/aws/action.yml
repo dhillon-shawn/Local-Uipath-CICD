@@ -79,21 +79,16 @@ runs:
               body: params.toString()
             });
 
-            const statusLine = `HTTP ${res.status} ${res.statusText}`;
-            const bodyText = await res.text();
-
-            core.info(`res: ${res}`)
-            core.info(`body: ${bodyText}`)
-
+            const response = await res.text();
 
             let data;
-            try { data = JSON.parse(bodyText); } catch { data = { raw: bodyText }; }
+            data = JSON.parse(response);
 
             core.info(`Auth response body: ${JSON.stringify(data, null, 2)}`);
 
             // Fail if status code not in 200s
             if (!res.ok) {
-              core.setFailed(`Token request failed: ${statusLine}`);
+              core.setFailed(`Token request failed with status: ${res.status} - ${res.statusText}`);
               return;
             }
 
