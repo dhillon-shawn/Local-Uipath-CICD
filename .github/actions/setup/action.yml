@@ -1,0 +1,146 @@
+name: Pipeline Setup (Parse+Set)
+description: Parse and sets values to be used by pipeline
+
+inputs:
+      target_env:
+        required: true
+        description: ""
+      source_ref:
+        required: true
+        description: ""
+      vars:
+        required: true
+        description: ""
+
+outputs:
+      pid:
+        description: ""
+        value:        ${{ steps.pid.outputs.PID }}
+      ptype:
+        description: ""
+        value:    ${{ steps.ptype.outputs.ptype }}
+
+      email:
+        description: ""
+        value:        ${{ steps.author.outputs.EMAIL }}
+
+      publishable:
+        description: ""
+        value:        ${{ steps.tests.outputs.PUBLISHABLE }}
+
+      pr_number:
+        description: ""
+        value:           ${{ steps.pr.outputs.PR_NUMBER }}
+      pr_action:
+        description: ""
+        value:            ${{ steps.pr.outputs.PR_ACTION }}
+      migrate:
+        description: ""
+        value:             ${{ steps.pr.outputs.MIGRATE }}
+
+
+      TARGET_OR_URL:
+        description: ""
+        value:      ${{ steps.or.outputs.TARGET_OR_URL }}
+
+
+      SOURCE_OR_URL:
+        description: ""
+        value:     ${{ steps.or.outputs.SOURCE_OR_URL }}
+
+runs:
+  using: composite
+  steps:
+
+
+      - name: Commit author email
+        id: author
+        shell: bash
+        run: |
+          set -euo pipefail
+          EMAIL="$(git log -n 10 --pretty='%ae' \
+          | grep -viE '(^action@github\.com$)|(\[bot\]@users\.noreply\.github\.com$)|(@users\.noreply\.github\.com$)' \
+          | head -n1)"
+          echo "EMAIL=$EMAIL" >> "$GITHUB_OUTPUT"
+          echo "Email: $EMAIL"
+          
+          
+
+      - name: Project Id (package id)
+        id: pid
+        shell: bash
+        run: |
+          set -euo pipefail
+          PID=$(jq -r '.name' ./project.json)
+          echo "PID=$PID" >> "$GITHUB_OUTPUT"
+          echo "Process ID: $PID"
+
+      - name: Parse project output type from designOptions
+        shell: bash
+        id: ptype
+        run: |
+          ptype=$(jq -r '.designOptions.outputType' project.json)
+          echo "ptype=$ptype" >> $GITHUB_OUTPUT
+          echo "Output type: $ptype"
+
+
+      - name: Publishable test cases?
+        id: tests
+        shell: bash
+        run: |
+          if jq -e '.designOptions.fileInfoCollection' project.json >/dev/null 2>&1; then
+            valid_tests="$(jq '[.designOptions.fileInfoCollection[] | select(.editingStatus=="Publishable")] | length' project.json)"
+          else
+            valid_tests="0"
+          fi
+          if [ "$valid_tests" -gt 0 ]; then
+            echo "PUBLISHABLE=true"  >> "$GITHUB_OUTPUT"
+            echo "Publishable Test Cases Detected ✅"
+          else
+            echo "PUBLISHABLE=false" >> "$GITHUB_OUTPUT"
+            echo "No Publishable Test Cases Detected ❌"
+          fi
+
+      - name: PR context + migration gate
+        id: pr
+        shell: bash
+        run: |
+          PR_NUM="${{ github.event.pull_request.number || '' }}"
+          PR_ACT="${{ github.event.action || '' }}"
+          echo "PR_NUMBER=$PR_NUM" >> "$GITHUB_OUTPUT"
+          echo "PR_ACTION=$PR_ACT" >> "$GITHUB_OUTPUT"
+
+          # Migrate Test: on PR opened (first promote Dev -> Test)
+          # Migrate Prod: on push (after approved)
+          MIGRATE="false"
+          if [ "${{ inputs.target_env }}" = "test" ] && [ "${{ github.event_name }}" = "pull_request" ] && [ "$PR_ACT" = "opened" ]; then
+            MIGRATE="true"
+          elif [ "${{ inputs.target_env }}" = "prod" ] && [ "${{ github.event_name }}" = "push" ]; then
+            MIGRATE="true"
+          fi
+          echo "MIGRATE=$MIGRATE" >> "$GITHUB_OUTPUT"
+          echo "Promotion: $MIGRATE"
+          echo "PR#: $PR_NUM"
+          echo "PR ACTION: $PR_ACT"
+
+      - name: Parse non-UiPath libs
+        shell: bash
+        id: deps
+        run: |
+              jq -r '
+                .dependencies
+                | to_entries
+                | map(select(.key | startswith("UiPath.") | not))
+                | map("\(.key):\(.value | capture("(?<ver>[0-9]+(\\.[0-9]+)+)").ver)")
+                | .[]
+              ' project.json > libs.txt
+
+              echo "Dependencies found:"
+              cat libs.txt
+
+      - name: Construct Orchestrator URLS
+        shell: bash
+        id: or
+        run: |
+             echo "TARGET_OR_URL=${{ fromJSON(inputs.vars).TARGET_BASE_URL }}/${{ fromJSON(inputs.vars).TARGET_ORG }}/${{ fromJSON(inputs.vars).TARGET_TENANT }}/orchestrator_" >> "$GITHUB_OUTPUT"
+             echo "SOURCE_OR_URL=${{ fromJSON(inputs.vars).SOURCE_BASE_URL }}/${{ fromJSON(inputs.vars).SOURCE_ORG }}/${{ fromJSON(inputs.vars).SOURCE_TENANT }}/orchestrator_" >> "$GITHUB_OUTPUT"

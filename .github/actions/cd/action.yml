@@ -1,0 +1,83 @@
+name: CD
+description: Continuos Deployment
+
+inputs:
+  FOLDER_NAME: { required: true, description: "" }
+  fid: { required: true, description: "" }
+  version: { required: true, description: "" }
+  pid: { required: true, description: "" }
+  or_url: { required: true, description: "" }
+  token: { required: true, description: "" }
+  target_env: { required: true, description: "" }
+
+runs:
+  using: composite
+  steps:
+    - name: Publishing
+      shell: bash
+      run: |
+        PACKAGE_PATH=$(find output -name '*.nupkg' | head -n 1)
+        echo "Package Path: $PACKAGE_PATH"
+        echo "Publishing Package to Tenant Feed "
+
+        response=$(curl --fail --location \
+          --header "Authorization: Bearer ${{ inputs.token }}" \
+          --form "file=@$PACKAGE_PATH" \
+          "${{ inputs.or_url }}/odata/Processes/UiPath.Server.Configuration.OData.UploadPackage()"
+        )
+        echo "Response: $response"
+    - name: Check Release
+      shell: bash
+      run: |
+        echo "Checking Release"
+        response=$(curl --fail --location \
+          --header "Authorization: Bearer ${{inputs.token}}" \
+          --header "X-UIPATH-OrganizationUnitId: ${{ inputs.fid }}" \
+          "${{ inputs.or_url }}/odata/Releases?%24select=Id%2CProcessKey%2CName%2CProcessType&%24filter=ProcessKey%20eq%20%27${{ inputs.pid }}%27"
+        )
+        echo "Release Response: $response"     
+        id_found=$(echo "$response" | jq -r '.value[0].Id // empty')
+        echo "id_found=$id_found" >> "$GITHUB_ENV"
+        if [ -n "$id_found" ]; then
+          echo "Release Id found"
+          echo "CREATE=false" >> "$GITHUB_ENV"
+        else
+          echo "Release Id NOT found"
+          echo "CREATE=true" >> "$GITHUB_ENV"
+        fi
+
+    - name: Upgrade Release
+      shell: bash
+      if: env.CREATE != 'true'
+      run: |
+        echo "Upgrading Release "
+        response=$(curl --request POST  --fail --location \
+          --header "Authorization: Bearer ${{ inputs.token }}" \
+          --header "X-UIPATH-OrganizationUnitId: ${{ inputs.fid }}" \
+          --header "Content-Type: application/json" \
+          --header "Content-Length: 0" \
+          "${{ inputs.or_url }}/odata/Releases(${{env.id_found}})/UiPath.Server.Configuration.OData.UpdateToLatestPackageVersion"
+        )
+        echo "Response: $response"
+
+    - name: Create Release
+      shell: bash
+      if: env.CREATE == 'true'
+      run: |
+        echo "Creating Release "
+        response=$(curl -fsS -X POST \
+          -H "Authorization: Bearer ${{ inputs.token }}" \
+          --header "X-UIPATH-OrganizationUnitId: ${{ inputs.fid }}" \
+          -H "Content-Type: application/json" \
+          --data @- \
+          "${{ inputs.or_url }}/odata/Releases" <<'JSON'
+        {
+          "Name": "${{ inputs.pid }}",
+          "ProcessKey": "${{ inputs.pid }}",
+          "ProcessVersion": "${{ inputs.version }}",
+          "Description": "Repo https://github.com/${{ github.repository_owner }}/${{ github.repository }}"
+        }
+        JSON
+        )
+
+        echo "Response: $response"

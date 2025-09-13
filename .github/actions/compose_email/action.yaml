@@ -1,0 +1,160 @@
+name: "Compose final email (status + body + subject)"
+description: "Picks body (test/analysis), computes overall from cd_status, renders status table and final HTML."
+inputs:
+  publishable:
+    description: "String 'true' or 'false'. Only relevant for test."
+    required: false
+  target_env:
+    description: "Target environment: 'test' or 'dev'."
+    required: false
+  test_html_path:
+    description: "Path to TestResults.html if rendered (formatter output)."
+    required: false
+    default: "./email/TestResults.html"
+  analysis_html_path:
+    description: "Path to analysis-report.html if rendered (formatter output)."
+    required: false
+    default: "./email/analysis-report.html"
+
+  # deployment table inputs (exactly what you said you have)
+  source_ref:
+    description: "Source git ref / SHA."
+    required: false
+  version:
+    description: "Version label."
+    required: false
+  folder_name:
+    description: "Folder display name."
+    required: false
+  project_id:
+    description: "Project identifier."
+    required: false
+  migrate:
+    description: "Migration flag text."
+    required: false
+  cd_status:
+    description: "Deployment job result (e.g., success|failure|cancelled)."
+    required: false
+
+outputs:
+  html:
+    description: "Composed full HTML email."
+    value: ${{ steps.make.outputs.html }}
+  subject:
+    description: "Computed subject."
+    value: ${{ steps.make.outputs.subject }}
+  attach_path:
+    description: "Path to the chosen (or fallback) body file."
+    value: ${{ steps.make.outputs.attach_path }}
+  overall:
+    description: "Computed overall: success or failure (from cd_status)."
+    value: ${{ steps.make.outputs.overall }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: make
+      uses: actions/github-script@v7
+      env:
+        PUBLISHABLE:        ${{ inputs.publishable }}
+        TARGET_ENV:         ${{ inputs.target_env }}
+        TEST_PATH_IN:       ${{ inputs.test_html_path }}
+        ANALYSIS_PATH_IN:   ${{ inputs.analysis_html_path }}
+        SOURCE_REF:         ${{ inputs.source_ref }}
+        VERSION:            ${{ inputs.version }}
+        FOLDER_NAME:        ${{ inputs.folder_name }}
+        PROJECT_ID:         ${{ inputs.project_id }}
+        MIGRATE:            ${{ inputs.migrate }}
+        CD_STATUS:          ${{ inputs.cd_status }}
+      with:
+        script: |
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const okFile = p => { try { return p && fs.statSync(p).size > 0; } catch { return false; } };
+
+          const env = (process.env.TARGET_ENV || '').toLowerCase();
+          const publishable = (process.env.PUBLISHABLE || '').toLowerCase() === 'true';
+
+          // Choose body (with fallback HTML if missing)
+          const defaultTest = './email/TestResults.html';
+          const defaultAnalysis = './email/analysis-report.html';
+          const testPathIn = process.env.TEST_PATH_IN || defaultTest;
+          const analysisPathIn = process.env.ANALYSIS_PATH_IN || defaultAnalysis;
+
+          let bodyPath = '';
+          let emptyMsg = '';
+          if (env === 'test' && publishable) {
+            bodyPath = okFile(testPathIn) ? testPathIn : '';
+            if (!bodyPath) emptyMsg = '<p>No test results found.</p>';
+          } else if (env === 'dev') {
+            bodyPath = okFile(analysisPathIn) ? analysisPathIn : '';
+            if (!bodyPath) emptyMsg = '<p>No analysis results found.</p>';
+          } else {
+            emptyMsg = '<p>No content for this environment.</p>';
+          }
+
+          if (!bodyPath) {
+            const fallback = env === 'test' ? defaultTest : defaultAnalysis;
+            fs.mkdirSync(path.dirname(fallback), { recursive: true });
+            fs.writeFileSync(fallback, `<!DOCTYPE html><html><body>${emptyMsg}</body></html>`);
+            bodyPath = fallback;
+          }
+
+          // Overall from cd_status
+          const cd = (process.env.CD_STATUS || '').toLowerCase();
+          const overall = cd === 'success' ? 'success' : 'failure';
+          const ok = overall === 'success';
+          const ICON = ok ? '✅' : '❌';
+          const COLOR = ok ? '#28a745' : '#dc3545';
+          const WORD = ok ? 'Successful' : 'Failed';
+
+          // Subject
+          const repo = process.env.GITHUB_REPOSITORY;
+          const run  = process.env.GITHUB_RUN_NUMBER;
+          const subject = (env === 'test' ? 'UiPath Test Report' : env === 'dev' ? 'UiPath Analysis Report' : 'UiPath Report')
+                          + ` - ${repo} #${run}`;
+
+          // Status table (only your fields + repo/run link)
+          const server = process.env.GITHUB_SERVER_URL;
+          const runId  = process.env.GITHUB_RUN_ID;
+
+          const row = (label,val)=> val ? `<tr><td style="padding:8px;border:1px solid #ddd;"><strong>${label}</strong></td><td style="padding:8px;border:1px solid #ddd;">${val}</td></tr>` : '';
+
+          const statusHtml =
+          `<h2 style="color:${COLOR};margin:0 0 12px 0;">${ICON} Deployment ${WORD} — ${process.env.TARGET_ENV}</h2>
+          <table style="border-collapse:collapse;width:100%;margin-bottom:16px;">
+            ${row('Repository:', repo)}
+            ${row('Run:',        `${server}/${repo}/actions/runs/${runId}`)}
+            ${row('Target env:', process.env.TARGET_ENV)}
+            ${row('Source ref:', process.env.SOURCE_REF)}
+            ${row('Version:',    process.env.VERSION)}
+            ${row('Folder:',     process.env.FOLDER_NAME)}
+            ${row('Project ID:', process.env.PROJECT_ID)}
+            ${row('Migrate:',    process.env.MIGRATE)}
+            ${row('CD Status:',  process.env.CD_STATUS)}
+            ${row('Overall:',    overall)}
+          </table>`;
+
+          // Compose final HTML
+          const bodyHtml = fs.readFileSync(bodyPath,'utf8');
+          const finalHtml =
+          `<!DOCTYPE html>
+          <html>
+          <body style="font-family:Arial,Helvetica,sans-serif;margin:20px;">
+            ${statusHtml}
+            <hr style="margin:16px 0;border:none;border-top:1px solid #ddd;" />
+            ${bodyHtml}
+            <p style="margin-top:20px;">
+              <a href="${server}/${repo}/actions/runs/${runId}"
+                style="background-color:#007acc;color:white;padding:10px 15px;text-decoration:none;border-radius:5px;">
+                View Workflow Details
+              </a>
+            </p>
+          </body>
+          </html>`;
+
+          core.setOutput('html', finalHtml);
+          core.setOutput('subject', subject);
+          core.setOutput('attach_path', bodyPath);
+          core.setOutput('overall', overall);

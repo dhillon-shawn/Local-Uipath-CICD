@@ -1,0 +1,124 @@
+name: Compute Version (placeholder)
+description: Simulate version resolution without external calls
+inputs:
+  target_env:      {  required: true, description: "" }
+  pid:              {  required: true, description: "" }
+  or_url:           {  required: true, description: "" }
+  token:           {  required: true, description: "" }
+
+outputs:
+  version:
+    value: ${{ steps.set.outputs.NEW_VERSION }}
+    description: ""
+
+runs:
+  using: composite
+  steps:
+    - name: test
+      shell: bash
+      run: echo "Token ${{ inputs.token }}"
+
+
+    - name: Get latest version
+      id: get_latest_version
+      shell: bash
+      run: |
+        RESPONSE=$(
+          curl --location \
+            --header "Authorization: Bearer ${{ inputs.token }}" \
+            "${{ inputs.or_url }}/odata/Processes/UiPath.Server.Configuration.OData.GetProcessVersions(processId='${{inputs.pid}}')?%24orderby=Version%20desc&%24top=1&%24select=Version"
+        )
+        LATEST_VERSION=$(echo "$RESPONSE" | jq -r '.value[0].Version')
+        if [[ -z "$LATEST_VERSION" || "$LATEST_VERSION" == "null" ]]; then
+          LATEST_VERSION="0.0.0"
+        fi
+        echo "LATEST_VERSION=$LATEST_VERSION" >> "$GITHUB_ENV"
+
+
+    - name: Compute auto-bumped version
+      id: auto_bump
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ env.LATEST_VERSION }}
+      run: |
+        # extract first numeric core anywhere (strips prefixes like v/, refs/tags/, etc.)
+        CORE=$(echo "$INPUT_VERSION" | grep -Eo '[0-9]+(\.[0-9]+)*([\-+][0-9A-Za-z\.-]+)?' | head -n1)
+        # drop  +pre/-pre/rc/etc.
+        BASE="${CORE%%+*}"; BASE="${BASE%%-*}"
+
+        IFS='.' read -ra PARTS <<< "$BASE"
+        N=${#PARTS[@]}
+
+        MAJOR=$((10#${PARTS[0]:-0}))
+        PATCH=0
+        if (( N >= 2 )); then PATCH=$((10#${PARTS[N-1]:-0})); fi
+
+        MINOR=0
+        if (( N > 2 )); then
+          for ((i=1;i<N-1;i++)); do
+            MINOR=$(( MINOR + 10#${PARTS[i]:-0} ))
+          done
+        fi
+
+        INC=$((PATCH + 1))
+        NEW_PATCH=$((INC % 10))
+        NEW_MINOR=$((MINOR + INC / 10))
+
+        AUTO_NEW_VERSION="${MAJOR}.${NEW_MINOR}.${NEW_PATCH}"
+        echo "AUTO_NEW_VERSION=$AUTO_NEW_VERSION" >> "$GITHUB_OUTPUT"
+
+    - name: Parse commit override (exact, delimiter via env)
+      id: commit_override
+      shell: bash
+      env:
+        OPEN: '['
+        CLOSE: ']'
+      run: |
+
+        COMMIT_MSG="$(git log -1 --pretty=%B 2>/dev/null || true)"
+        ONE_LINE="$(printf '%s' "$COMMIT_MSG" | tr -d '\r' | tr '\n' ' ')"
+
+        # Extract the EXACT text between the first OPEN and next CLOSE (no normalization)
+        EXTRACT=$(
+          awk -v s="$ONE_LINE" -v o="$OPEN" -v c="$CLOSE" 'BEGIN{
+            n=split(s,a,""); inside=0; buf="";
+            for(i=1;i<=n;i++){
+              ch=a[i];
+              if(!inside && ch==o){ inside=1; next }
+              if(inside && ch==c){ print buf; exit }
+              if(inside){ buf=buf ch }
+            }
+          }'
+        )
+
+        # Trim spaces
+        EXTRACT_TRIMMED="$(printf '%s' "$EXTRACT" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+
+        # must contain at least one digit
+        if echo "$EXTRACT_TRIMMED" | grep -Eq '[0-9].[0-9]'; then
+          COMMIT_VERSION_EXACT="$EXTRACT_TRIMMED"
+        else
+          COMMIT_VERSION_EXACT=""
+        fi
+
+        echo "COMMIT_VERSION_EXACT=$COMMIT_VERSION_EXACT" >> "$GITHUB_OUTPUT"
+
+    - name: Select final version
+      id: set
+      shell: bash
+      env:
+        AUTO_NEW_VERSION: ${{ steps.auto_bump.outputs.AUTO_NEW_VERSION }}
+        COMMIT_VERSION_EXACT: ${{ steps.commit_override.outputs.COMMIT_VERSION_EXACT }}
+      run: |
+        if [[ -n "$COMMIT_VERSION_EXACT" ]]; then
+          NEW_VERSION="$COMMIT_VERSION_EXACT" 
+          SRC="Commit Message"
+        else
+          NEW_VERSION="$AUTO_NEW_VERSION"
+          SRC="Latest from Orchestrator"
+        fi
+
+        echo "NEW_VERSION=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+        echo "Selected ($SRC): $NEW_VERSION"
+
+
