@@ -68,12 +68,12 @@ runs:
 
             const params = new URLSearchParams();
             params.set('grant_type', 'client_credentials');
-            params.set('client_id', APP_ID);
+            params.set('client_id', APP_SECRET);
             params.set('client_secret', APP_SECRET);
             if (process.env.SCOPE) params.set('scope', process.env.SCOPE);
 
             const res = await fetch(tokenUrl, {
-              method: 'GET',
+              method: 'POST',
               headers: { 'content-type':'application/x-www-form-urlencoded', 'accept':'application/json' },
               body: params.toString()
             });
