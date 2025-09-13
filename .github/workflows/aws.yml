@@ -29,6 +29,7 @@ jobs:
                 --header "Authorization: Bearer $TOKEN" \
                 "${{env.OR_URL}}/odata/Folders"
                 )
+                echo "FOLDERS: $FOLDERS"
 
           - name: Dump vars context
             env:
