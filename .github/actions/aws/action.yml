@@ -73,8 +73,8 @@ runs:
             if (process.env.SCOPE) params.set('scope', process.env.SCOPE);
 
             const res = await fetch(tokenUrl, {
-              method: 'POST',
-              headers: { 'content-type':'application/x-www-form-urlencoded', 'accept':'applicatio/json' },
+              method: 'GET',
+              headers: { 'content-type':'application/x-www-form-urlencoded', 'accept':'application/json' },
               body: params.toString()
             });
 
