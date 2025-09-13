@@ -17,7 +17,7 @@ jobs:
 
 
           - name: get dev
-            uses: ./.github/actions/aws
+            uses: ./.github/actions/auth
             with:
                 env: "DEV"
                 role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}

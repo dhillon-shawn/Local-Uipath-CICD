@@ -1,8 +1,8 @@
-name: "AWS env pair → APP_ID/APP_SECRET/FULL_URL (+ token)"
-description: "Assume role, fetch one JSON secret, map {ENV}_*, build FULL_URL, fetch token at BASE_URL/identity"
+name: "Auth with Uipath Orchestrator"
+description: "Assume role, fetch secret, map credentials, fetch token"
 inputs:
   env:
-    description: "Environment (e.g. DEV|STAGE|PROD)"
+    description: "Environment to map/auth with"
     required: true
   role_arn:
     description: "AWS role to assume (OIDC)"
@@ -11,7 +11,7 @@ inputs:
     description: "AWS region"
     required: true
   secret_id:
-    description: "Secret name/ARN containing {ENV}_APP_ID/_APP_SECRET/_BASE_URL/_ORG/_TENANT"
+    description: "Secret ARN"
     required: true
 
 runs:
