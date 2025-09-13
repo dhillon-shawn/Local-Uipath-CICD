@@ -379,11 +379,7 @@ jobs:
         name:
           [
             EMAIL_USERNAME,
-            EMAIL_PASSWORD,
-            STAGING_APP_ID,
-            STAGING_APP_SECRET,
-            TEST_APP_ID,
-            TEST_APP_SECRET,
+            EMAIL_PASSWORD
           ]
 
     steps:
