@@ -10,7 +10,7 @@ permissions:
 
 jobs:
     Test:
-        runs-on: windows-latest
+        runs-on: ubuntu-latest
         steps:
 
           - uses: actions/checkout@v4
@@ -23,6 +23,12 @@ jobs:
                 secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
 
 
+          - name: Folder
+            run: |
+                FOLDERS=$(curl --location \
+                --header "Authorization: Bearer $TOKEN" \
+                "${{env.OR_URL}}/odata/Folders"
+                )
 
           - name: Dump vars context
             env:

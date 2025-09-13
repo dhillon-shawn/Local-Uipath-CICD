@@ -38,17 +38,18 @@ runs:
       uses: actions/github-script@v7
       env:
         TARGET_ENV: ${{ inputs.env }}
+        SCOPES: "OR.Assets OR.BackgroundTasks  OR.Execution  OR.Folders  OR.Jobs  OR.License OR.Machines OR.Queues OR.Robots  OR.Settings OR.TestDataQueues OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users"
       with:
         script: |
-          // assume JSON is valid and keys exist
-          const U = process.env.TARGET_ENV.toUpperCase();
-          const s = JSON.parse(process.env.UIPATH);
+          const ENV = process.env.TARGET_ENV.toUpperCase();
+          const SCOPE = process.env.SCOPES;
+          const PARSE = JSON.parse(process.env.UIPATH);
 
-          const APP_ID     = String(s[`${U}_APP_ID`]);
-          const APP_SECRET = String(s[`${U}_APP_SECRET`]);
-          const BASE_URL   = String(s[`${U}_BASE_URL`]);
-          const ORG        = String(s[`${U}_ORG`]);
-          const TENANT     = String(s[`${U}_TENANT`]);
+          const APP_ID     = String(PARSE[`${ENV}_APP_ID`]);
+          const APP_SECRET = String(PARSE[`${ENV}_APP_SECRET`]);
+          const BASE_URL   = String(PARSE[`${ENV}_BASE_URL`]);
+          const ORG        = String(PARSE[`${ENV}_ORG`]);
+          const TENANT     = String(PARSE[`${ENV}_TENANT`]);
 
           core.setSecret(APP_ID);
           core.setSecret(APP_SECRET);
@@ -64,6 +65,7 @@ runs:
             grant_type: 'client_credentials',
             client_id: APP_ID,
             client_secret: APP_SECRET
+            scope: ${SCOPE}
           }).toString();
 
           const res = await fetch(tokenUrl, {
@@ -75,5 +77,5 @@ runs:
           const data = await res.json();
           const token = data.access_token || data.token || '';
           core.setSecret(token);
-          core.exportVariable('ACCESS_TOKEN', token);
+          core.exportVariable('TOKEN', token);
           core.setOutput('token', token);
