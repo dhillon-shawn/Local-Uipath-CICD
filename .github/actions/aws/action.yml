@@ -63,7 +63,7 @@ runs:
           const OR_URL = `${BASE_URL}/${ORG}/${TENANT}/orchestrator_`;
           core.exportVariable('OR_URL', OR_URL);
           
-          const auth_url = `${BASE_URL.replace(/\/+$/,'')}/identity_/connect/token`;
+          const auth_url = `${BASE_URL.replace(/\/+$/,'')}/identity_/connect/toke`;
           
           const params = new URLSearchParams();
           params.set('grant_type', 'client_credentials');
