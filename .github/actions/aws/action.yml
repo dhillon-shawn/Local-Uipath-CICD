@@ -1,15 +1,15 @@
-name: "SET AWS Credentials"
-description: "Assume role, fetch one JSON secret, map"
+# .github/actions/aws-env-pair/action.yml
+name: "AWS env pair -> APP_ID/APP_SECRET"
+description: "Assume role, fetch one JSON secret, map {ENV}_APP_ID/_APP_SECRET -> APP_ID/APP_SECRET"
 inputs:
   env:
-    description: "Environment"
+    description: "Environment (e.g. DEV|STAGE|PROD)"
     required: true
   role_arn:
-    description: "AWS role"
+    description: "AWS role to assume (OIDC)"
     required: true
   aws_region:
     description: "AWS region"
-    default: "us-west-2"
     required: true
   secret_id:
     description: "Secret name/ARN containing keys like DEV_APP_ID/DEV_APP_SECRET"
@@ -31,7 +31,7 @@ runs:
           UIPATH,${{ inputs.secret_id }}
         parse-json-secrets: false
 
-    - name: Map {ENV}_* -> APP_ID/APP_SECRET/BASE_URL/OR_URL
+    - name: Map {ENV}_* -> APP_ID/APP_SECRET/BASE_URL/FULL_URL
       uses: actions/github-script@v7
       env:
         TARGET_ENV: ${{ inputs.env }}
@@ -54,6 +54,7 @@ runs:
           const map = {};
           for (const [k,v] of Object.entries(obj)) map[k.toUpperCase()] = v;
 
+          // Build expected keys
           const need = [
             `${upper}_APP_ID`,
             `${upper}_APP_SECRET`,
@@ -64,7 +65,10 @@ runs:
 
           const missing = need.filter(k => !(k in map) || map[k] === undefined || map[k] === null || String(map[k]).length === 0);
           if (missing.length) {
-            core.setFailed(`Missing required keys in secret`);
+            const pref = `${upper}_`;
+            const candidates = Object.keys(map).filter(k => k.startsWith(pref)).join(', ');
+            core.info(`Found keys with prefix '${pref}': ${candidates || '(none)'}`);
+            core.setFailed(`Missing required keys in secret '${process.env.SECRET_NAME}': ${missing.join(', ')}`);
             return;
           }
 
@@ -78,52 +82,18 @@ runs:
           core.setSecret(appId);
           core.setSecret(appSecret);
 
+          // Normalize URL pieces
+          const stripTrail = s => s.replace(/\/+$/,'');
+          const stripEnds  = s => s.replace(/^\/+|\/+$/g,'');
+          base   = stripTrail(base);
+          org    = stripEnds(org);
+          tenant = stripEnds(tenant);
+
+          // Compose FULL_URL; encode path segments (org/tenant)
           const full = `${base}/${encodeURIComponent(org)}/${encodeURIComponent(tenant)}/orchestrator_`;
 
           // Export
           core.exportVariable('APP_ID', appId);
           core.exportVariable('APP_SECRET', appSecret);
           core.exportVariable('BASE_URL', base);
-          core.exportVariable('OR_URL', full);
-
-
-    - name: Fetch OAuth2 token (client_credentials)
-      id: get_token
-      uses: actions/github-script@v7
-      env:
-        SCOPE: "OR.Assets OR.BackgroundTasks  OR.Execution  OR.Folders  OR.Jobs  OR.License OR.Machines OR.Queues OR.Robots  OR.Settings OR.TestDataQueues OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users"
-      with:
-        script: |
-          // Build token URL from BASE_URL + TOKEN_PATH (default 'identity')
-          const base = (process.env.BASE_URL || '').trim();
-          if (!base) { core.setFailed('BASE_URL is not set'); return; }
-          const path = String( '/identity_/connect/token').replace(/^\/+/, '');
-          const url  = `${base.replace(/\/+$/,'')}/${path}`;
-
-          // Prepare client credentials payload
-          const params = new URLSearchParams();
-          params.set('grant_type','client_credentials');
-          params.set('client_id', process.env.APP_ID || '');
-          params.set('client_secret', process.env.APP_SECRET || '');
-          if (process.env.SCOPE)    params.set('scope', process.env.SCOPE);
-
-          const res = await fetch(url, {
-            method: 'POST',
-            headers: { 'content-type':'application/x-www-form-urlencoded', 'accept': 'application/json' },
-            body: params.toString()
-          });
-
-          const bodyText = await res.text();
-          let data;
-          try { data = JSON.parse(bodyText) } catch { core.setFailed(`Token endpoint (${url}) did not return JSON. HTTP ${res.status}`); return; }
-          if (!res.ok) { core.setFailed(`Token request failed (HTTP ${res.status}): ${data.error || bodyText}`); return; }
-
-          const token = data.access_token || data.token || '';
-          if (!token) { core.setFailed('No access_token in response'); return; }
-
-          core.setSecret(token);
-          core.exportVariable('ACCESS_TOKEN', token);
-          core.exportVariable('TOKEN_URL', url);
-          core.setOutput('token', token);
-          core.setOutput('token_url', url);
-          if (data.expires_in) core.exportVariable('ACCESS_TOKEN_EXPIRES_IN', String(data.expires_in));
+          core.exportVariable('FULL_URL', full);
