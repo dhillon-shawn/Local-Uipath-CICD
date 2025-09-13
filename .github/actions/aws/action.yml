@@ -89,9 +89,7 @@ runs:
             let data;
             try { data = JSON.parse(bodyText); } catch { data = { raw: bodyText }; }
 
-            // Print sanitized body
-            const sanitized = { ...data };
-            core.info(`Auth response body (sanitized): ${JSON.stringify(sanitized, null, 2)}`);
+            core.info(`Auth response body: ${JSON.stringify(data, null, 2)}`);
 
             // Fail on non-2xx
             if (!res.ok) {
