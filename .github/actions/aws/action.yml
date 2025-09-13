@@ -27,7 +27,7 @@ runs:
       uses: aws-actions/aws-secretsmanager-get-secrets@v2
       with:
         secret-ids: |
-          APP_SECRETS,${{ inputs.secret_id }}
+          UIPATH,${{ inputs.secret_id }}
         parse-json-secrets: false
 
     - name: Map {ENV}_APP_ID/_APP_SECRET -> APP_ID/APP_SECRET
@@ -38,8 +38,8 @@ runs:
           if (!envName) core.setFailed('inputs.env is required');
 
           const upper = envName.toUpperCase();
-          const raw = process.env.APP_SECRETS;
-          if (!raw) core.setFailed('APP_SECRETS env var is empty; did we fetch the secret?');
+          const raw = process.env.UIPATH;
+          if (!raw) core.setFailed('UIPATH env var is empty; did we fetch the secret?');
 
           let obj;
           try { obj = JSON.parse(raw); }
