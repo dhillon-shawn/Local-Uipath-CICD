@@ -15,6 +15,9 @@ on:
         description: "New Projects - FullyQualified Folder Name - Ex: Grandma/Mom/Daughter (creates Daughter SubFolder) or Orphan (Creates Standalone Folder)"
         default: ''
         required: false
+permissions:
+  write-all
+
 env:
   scope: "OR.Folders OR.BackgroundTasks OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Settings.Read OR.Robots.Read OR.Machines OR.Execution OR.Assets OR.Users.Read OR.Jobs OR.Monitoring OR.Robots"
 
@@ -191,6 +194,7 @@ jobs:
               -d '{"allow_auto_merge":true}'
 
       - name: Auth
+        if: inputs.folder_name == ''
         uses: ./.github/actions/auth
         with:
                 env: "DEV"
