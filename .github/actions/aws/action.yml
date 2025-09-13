@@ -80,27 +80,26 @@ runs:
             });
 
             const statusLine = `HTTP ${res.status} ${res.statusText}`;
-            const ct = res.headers.get('content-type') || '';
             const bodyText = await res.text();
 
-            core.info(`Auth response status: ${statusLine}`);
-            core.info(`Content-Type: ${ct}`);
+            core.info(`res: ${res}`)
+            core.info(`body: ${bodyText}`)
+
 
             let data;
             try { data = JSON.parse(bodyText); } catch { data = { raw: bodyText }; }
 
             core.info(`Auth response body: ${JSON.stringify(data, null, 2)}`);
 
-            // Fail on non-2xx
+            // Fail if status code not in 200s
             if (!res.ok) {
               core.setFailed(`Token request failed: ${statusLine}`);
               return;
             }
 
-            // Require a token
-            const token = (data && (data.access_token || data.token)) ? String(data.access_token || data.token) : '';
+            const token = (data && (data.access_token)) ? String(data.access_token) : '';
             if (!token) {
-              core.setFailed('Token missing in successful response');
+              core.setFailed('Token missing');
               return;
             }
 
