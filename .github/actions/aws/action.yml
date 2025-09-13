@@ -41,6 +41,8 @@ runs:
         SCOPE: "OR.Assets OR.BackgroundTasks  OR.Execution  OR.Folders  OR.Jobs  OR.License OR.Machines OR.Queues OR.Robots  OR.Settings OR.TestDataQueues OR.TestSetExecutions OR.TestSets OR.TestSetSchedules OR.Users"
       with:
         script: |
+          core.exportVariable('ACTIONS_STEP_DEBUG', 'true');
+          
           const ENV = process.env.TARGET_ENV.toUpperCase();
           const PARSE = JSON.parse(process.env.UIPATH);
 
@@ -58,23 +60,25 @@ runs:
 
           const OR_URL = `${BASE_URL}/${ORG}/${TENANT}/orchestrator_`;
           core.exportVariable('OR_URL', OR_URL);
+          
 
-          const tokenUrl = `${BASE_URL.replace(/\/+$/,'')}/identity_/connect/token`;
-          const body = new URLSearchParams({
-            grant_type: 'client_credentials',
-            client_id: APP_ID,
-            client_secret: APP_SECRET,
-            scope: ${{ env.SCOPE}}
-          }).toString();
+          const params = new URLSearchParams();
+          params.set('grant_type', 'client_credentials');
+          params.set('client_id', APP_ID);
+          params.set('client_secret', APP_SECRET);
+          params.set('scope', process.env.SCOPE);
 
           const res = await fetch(tokenUrl, {
             method: 'POST',
-            headers: { 'content-type': 'application/x-www-form-urlencoded', 'accept': 'application/json' },
-            body
+            headers: { 'content-type':'application/x-www-form-urlencoded', 'accept': 'application/json' },
+            body: params.toString()
           });
 
-          const data = await res.json();
-          const token = data.access_token || data.token || '';
-          core.setSecret(token);
+          const text = await res.text();
+          let data;
+          try { data = JSON.parse(text); } catch { data = { raw: text }; }
+
+          const token = (data && (data.access_token || data.token)) ? String(data.access_token || data.token) : '';
+          if (token) core.setSecret(token);
           core.exportVariable('TOKEN', token);
           core.setOutput('token', token);
