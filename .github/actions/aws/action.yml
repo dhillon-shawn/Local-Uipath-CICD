@@ -1,8 +1,8 @@
 name: "AWS env pair → APP_ID/APP_SECRET/FULL_URL (+ token)"
-description: "Assume role, fetch secret, map credentials, fetch token"
+description: "Assume role, fetch one JSON secret, map {ENV}_*, build FULL_URL, fetch token at BASE_URL/identity"
 inputs:
   env:
-    description: "Environment to auth with"
+    description: "Environment (e.g. DEV|STAGE|PROD)"
     required: true
   role_arn:
     description: "AWS role to assume (OIDC)"
@@ -11,12 +11,9 @@ inputs:
     description: "AWS region"
     required: true
   secret_id:
-    description: "Secret ARN "
+    description: "Secret name/ARN containing {ENV}_APP_ID/_APP_SECRET/_BASE_URL/_ORG/_TENANT"
     required: true
-outputs:
-  token:
-    description: "Access token"
-    value: ${{ steps.token.outputs.token }}
+
 runs:
   using: "composite"
   steps:
@@ -91,6 +88,7 @@ runs:
               return;
             }
 
+            const token = (data && (data.access_token)) ? String(data.access_token) : '';
 
             core.setSecret(token);
             core.exportVariable('TOKEN', token);
