@@ -42,7 +42,6 @@ runs:
       with:
         script: |
           const ENV = process.env.TARGET_ENV.toUpperCase();
-          const SCOPE = process.env.SCOPES;
           const PARSE = JSON.parse(process.env.UIPATH);
 
           const APP_ID     = String(PARSE[`${ENV}_APP_ID`]);
@@ -65,7 +64,7 @@ runs:
             grant_type: 'client_credentials',
             client_id: APP_ID,
             client_secret: APP_SECRET
-            scope: ${SCOPE}
+            scope: $SCOPES
           }).toString();
 
           const res = await fetch(tokenUrl, {
