@@ -27,44 +27,43 @@ runs:
       uses: aws-actions/aws-secretsmanager-get-secrets@v2
       with:
         secret-ids: |
-          ,${{ inputs.secret_id }}
-        parse-json-secrets: true
+          APP_SECRETS,${{ inputs.secret_id }}
+        parse-json-secrets: false
 
-    # Linux/macOS: pick ENV_APP_ID/ENV_APP_SECRET and export as APP_ID/APP_SECRET
-    - name: Map keys (Linux/macOS)
-      if: ${{ runner.os != 'Windows' }}
-      shell: bash
-      run: |
-        ENV_UPPER=$(echo '${{ inputs.env }}' | tr '[:lower:]' '[:upper:]')
-        SRC_ID="${ENV_UPPER}_APP_ID"
-        SRC_SECRET="${ENV_UPPER}_APP_SECRET"
-        ID_VAL="${!SRC_ID}"
-        SECRET_VAL="${!SRC_SECRET}"
-        if [ -z "$ID_VAL" ] || [ -z "$SECRET_VAL" ]; then
-          echo "Missing expected keys '$SRC_ID' or '$SRC_SECRET' in secret '${{ inputs.secret_id }}'." >&2
-          exit 1
-        fi
-        echo "::add-mask::$ID_VAL"
-        echo "::add-mask::$SECRET_VAL"
-        {
-          echo "APP_ID=$ID_VAL"
-          echo "APP_SECRET=$SECRET_VAL"
-        } >> "$GITHUB_ENV"
+    - name: Map {ENV}_APP_ID/_APP_SECRET -> APP_ID/APP_SECRET
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const core = require('@actions/core');
 
-    # Windows: same mapping
-    - name: Map keys (Windows)
-      if: ${{ runner.os == 'Windows' }}
-      shell: pwsh
-      run: |
-        $envUpper = "${{ inputs.env }}".ToUpper()
-        $srcId = "${envUpper}_APP_ID"
-        $srcSecret = "${envUpper}_APP_SECRET"
-        $idVal = $env:$srcId
-        $secretVal = $env:$srcSecret
-        if (-not $idVal -or -not $secretVal) {
-          throw "Missing expected keys '$srcId' or '$srcSecret' in secret '${{ inputs.secret_id }}'."
-        }
-        Write-Output "::add-mask::$idVal"
-        Write-Output "::add-mask::$secretVal"
-        "APP_ID=$idVal"     | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-        "APP_SECRET=$secretVal" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          const envName = core.getInput('env') || '';
+          if (!envName) core.setFailed('inputs.env is required');
+
+          const upper = envName.toUpperCase();
+          const raw = process.env.APP_SECRETS;
+          if (!raw) core.setFailed('APP_SECRETS env var is empty; did we fetch the secret?');
+
+          let obj;
+          try { obj = JSON.parse(raw); }
+          catch (e) { core.setFailed('SecretString is not valid JSON'); }
+
+          const idKey = `${upper}_APP_ID`;
+          const secretKey = `${upper}_APP_SECRET`;
+
+          const appId = obj?.[idKey];
+          const appSecret = obj?.[secretKey];
+
+          if (!appId || !appSecret) {
+            core.setFailed(`Missing keys '${idKey}' or '${secretKey}' in secret '${process.env.INPUT_SECRET_ID || '<<secret>>'}'.`);
+          }
+
+          // Mask in logs and export as job env
+          core.setSecret(appId);
+          core.setSecret(appSecret);
+          core.exportVariable('APP_ID', appId);
+          core.exportVariable('APP_SECRET', appSecret);
+      env:
+        INPUT_SECRET_ID: ${{ inputs.secret_id }}
+      # Pass inputs to github-script via 'with: inputs' (github-script exposes them via core.getInput)
+      with:
+        result-encoding: string
