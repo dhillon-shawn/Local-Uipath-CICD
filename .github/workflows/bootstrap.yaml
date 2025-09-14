@@ -88,7 +88,7 @@ jobs:
 
           git add .github
           if ! git diff --cached --quiet -- .github; then
-            git commit -m "[BOT] update .github on ${default_branch}"
+            git commit -m "update .github on ${default_branch} [skip cicd]"
             if ! git push origin "${default_branch}"; then
               echo "::notice:: push to ${default_branch} blocked (protected?) – continuing."
             fi
@@ -152,7 +152,7 @@ jobs:
 
           # Commit only if .github differs from HEAD
           if ! git diff --quiet HEAD -- .github; then
-            git commit -m "chore(.github): sync with ${default_branch} ($(git rev-parse --short ${DEFAULT_SRC}))"
+            git commit -m "sync with ${default_branch} ($(git rev-parse --short ${DEFAULT_SRC})) [skip cicd]"
           fi
 
           # Publish (force since we rebased; also sets upstream)
