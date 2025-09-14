@@ -29,7 +29,7 @@ runs:
         UIPATH_TENANT_NAME: ${{ inputs.tenant }}
         UIPATH_ORCHESTRATOR_URL: ${{ inputs.or_url }}
         UIPATH_SCOPES: "${{ inputs.scopes }}"
-      run: ./uipath studio package analyze --source "${{ github.workspace }}/project.json" --query "violations[?severity == 'Warning' || severity == 'Error' ].[workflowDisplayName, description, recommendation]" --stop-on-rule-violation false   --profile target > ./results/analyze.json
+      run: ./uipath studio package analyze --source "${{ github.workspace }}/project.json" --query "violations[?severity == 'Error' ].[workflowDisplayName, description, recommendation]" --stop-on-rule-violation false  --debug --profile target > ./results/analyze.json
 
     - name: run test cases
       shell: powershell

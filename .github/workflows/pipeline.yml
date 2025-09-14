@@ -322,7 +322,7 @@ jobs:
 
 
   send:
-    needs: FORMAT
+    needs: [setup,FORMAT]
     runs-on: windows-latest
     steps:
       - name: Send Email (SMTP)
