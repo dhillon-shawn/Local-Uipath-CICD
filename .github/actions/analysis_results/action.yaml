@@ -5,10 +5,10 @@ inputs:
   out_path:  { required: false, default: "./email/analysis-report.html", description: "path to results" }
 outputs:
   html:
-   value: ${{ steps.render.outputs.html }}
+   value: ${{ steps.analysis_report.outputs.html }}
    description: "html test results"
   html_path:
-    value: ${{ steps.render.outputs.html_path }}
+    value: ${{ steps.analysis_report.outputs.html_path }}
     description: "Path to html results"
 
 runs:
@@ -18,58 +18,103 @@ runs:
       shell: bash
       run: mkdir -p "$(dirname '${{ inputs.out_path }}')"
 
-    - id: render
-      uses: actions/github-script@v7
+
+    - name: Convert JSON to HTML
+      id: analysis_report
+      shell: bash
       env:
         IN:  ${{ inputs.json_path }}
         OUT: ${{ inputs.out_path }}
-      with:
-        script: |
-          const fs = require('node:fs');
+      run: |
+        set -euo pipefail
+        python3 - <<'PY'
+        import json, re, html, sys, pathlib
 
-          function readJsonSmart(p){
-            try { return JSON.parse(fs.readFileSync(p,'utf8')); }
-            catch {
-              // try UTF-16 LE
-              const buf = fs.readFileSync(p);
-              const txt = buf.toString('utf16le');
-              return JSON.parse(txt);
-            }
-          }
-          const data = readJsonSmart(process.env.IN); // expect array of [workflow, description, recommendation]
+        p = pathlib.Path(process.env.IN)
 
-          const esc = s => String(s).replace(/[&<>]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-          const linkify = s => String(s).replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_,t,u)=>`<a href="${esc(u)}" target="_blank">${esc(t)}</a>`);
+        def read_json_smart(path: pathlib.Path):
+            b = path.read_bytes()
+            # UTF-8 BOM
+            if b.startswith(b'\xef\xbb\xbf'):
+                return json.loads(b[3:].decode('utf-8'))
+            # UTF-16 LE BOM
+            if b.startswith(b'\xff\xfe'):
+                return json.loads(b[2:].decode('utf-16le'))
+            # UTF-16 BE BOM
+            if b.startswith(b'\xfe\xff'):
+                return json.loads(b[2:].decode('utf-16be'))
+            try:
+                return json.loads(b.decode('utf-8'))
+            except UnicodeDecodeError:
+                return json.loads(b.decode('utf-16'))
 
-          let html = `<!DOCTYPE html>
-            <html><head><meta charset="utf-8"><title>UiPath Analysis Report</title>
-            <style>
-            body{font-family:Arial,Helvetica,sans-serif;margin:40px;background:#f5f5f5;}
-            .container{max-width:900px;margin:0 auto;background:#fff;padding:20px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,0.1);}
-            h1{color:#2c3e50;text-align:center;}
-            .issue{border-bottom:1px solid #eee;padding:16px 0;}
-            .workflow{font-weight:bold;color:#e74c3c;font-size:1.05em;}
-            .project{font-weight:bold;color:#f39c12;font-size:1.05em;}
-            .description{margin:10px 0;color:#555;}
-            .recommendation{background:#f8f9fa;padding:12px;border-left:3px solid #28a745;margin-top:10px;}
-            </style>
-            </head><body><div class="container">
+        def linkify_markdown(s: str) -> str:
+            # Escape everything except recognized [text](url) spans
+            out, last = [], 0
+            for m in re.finditer(r'\[([^\]]+)\]\(([^)]+)\)', s):
+                out.append(html.escape(s[last:m.start()]))
+                text = html.escape(m.group(1))
+                url  = html.escape(m.group(2), quote=True)
+                out.append(f'<a href="{url}" target="_blank" rel="noopener noreferrer">{text}</a>')
+                last = m.end()
+            out.append(html.escape(s[last:]))
+            return ''.join(out)
+
+        data = read_json_smart(p)  # expect array of [workflow, description, recommendation]
+
+        html_doc = f'''<!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>UiPath Analysis Report</title>
+          <style>
+            body {{ font-family: Arial, Helvetica, sans-serif; margin: 40px; background: #f5f5f5; }}
+            .container {{ max-width: 900px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+            h1 {{ color: #2c3e50; text-align: center; }}
+            .issue {{ border-bottom: 1px solid #eee; padding: 16px 0; }}
+            .workflow {{ font-weight: bold; color: #e74c3c; font-size: 1.05em; }}
+            .project  {{ font-weight: bold; color: #f39c12; font-size: 1.05em; }}
+            .description {{ margin: 10px 0; color: #555; }}
+            .recommendation {{ background: #f8f9fa; padding: 12px; border-left: 3px solid #28a745; margin-top: 10px; }}
+            a {{ color: #3498db; }}
+          </style>
+        </head>
+        <body>
+          <div class="container">
             <h1>UiPath Analysis Report</h1>
-            <p><strong>${data.length} issues found</strong></p>`;
+            <p><strong>{len(data)} issues found</strong></p>
+        '''
 
-          for (const [workflow, description, recommendation] of data) {
-            const name = workflow || "Project Configuration";
-            const klass = workflow ? "workflow" : "project";
-            html += `
+        for workflow, description, recommendation in data:
+            name = workflow or "Project Configuration"
+            css_class = "workflow" if workflow else "project"
+            html_doc += f'''
             <div class="issue">
-              <div class="${klass}">${esc(name)}</div>
-              <div class="description">${esc(description)}</div>
-              <div class="recommendation"><strong>Recommendation:</strong> ${linkify(recommendation)}</div>
-            </div>`;
-          }
+              <div class="{css_class}">{html.escape(name)}</div>
+              <div class="description">{html.escape(description)}</div>
+              <div class="recommendation"><strong>Recommendation:</strong> {linkify_markdown(recommendation)}</div>
+            </div>'''
 
-          html += `</div></body></html>`;
+        html_doc += '''
+          </div>
+        </body>
+        </html>'''
 
-          fs.writeFileSync(process.env.OUT, html);
-          core.setOutput('html', html);
-          core.setOutput('html_path', process.env.OUT);
+        out_path = pathlib.Path(process.env.OUT)
+        out_path.write_text(html_doc, encoding='utf-8')
+        print("::group::HTML preview snippet")
+        print(html_doc[:500] + ("..." if len(html_doc) > 500 else ""))
+        print("::endgroup::")
+
+        # Save a tiny file containing only the HTML for the shell to read
+        pathlib.Path(process.env.OUT).write_text(html_doc, encoding='utf-8')
+        PY
+
+  
+            analysis_html="$(cat process.env.OUT)"
+            delim="HTML_$(uuidgen)"
+            {
+              echo "html<<$delim"
+              printf '%s\n' "$analysis_html"
+              echo "$delim"
+            } >> "$GITHUB_OUTPUT"

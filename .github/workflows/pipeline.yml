@@ -264,7 +264,7 @@ jobs:
 
   FORMAT:
     runs-on: ubuntu-latest
-    needs: [CLI,DEPLOY]
+    needs: [setup,resolve-dependencies,CLI,DEPLOY]
     outputs:
       final_html:    ${{ steps.compose.outputs.html }}
       final_subject: ${{ steps.compose.outputs.subject }}
