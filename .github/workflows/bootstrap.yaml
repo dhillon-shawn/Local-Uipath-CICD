@@ -94,36 +94,20 @@ jobs:
 
           non_prod_branch="non-prod"
 
-          # Always have fresh remotes
+          # Make sure our view of the remote is fresh
           git fetch origin --prune --depth=1
 
-          # Ensure a LOCAL non-prod branch exists (create/update it from remote if present; else create from default)
+          # Create or update non-prod to the *same commit* as the default branch
+          # (no extra commits; avoids ahead/behind entirely)
           if git ls-remote --exit-code --heads origin "${non_prod_branch}" >/dev/null 2>&1; then
-            # Create/update a local branch from remote without checking out yet
-            git fetch origin "${non_prod_branch}:refs/heads/${non_prod_branch}" --depth=1
+            git push --force-with-lease origin "${default_branch}:${non_prod_branch}" \
+              || echo "::notice:: force push to ${non_prod_branch} blocked (protected?)"
           else
-            # Remote non-prod doesn't exist; create local from default's remote tip and publish it
-            git branch -f "${non_prod_branch}" "origin/${default_branch}"
-            git push -u origin "${non_prod_branch}"
+            git push -u origin "${default_branch}:${non_prod_branch}"
           fi
 
-          # Now we can safely switch (guaranteed to exist locally)
-          git switch "${non_prod_branch}"
 
-          # ---- Sync ONLY .github from origin/<default_branch> ----
-          # Remove tracked files under .github that don't exist on default; ignore if folder isn't there
-          git rm -r --quiet --ignore-unmatch .github
 
-          # Restore exactly the .github dir from the default branch (index + worktree)
-          git restore --source "origin/${default_branch}" --worktree --staged -- .github
-
-          # Commit/push only if .github changed
-          if ! git diff --cached --quiet -- .github; then
-            git commit -m "[BOT] sync .github with ${default_branch}"
-            git push origin "${non_prod_branch}" || echo "::notice:: push to ${non_prod_branch} failed (protected?)"
-          else
-            echo "${non_prod_branch}: .github already matches origin/${default_branch}."
-          fi
 
 
 
