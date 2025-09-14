@@ -140,81 +140,54 @@ jobs:
           echo "Response $response"
 
 
-      - name: Protect default branch with a Ruleset (PR-required + CI-friendly)
+      - name: Protect default branch with a ruleset (PR required; CI bypass via App)
         env:
-          REPO: ${{ inputs.repo_name }}
-          default_branch: ${{ steps.get_default.outputs.DEFAULT_BRANCH }}            # App installation token with Admin:write on the repo
-          WORKFLOW_APP_ID: ${{ secrets.WORKFLOW_APP_ID }}  # Your workflow app id (integer)
+          REPO: ${{ inputs.repo_name }}                       # assumed
+          default_branch: ${{ steps.get_default.outputs.DEFAULT_BRANCH }}  # assumed                 # your App INSTALLATION token (repo Administration: write)
+          WORKFLOW_APP_ID: ${{ secrets.WORKFLOW_APP_ID }}     # your App's numeric App ID
         run: |
           set -euo pipefail
 
-          # Build payload safely with jq (no heredoc)
+          # Build minimal, valid payload (no heredocs; no fancy jq conditionals)
           payload="$(
             jq -nc \
-              --arg include_ref "refs/heads/${default_branch}" \
-              --arg name        "Protect ${default_branch} (PR-only + CI)" \
-              --arg app_id_str  "${WORKFLOW_APP_ID:-}" '
-              # helper to make an Integration bypass entry
-              def ibypass($id): {actor_id: $id, actor_type: "Integration", bypass_mode: "pull_request"};
-
-              # parse WORKFLOW_APP_ID if provided
-              ( ($app_id_str|tonumber?) ) as $aid
-              |
+              --arg name "Protect ${default_branch} (PR-only + CI bypass)" \
+              --arg ref  "refs/heads/${default_branch}" \
+              --arg appId "${WORKFLOW_APP_ID}" '
               {
                 name: $name,
                 target: "branch",
                 enforcement: "active",
-                conditions: { ref_name: { include: [$include_ref], exclude: [] } },
-                bypass_actors:
-                  # Always allow the built-in GitHub Actions app (id 15368) to bypass on PRs
-                  ( [ ibypass(15368) ] + ( if $aid then [ ibypass($aid) ] else [] end ) ),
+                conditions: { ref_name: { include: [ $ref ], exclude: [] } },
+                bypass_actors: [
+                  { actor_id: ($appId|tonumber), actor_type: "Integration", bypass_mode: "pull_request" }
+                ],
                 rules: [
-                  # Require PRs and set review behavior
                   {
                     type: "pull_request",
                     parameters: {
                       required_approving_review_count: 1,
                       dismiss_stale_reviews_on_push: true,
-                      require_code_owner_review: true,
+                      require_code_owner_review: false,
                       require_last_push_approval: true,
-                      required_review_thread_resolution: true,
-                      allowed_merge_methods: ["squash","rebase"],
-                      automatic_copilot_code_review_enabled: false
+                      required_review_thread_resolution: true
                     }
-                  },
-
-                  # Keep history clean and block force-pushes
-                  { type: "required_linear_history" },
-                  { type: "non_fast_forward" }
-
-                  # Optional: add required checks later once you know the names.
-                  # Example shape (uncomment & fill contexts):
-                  # ,{
-                  #   type: "required_status_checks",
-                  #   parameters: {
-                  #     do_not_enforce_on_create: false,
-                  #     strict_required_status_checks_policy: true,
-                  #     required_status_checks: [
-                  #       { context: "build",      integration_id: 15368 },
-                  #       { context: "test",       integration_id: 15368 }
-                  #     ]
-                  #   }
-                  # }
+                  }
                 ]
-              }
-            )"
-
-          # Create ruleset
-          resp="$(
-            curl -sS -L -X POST \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              -d "${payload}" \
-              "https://api.github.com/repos/${{ github.repository_owner }}/${REPO}/rulesets"
+              }'
           )"
 
-          echo "Ruleset response: ${resp}"
+          # Create the ruleset
+          response=$(curl -sS  -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository_owner }}/${REPO}/rulesets" \
+            -d "${payload}"
+          )
+          echo "Re: $response"
+
 
 
       - name: turn on auto merge and delete on merge
