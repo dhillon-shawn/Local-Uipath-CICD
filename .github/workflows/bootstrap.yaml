@@ -90,21 +90,30 @@ jobs:
             echo "No changes for ${default_branch}."
           fi
 
-          DEFAULT_HEAD="$(git rev-parse HEAD)"
-
           non_prod_branch="non-prod"
 
-          # Make sure our view of the remote is fresh
-          git fetch origin --prune --depth=1
+          git fetch origin --prune --depth=1 "${default_branch}" || exit 1
+          git fetch origin "${non_prod_branch}" --depth=1 || true
 
-          # Create or update non-prod to the *same commit* as the default branch
-          # (no extra commits; avoids ahead/behind entirely)
-          if git ls-remote --exit-code --heads origin "${non_prod_branch}" >/dev/null 2>&1; then
-            git push --force-with-lease origin "${default_branch}:${non_prod_branch}" \
-              || echo "::notice:: force push to ${non_prod_branch} blocked (protected?)"
+          # Ensure local non-prod exists (from remote if present, else from default)
+          if git show-ref --quiet "refs/remotes/origin/${non_prod_branch}"; then
+            git switch -C "${non_prod_branch}" --track "origin/${non_prod_branch}"
           else
-            git push -u origin "${default_branch}:${non_prod_branch}"
+            git switch -c "${non_prod_branch}" "refs/remotes/origin/${default_branch}"
+            git push -u origin "${non_prod_branch}"
           fi
+
+          # Replace ONLY the .github directory with the one from default
+          git rm -r --quiet --ignore-unmatch .github
+          git restore --source "refs/remotes/origin/${default_branch}" --worktree --staged -- .github
+
+          if ! git diff --cached --quiet -- .github; then
+            git commit -m "[BOT] sync .github with ${default_branch}"
+            git push origin "${non_prod_branch}"
+          else
+            echo "${non_prod_branch}: .github already matches origin/${default_branch}."
+          fi
+
 
 
 
