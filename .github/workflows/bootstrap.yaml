@@ -56,7 +56,7 @@ jobs:
         run: |
           echo "${{ steps.get_default.outputs.DEFAULT_BRANCH }} "
 
-      - name: Repo Level (update default; enforce .github on non-prod)
+      - name: Repo Level (update main; rebase+sync .github on non-prod)
         env:
           repo: ${{ inputs.repo_name }}
           default_branch: ${{ steps.get_default.outputs.DEFAULT_BRANCH }}
@@ -72,7 +72,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           # -------------------------
-          # 1) Update DEFAULT branch
+          # 1) Update main's .github from templates
           # -------------------------
           git switch "${default_branch}"
           git pull --ff-only origin "${default_branch}"
@@ -86,82 +86,64 @@ jobs:
 
           git add .github
           if ! git diff --cached --quiet -- .github; then
-            git commit -m "[BOT] - bootstrap/update .github"
+            git commit -m "[BOT] update .github on ${default_branch}"
             if ! git push origin "${default_branch}"; then
               echo "::notice:: push to ${default_branch} blocked (protected?) – continuing."
             fi
           else
-            echo "No .github changes for ${default_branch}."
-            git reset -q  # clear index if nothing to commit
+            git reset -q
+            echo "No .github changes on ${default_branch}."
           fi
 
-          # Use the remote default tip as the source-of-truth for .github
-          git fetch --prune origin "${default_branch}" || true
+          # Cache authoritative source and make sure we're unshallow for rebase
+          git fetch --prune --no-tags origin \
+            "+refs/heads/${default_branch}:refs/remotes/origin/${default_branch}" \
+            "+refs/heads/${non_branch}:refs/remotes/origin/${non_branch}" \
+            --depth=0 || true
           DEFAULT_SRC="origin/${default_branch}"
           DEFAULT_SHA="$(git rev-parse ${DEFAULT_SRC})"
 
           # -------------------------
-          # 2) Ensure non-prod exists and is current
+          # 2) Ensure non-prod exists locally
           # -------------------------
-          git fetch --prune origin "+refs/heads/${non_branch}:refs/remotes/origin/${non_branch}" || true
           if git ls-remote --exit-code origin "refs/heads/${non_branch}" >/dev/null 2>&1; then
-            if git rev-parse --verify "${non_branch}" >/dev/null 2>&1; then
-              git switch "${non_branch}"
-              git reset --hard "origin/${non_branch}"
-            else
-              git switch -C "${non_branch}" "origin/${non_branch}"
-            fi
+            git switch -C "${non_branch}" "origin/${non_branch}"
           else
-            echo "Creating ${non_branch} from ${default_branch}…"
-            git switch -C "${non_branch}" "${default_branch}"
+            git switch -C "${non_branch}" "${DEFAULT_SRC}"
             git push -u origin "${non_branch}"
           fi
 
           # -------------------------
-          # 3) Import DEFAULT history (avoid 'behind') and sync .github
-          #    -s ours: take our tree, but add default's history as a parent
-          #    Then overwrite .github from DEFAULT_SRC inside the same commit.
+          # 3) Rebase non-prod onto main (preserve dev work, rewrite history)
           # -------------------------
-          # Detect if default tip is already an ancestor (shallow-safe fallback)
-          NEED_HISTORY_MERGE=1
-          if git merge-base --is-ancestor "${DEFAULT_SRC}" HEAD 2>/dev/null; then
-            NEED_HISTORY_MERGE=0
-          else
-            # If shallow prevents detection, we still merge when tips differ
-            if [ "$(git rev-parse HEAD)" = "${DEFAULT_SHA}" ]; then
-              NEED_HISTORY_MERGE=0
-            fi
+          if ! git rebase --rebase-merges "${DEFAULT_SRC}"; then
+            echo "::error:: Rebase conflicts detected on ${non_branch}."
+            git rebase --abort || true
+            exit 1
           fi
 
-          # Start a no-change merge to import history only
-          if [ "${NEED_HISTORY_MERGE}" -eq 1 ]; then
-            git merge --no-commit -s ours "${DEFAULT_SRC}" || true
-            # We are now in a merge state (MERGE_HEAD present)
-          fi
-
-          # Overwrite .github to match default exactly (removes extras too)
-          git rm -r --ignore-unmatch .github || true
+          # -------------------------
+          # 4) Overlay ONLY .github from main onto non-prod
+          #     (remove extras, then restore exact tree)
+          # -------------------------
+          git rm -r --quiet --ignore-unmatch .github || true
           git restore --source="${DEFAULT_SRC}" --staged --worktree -- .github
 
-          # Decide whether to finalize a commit
-          if [ "${NEED_HISTORY_MERGE}" -eq 1 ]; then
-            # Always commit to complete the merge; include .github sync
-            git commit -m "Merge ${default_branch} (${DEFAULT_SHA:0:7}) into ${non_branch} (ours); sync .github from ${default_branch}"
-            git push origin "${non_branch}"
-            echo "::notice:: ${non_branch}: merged ${default_branch} history and synced .github."
-          else
-            # No merge needed; only commit if .github actually changed
-            if ! git diff --cached --quiet -- .github; then
-              git commit -m "Sync .github from ${default_branch} (${DEFAULT_SHA:0:7}) to ${non_branch}"
-              git push origin "${non_branch}"
-              echo "::notice:: ${non_branch}: synced .github."
-            else
-              # If a merge was started by mistake, abort it safely
-              git merge --abort || true
-              git reset -q
-              echo "::notice:: ${non_branch} already matches ${default_branch} for .github and history is up to date."
-            fi
+          # Commit only if .github differs from HEAD
+          if ! git diff --quiet HEAD -- .github; then
+            git commit -m "chore(.github): sync with ${default_branch} (${DEFAULT_SHA:0:7})"
           fi
+
+          # -------------------------
+          # 5) Push non-prod (force-with-lease to avoid clobbering unrelated remote updates)
+          # -------------------------
+          if ! git push --force-with-lease origin "${non_branch}"; then
+            echo "::error:: Force push blocked on ${non_branch}. Allow force-push or use history-only merge mode."
+            exit 1
+          fi
+
+          echo "::notice:: ${non_branch} rebased onto ${default_branch}; .github synced."
+
 
 
       - name: protect non-prod
