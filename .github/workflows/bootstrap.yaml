@@ -85,91 +85,62 @@ jobs:
           git add .github
           if ! git diff --cached --quiet; then
             git commit -m "[BOT] - bootstrap/update .github"
-            git push origin "${default_branch}" || echo "::notice::push to ${default_branch} blocked (protected?) – continuing."
+            git push origin "${default_branch}" || echo "::notice:: push to ${default_branch} blocked (protected?) – continuing."
           else
             echo "No changes for ${default_branch}."
           fi
 
-                # --- up to your default-branch update code is unchanged ---
+          # --- Prepare commits we will use as sources/targets ---
+          # local default commit (contains your freshly added .github)
+          DEFAULT_LOCAL="$(git rev-parse "${default_branch}")"
 
-          # Record default commit hashes (local & remote) after your default push attempt
-          DEFAULT_LOCAL="$(git rev-parse HEAD)"                     # local default commit (may include your new .github)
-          git fetch origin --prune --depth=1 "${default_branch}"    # ensure remote ref is current
-          DEFAULT_REMOTE="$(git rev-parse "refs/remotes/origin/${default_branch}")" || DEFAULT_REMOTE=""
+          # get fresh remote refs; do this *before* reading origin/* hashes
+          git fetch origin --prune --depth=1
 
-          # Choose the source commit for copying .github into non-prod:
-          # - Prefer the REMOTE default commit if it includes your change (push allowed)
-          # - Otherwise fall back to the LOCAL default commit (push blocked)
-          SOURCE_COMMIT="$DEFAULT_REMOTE"
-          DEFAULT_PUSHED="1"
-          if [ -z "${DEFAULT_REMOTE}" ] || [ "${DEFAULT_LOCAL}" != "${DEFAULT_REMOTE}" ]; then
-            SOURCE_COMMIT="$DEFAULT_LOCAL"
-            DEFAULT_PUSHED="0"
+          # remote default tip (may not include your change if push above was blocked)
+          DEFAULT_REMOTE="$(git rev-parse "origin/${default_branch}" 2>/dev/null || true)"
+          if [ -n "${DEFAULT_REMOTE:-}" ] && [ "${DEFAULT_REMOTE}" = "${DEFAULT_LOCAL}" ]; then
+            DEFAULT_PUSHED=1
+            SOURCE_COMMIT="${DEFAULT_REMOTE}"   # safe to use remote
+          else
+            DEFAULT_PUSHED=0
+            SOURCE_COMMIT="${DEFAULT_LOCAL}"    # fall back to our local default
           fi
 
+          # --- Ensure non-prod exists (remote) and decide update path ---
           non_prod_branch="${non_prod_branch:-non-prod}"
 
-          # Ensure we have the remote non-prod ref if it exists
+          # Do we have a remote non-prod?
           if git ls-remote --exit-code --heads origin "${non_prod_branch}" >/dev/null 2>&1; then
+            # Fetch its tip so origin/non-prod is a valid ref
             git fetch origin "${non_prod_branch}" --depth=1
-            NONPROD_REMOTE="$(git rev-parse "refs/remotes/origin/${non_prod_branch}")"
-          else
-            NONPROD_REMOTE=""
-          fi
+            NONPROD_OLD="$(git rev-parse "origin/${non_prod_branch}")"
 
-          # --- CASE A: non-prod DOES NOT EXIST -> create it at SOURCE_COMMIT (fastest path) ---
-          if [ -z "${NONPROD_REMOTE}" ]; then
-            # Create non-prod at the chosen source commit (pointer move; no extra commit)
+            # If default landed on remote AND there are no diffs outside .github, move pointer (no ahead/behind)
+            if [ "${DEFAULT_PUSHED}" = "1" ] && git diff --quiet "origin/${non_prod_branch}" "${SOURCE_COMMIT}" -- . ':(exclude).github/**'; then
+              git push --force-with-lease="${non_prod_branch}:${NONPROD_OLD}" \
+                origin "${SOURCE_COMMIT}:refs/heads/${non_prod_branch}"
+              echo "Updated ${non_prod_branch} to exactly match origin/${default_branch} at $(git rev-parse --short "${SOURCE_COMMIT}"). No ahead/behind."
+              exit 0
+            fi
+
+            # Fallback: make a .github-only commit on non-prod (preserves other differences on non-prod)
+            git switch -C "${non_prod_branch}" --track "origin/${non_prod_branch}"
+            git rm -r --quiet --ignore-unmatch .github
+            git restore --source "${SOURCE_COMMIT}" --worktree --staged -- .github || true
+
+            if ! git diff --cached --quiet -- .github; then
+              git commit -m "[BOT] sync .github with ${default_branch}"
+              git push origin "${non_prod_branch}"
+              echo "Synced .github on ${non_prod_branch} from $(git rev-parse --short "${SOURCE_COMMIT}")."
+            else
+              echo "${non_prod_branch}: .github already matches source commit; nothing to do."
+            fi
+          else
+            # Remote non-prod does not exist → create it at SOURCE_COMMIT (fastest path, zero ahead/behind if DEFAULT_PUSHED=1)
             git push -u origin "${SOURCE_COMMIT}:refs/heads/${non_prod_branch}"
             echo "Created ${non_prod_branch} at $(git rev-parse --short "${SOURCE_COMMIT}")."
-            exit 0
           fi
-
-          # --- CASE B: non-prod EXISTS -> Decide pointer move vs .github-only commit ---
-
-          # If default is on the remote and there are NO differences outside .github,
-          # we can safely point non-prod to the EXACT same commit as default (no ahead/behind).
-          CAN_POINTER_MOVE="0"
-          if [ "${DEFAULT_PUSHED}" = "1" ]; then
-            # Check if trees are identical OUTSIDE .github
-            if git diff --quiet "${NONPROD_REMOTE}" "${DEFAULT_REMOTE}" -- . ':(exclude).github/**'; then
-              CAN_POINTER_MOVE="1"
-            fi
-          fi
-
-          if [ "${CAN_POINTER_MOVE}" = "1" ]; then
-            # Move branch pointer (no checkout needed). Use lease to be safe.
-            git push --force-with-lease="${non_prod_branch}:${NONPROD_REMOTE}" \
-              origin "${DEFAULT_REMOTE}:refs/heads/${non_prod_branch}"
-            echo "Updated ${non_prod_branch} to exactly match origin/${default_branch} at $(git rev-parse --short "${DEFAULT_REMOTE}"). No ahead/behind."
-            exit 0
-          fi
-
-          # Fallback: make a .github-only commit on non-prod (preserves any other differences on that branch)
-          # Reset/track local branch to the remote tip to ensure a fast-forward push
-          git switch -C "${non_prod_branch}" --track "origin/${non_prod_branch}"
-
-          # Replace ONLY the .github tree in non-prod with that from SOURCE_COMMIT
-          git rm -r --quiet --ignore-unmatch .github
-          git restore --source "${SOURCE_COMMIT}" --worktree --staged -- .github || true
-
-          if ! git diff --cached --quiet -- .github; then
-            git commit -m "[BOT] sync .github with ${default_branch}"
-            git push origin "${non_prod_branch}"
-            if [ "${DEFAULT_PUSHED}" = "0" ]; then
-              echo "::notice:: default push was blocked; non-prod updated from local default commit. Ahead/behind vs default is expected."
-            else
-              echo "::notice:: ${non_prod_branch} kept its other differences; a .github-only commit was made."
-            fi
-          else
-            echo "${non_prod_branch}: .github already matches selected source (${SOURCE_COMMIT:0:7}); nothing to do."
-          fi
-
-
-
-
-
-
 
 
 
@@ -460,6 +431,14 @@ jobs:
                 | jq -r --arg env "$env" '.[$env] // {} | to_entries[] | "\(.key)\t\(.value)"'
               )
           done
+          
+      - name: PRINT RESULTS - UPDATE
+        run: |
+            echo " "
+            echo "====================================================================================="
+            echo "Link to existing repo: https://github.com/${{ github.repository_owner }}/${{inputs.repo_name}}"
+            echo "====================================================================================="
+            echo " "
 
 
 
@@ -514,18 +493,5 @@ jobs:
             "https://api.github.com/repos/${TARGET_OWNER}/${TARGET_REPO}/actions/secrets/${SECRET_NAME}" \
             -d "$(jq -nc --arg ev "$ENC_VALUE" --arg kid "$KEY_ID" '{encrypted_value:$ev, key_id:$kid}')" \
           | jq .
-
-  Results:
-    runs-on: ubuntu-latest
-    needs: [copy]
-    steps:
-      - name: PRINT RESULTS - UPDATE
-        run: |
-            echo " "
-            echo "====================================================================================="
-            echo "Link to existing repo: https://github.com/${{ github.repository_owner }}/${{inputs.repo_name}}"
-            echo "====================================================================================="
-            echo " "
-        
 
 
