@@ -60,7 +60,7 @@ jobs:
         env:
           repo: ${{ inputs.repo_name }}
           default_branch: ${{ steps.get_default.outputs.DEFAULT_BRANCH }}
-          non_branch: non-prod
+          non_prod_branch: non-prod
         run: |
           set -euo pipefail
 
@@ -92,53 +92,29 @@ jobs:
 
           DEFAULT_HEAD="$(git rev-parse HEAD)"
 
-          # --- Sync .github on NON-PROD so it exactly matches ${default_branch} ---
+          # Make sure we have fresh refs
+          git fetch origin --prune --depth=1
 
-          # 1) Fetch both branches explicitly (creates remote-tracking refs even in shallow clones)
-          git fetch --no-tags --prune origin \
-            "+refs/heads/${default_branch}:refs/remotes/origin/${default_branch}" \
-            "+refs/heads/${non_branch}:refs/remotes/origin/${non_branch}" || true
-
-          # 2) Ensure non-prod exists remotely
-          if ! git ls-remote --exit-code origin "refs/heads/${non_branch}" >/dev/null 2>&1; then
-            echo "Creating ${non_branch} from ${default_branch}…"
-            git push origin "refs/heads/${default_branch}:refs/heads/${non_branch}"
-            git fetch origin "+refs/heads/${non_branch}:refs/remotes/origin/${non_branch}"
-          fi
-
-          # 3) Resolve commit ids safely
-          MAIN_HEAD="$(git rev-parse --verify "refs/remotes/origin/${default_branch}")"
-          NONPROD_HEAD="$(git rev-parse --verify "refs/remotes/origin/${non_branch}")"
-
-          # 4) Build an overlay commit ON TOP OF main
-          work="bot-sync-non-prod-$(date +%s)"
-          git switch --detach "$MAIN_HEAD"
-          git switch -C "$work"
-
-          # Overlay non-prod for everything
-          git restore --source "$NONPROD_HEAD" --staged --worktree -- .
-          # Then force .github from main (exact mirror)
-          git restore --source "$MAIN_HEAD" --staged --worktree -- .github
-
-          # Commit only if anything actually changed
-          if ! git diff --cached --quiet; then
-            git commit -m "[BOT] overlay non-prod onto ${default_branch} while forcing .github from ${default_branch}"
+          # Create/checkout non-prod
+          if git ls-remote --exit-code --heads origin "${non_prod_branch}" >/dev/null 2>&1; then
+            # already exists on remote
+            git switch -c "${non_prod_branch}" --track "origin/${non_prod_branch}" 2>/dev/null || git switch "${non_prod_branch}"
           else
-            echo "Tree already matches desired state; no commit needed."
+            # create from the remote default branch tip
+            git switch -c "${non_prod_branch}" "origin/${default_branch}"
+            git push -u origin "${non_prod_branch}"
           fi
 
-          # 5) Push to non-prod
-          if ! git push --force-with-lease origin "HEAD:${non_branch}"; then
-            echo "::warning::Force push to ${non_branch} blocked; using merge fallback."
-            git switch -C "${non_branch}" "$NONPROD_HEAD"
-            # Merge main to remove the 'behind' count without changing content yet
-            git merge --no-edit -s ours "$MAIN_HEAD" || true
-            # Re-impose .github from main and commit if needed
-            git restore --source "$MAIN_HEAD" --staged --worktree -- .github
-            if ! git diff --cached --quiet -- .github; then
-              git commit -m "[BOT] sync .github from ${default_branch}"
-            fi
-            git push origin "${non_branch}"
+          # Make .github in non-prod EXACTLY match default's .github (and touch nothing else)
+          git rm -r --quiet --ignore-unmatch .github
+          git restore --source "origin/${default_branch}" --worktree --staged .github
+
+          # Commit only if .github changed
+          if ! git diff --cached --quiet -- .github; then
+            git commit -m "[BOT] sync .github with ${default_branch}"
+            git push origin "${non_prod_branch}" || echo "::notice:: push to ${non_prod_branch} failed (protected?)"
+          else
+            echo "non-prod: .github already matches origin/${default_branch}."
           fi
 
 
@@ -185,7 +161,7 @@ jobs:
                 enforcement: "active",
                 conditions: { ref_name: { include: [ $ref ], exclude: [] } },
                 bypass_actors: [
-                  { actor_id: ($appId|tonumber), actor_type: "Integration", bypass_mode: "pull_request" }
+                  { actor_id: ($appId|tonumber), actor_type: "Integration", bypass_mode: "always" }
                 ],
                 rules: [
                   {
