@@ -147,7 +147,7 @@ jobs:
             # Create a ruleset that protects ONLY the default branch
             response=$(
             
-                curl -sSf -X POST \
+                curl  -X POST \
                   -H "Authorization: Bearer $GH_TOKEN" \
                   -H "Accept: application/vnd.github+json" \
                   -H "Content-Type: application/json" \
@@ -157,17 +157,19 @@ jobs:
                 \"target\":\"branch\",\
                 \"enforcement\":\"active\",\
                 \"conditions\":{\"ref_name\":{\"include\":[\"refs/heads/${default_branch}\"],\"exclude\":[]}},\
-                \"bypass_actors\":[{\"actor_id\":15368,\"actor_type\":\"Integration\",\"bypass_mode\":\"pull_request\"}],\
+                \"bypass_actors\":[\
+                  {\"actor_id\":${{ secrets.WORKFLOW_APP_ID }},\"actor_type\":\"Integration\",\"bypass_mode\":\"always\"}\
+                ],\
                 \"rules\":[\
                   {\"type\":\"pull_request\",\"parameters\":{\
                     \"required_approving_review_count\":1,\
                     \"require_last_push_approval\":true,\
                     \"dismiss_stale_reviews_on_push\":true,\
-                    \"require_code_owner_review\":false,\
                     \"required_review_thread_resolution\":true\
                   }},\
                   {\"type\":\"non_fast_forward\"}\
                 ]}"
+
                 
               )
               echo "Response: $response"
