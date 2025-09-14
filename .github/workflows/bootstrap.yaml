@@ -163,6 +163,7 @@ jobs:
 
 
       - name: protect non-prod
+        if: false
         env:
           REPO: ${{ inputs.repo_name }}
         run: |
