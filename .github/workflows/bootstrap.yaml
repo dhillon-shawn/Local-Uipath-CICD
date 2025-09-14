@@ -92,30 +92,39 @@ jobs:
 
           DEFAULT_HEAD="$(git rev-parse HEAD)"
 
-          # Make sure we have fresh refs
+          non_prod_branch="non-prod"
+
+          # Always have fresh remotes
           git fetch origin --prune --depth=1
 
-          # Create/checkout non-prod
+          # Ensure a LOCAL non-prod branch exists (create/update it from remote if present; else create from default)
           if git ls-remote --exit-code --heads origin "${non_prod_branch}" >/dev/null 2>&1; then
-            # already exists on remote
-            git switch -c "${non_prod_branch}" --track "origin/${non_prod_branch}" 2>/dev/null || git switch "${non_prod_branch}"
+            # Create/update a local branch from remote without checking out yet
+            git fetch origin "${non_prod_branch}:refs/heads/${non_prod_branch}" --depth=1
           else
-            # create from the remote default branch tip
-            git switch -c "${non_prod_branch}" "origin/${default_branch}"
+            # Remote non-prod doesn't exist; create local from default's remote tip and publish it
+            git branch -f "${non_prod_branch}" "origin/${default_branch}"
             git push -u origin "${non_prod_branch}"
           fi
 
-          # Make .github in non-prod EXACTLY match default's .github (and touch nothing else)
-          git rm -r --quiet --ignore-unmatch .github
-          git restore --source "origin/${default_branch}" --worktree --staged .github
+          # Now we can safely switch (guaranteed to exist locally)
+          git switch "${non_prod_branch}"
 
-          # Commit only if .github changed
+          # ---- Sync ONLY .github from origin/<default_branch> ----
+          # Remove tracked files under .github that don't exist on default; ignore if folder isn't there
+          git rm -r --quiet --ignore-unmatch .github
+
+          # Restore exactly the .github dir from the default branch (index + worktree)
+          git restore --source "origin/${default_branch}" --worktree --staged -- .github
+
+          # Commit/push only if .github changed
           if ! git diff --cached --quiet -- .github; then
             git commit -m "[BOT] sync .github with ${default_branch}"
             git push origin "${non_prod_branch}" || echo "::notice:: push to ${non_prod_branch} failed (protected?)"
           else
-            echo "non-prod: .github already matches origin/${default_branch}."
+            echo "${non_prod_branch}: .github already matches origin/${default_branch}."
           fi
+
 
 
 
