@@ -58,9 +58,12 @@ runs:
             core.exportVariable('APP_ID', APP_ID);
             core.exportVariable('APP_SECRET', APP_SECRET);
             core.exportVariable('BASE_URL', BASE_URL);
+            core.exportVariable('ORG', ORG);
+            core.exportVariable('TENANT', TENANT);
 
             const OR_URL = `${BASE_URL}/${ORG}/${TENANT}/orchestrator_`;
             core.exportVariable('OR_URL', OR_URL);
+            
 
             const tokenUrl = `${BASE_URL.replace(/\/+$/,'')}/identity_/connect/token`;
             core.debug(`Token URL: ${tokenUrl}`);

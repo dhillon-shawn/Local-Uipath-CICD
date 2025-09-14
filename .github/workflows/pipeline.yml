@@ -189,7 +189,7 @@ jobs:
           publishable:  ${{ needs.setup.outputs.publishable }}
           org: ${{ env.ORG }}
           tenant: ${{ env.TENANT }}
-          scopes:  ${{ env.scopes }}
+          scopes:  ${{ env.scope }}
           or_url: ${{ env.OR_URL }}
           app_id:       ${{ env.APP_ID }}
           app_secret:   ${{ env.APP_SECRET }}
