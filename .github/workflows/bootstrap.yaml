@@ -60,7 +60,7 @@ jobs:
         env:
           repo: ${{ inputs.repo_name }}
           default_branch: ${{ steps.get_default.outputs.DEFAULT_BRANCH }}
-          non_prod_branch: non-prod
+          non_branch: non-prod
         run: |
           set -euo pipefail
 
