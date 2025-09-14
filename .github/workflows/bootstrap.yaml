@@ -140,18 +140,18 @@ jobs:
           echo "Response $response"
 
 
-      - name: Protect default branch with a ruleset (PR required; CI bypass via App)
+      - name: Protect default branch with a ruleset
         env:
-          REPO: ${{ inputs.repo_name }}                       # assumed
-          default_branch: ${{ steps.get_default.outputs.DEFAULT_BRANCH }}  # assumed                 # your App INSTALLATION token (repo Administration: write)
-          WORKFLOW_APP_ID: ${{ secrets.WORKFLOW_APP_ID }}     # your App's numeric App ID
+          REPO: ${{ inputs.repo_name }}
+          default_branch: ${{ steps.get_default.outputs.DEFAULT_BRANCH }}
+          WORKFLOW_APP_ID: ${{ secrets.WORKFLOW_APP_ID }}
         run: |
           set -euo pipefail
 
           # Build minimal, valid payload (no heredocs; no fancy jq conditionals)
           payload="$(
             jq -nc \
-              --arg name "Protect ${default_branch} (PR-only + CI bypass)" \
+              --arg name "Protect ${default_branch}" \
               --arg ref  "refs/heads/${default_branch}" \
               --arg appId "${WORKFLOW_APP_ID}" '
               {
@@ -177,7 +177,6 @@ jobs:
               }'
           )"
 
-          # Create the ruleset
           response=$(curl -sS  -X POST \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
