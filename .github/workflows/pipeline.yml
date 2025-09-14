@@ -144,17 +144,6 @@ jobs:
                 secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
                 scopes: ${{ env.scope }}
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-        env:
-          DOTNET_INSTALL_DIR: '${{ runner.temp }}/.dotnet'
-
-      - name: Remove a file from USERPROFILE
-        run: Remove-Item -Path "$env:USERPROFILE\.uipath\config" -ErrorAction SilentlyContinue
-        shell: powershell
-
       - name: Checkout exact source ref (exclude .github)
         uses: actions/checkout@v4
         with:
@@ -166,53 +155,22 @@ jobs:
             !/.github/
           sparse-checkout-cone-mode: false
 
-      - name: Get CLI v2
-        run: Invoke-WebRequest "https://github.com/UiPath/uipathcli/releases/latest/download/uipathcli-windows-amd64.zip" -OutFile "uipathcli.zip" ; Expand-Archive -Force -Path "uipathcli.zip" -DestinationPath "."
+      - name: uipath-setup
+        uses: Mikael-RnD/setup-uipath@v2
 
-              # On web: {BASE_URL}/{org name}/{tenant name}/orchestrator_/....
-      - name: Setup CLI
-        run: |
-                ./uipath config set --key organization --value "${{ env.ORG }}" --profile target
-                ./uipath config set --key tenant --value "${{ env.TENANT }}" --profile target
-                ./uipath config set --key "auth.scopes" --value "${{ env.scopes }}" --profile target
-                ./uipath config set --key "uri" --value "${{ env.BASE_URL }}" --profile target
-
-      - name: Display UiPath config
-        run: cat "$env:USERPROFILE\.uipath\config"
-      - name: CI
-        id: CI
-        if: ${{ (inputs.target_env == 'test' || inputs.target == 'dev')}} && needs.setup.outputs.ptype == 'Process'
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/ci@main
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
         with:
-          folder_name:  ${{ needs.resolve-dependencies.outputs.base_folder_name }}
-          target_env:   ${{ inputs.target_env }}
-          publishable:  ${{ needs.setup.outputs.publishable }}
-          org: ${{ env.ORG }}
-          tenant: ${{ env.TENANT }}
-          scopes:  ${{ env.scope }}
-          or_url: ${{ env.OR_URL }}
-          app_id:       ${{ env.APP_ID }}
-          app_secret:   ${{ env.APP_SECRET }}
-
-      - name: Create Output DIR
-        shell: powershell
-        run: New-Item -Path "./output" -ItemType Directory
-
-      - name: package
-        shell: powershell
+          dotnet-version: '8.0.x'
         env:
-                UIPATH_CLIENT_ID:  ${{ env.APP_ID}}
-                UIPATH_CLIENT_SECRET:  ${{ env.APP_SECRET }}
-                UIPATH_ACCOUNT_NAME: ${{ env.ORG }}
-                UIPATH_TENANT_NAME: ${{ env.TENANT }}
-                UIPATH_ORCHESTRATOR_URL: ${{ env.BASE_URL }}
-                UIPATH_SCOPES: "${{ env.SCOPES }}"
-        run: ./uipath studio package pack --destination "./output" --source "${{ github.workspace }}/project.json"   --output-type "${{ needs.setup.outputs.ptype }}" --release-notes "${{ needs.setup.outputs.notes }}" -package-version ${{ needs.resolve-dependencies.outputs.version }}  --debug --profile target
+          DOTNET_INSTALL_DIR: '${{ runner.temp }}/.dotnet'
 
 
-      - name: Remove a file from USERPROFILE
-        run: Remove-Item -Path "$env:USERPROFILE\.uipath\config" -ErrorAction SilentlyContinue
-        shell: powershell
+      - name: Run CLI Task Analyze
+        run: uipcli package analyze ${{ github.workspace }}/project.json --resultPath "./results/analyze.json" --orchestratorUrl "${{ env.BASE_URL}}" --orchestratorTenant "${{ env.TENANT }}" -A "${{env.ORG}}" -I ${{ env.APP_ID }} -S "${{env.APP_SECRET}}" --orchestratorApplicationScope "${{env.scope}}" --traceLevel Information
+
+      - name: Run CLI Task package
+        run: uipcli package pack ${{ github.workspace }}/project.json --o "./output" -v ${{ needs.resolve-dependencies.outputs.version }} --outputType "${{ needs.setup.outputs.ptype }}" --releaseNotes "${{ needs.setup.outputs.notes }}"  --projectUrl "url" --repositoryCommit "commit" --libraryOrchestratorUrl "${{ env.BASE_URL}}" --libraryOrchestratorTenant "${{ env.TENANT }}" -A "${{env.ORG}}" -I ${{ env.APP_ID }} -S "${{env.APP_SECRET}}" --libraryOrchestratorApplicationScope  "${{env.scope}}"           --traceLevel Information
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
