@@ -80,13 +80,13 @@ runs:
 
         # Extract the EXACT text between the first OPEN and next CLOSE (no normalization)
         EXTRACT=$(
-          awk -v s="$ONE_LINE" -v o="$OPEN" -v c="$CLOSE" 'BEGIN{
-            n=split(s,a,""); inside=0; buf="";
+          printf '%s\n' "$ONE_LINE" | awk -v o="$OPEN" -v c="$CLOSE" '{
+            n=split($0,a,""); inside=0; buf="";
             for(i=1;i<=n;i++){
               ch=a[i];
-              if(!inside && ch==o){ inside=1; next }
-              if(inside && ch==c){ print buf; exit }
-              if(inside){ buf=buf ch }
+              if(inside==0 && ch==o){ inside=1; continue }
+              if(inside==1 && ch==c){ print buf; exit }
+              if(inside==1){ buf=buf ch }
             }
           }'
         )
@@ -94,7 +94,7 @@ runs:
         # Trim spaces
         EXTRACT_TRIMMED="$(printf '%s' "$EXTRACT" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
 
-        # must contain at least one digit dot digit
+        # must contain at least one digit dot digit (escape the dot; be locale-stable)
         if printf '%s' "$EXTRACT_TRIMMED" | LC_ALL=C grep -Eq '[[:digit:]]+\.[[:digit:]]+'; then
           COMMIT_VERSION_EXACT="$EXTRACT_TRIMMED"
         else
