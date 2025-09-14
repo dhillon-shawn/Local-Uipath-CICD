@@ -85,26 +85,24 @@ jobs:
           cp "$GITHUB_WORKSPACE/templates/CICD.yml"                     .github/workflows/
 
           git add .github
-          if ! git diff --cached --quiet; then
+          if ! git diff --cached --quiet -- .github; then
             git commit -m "[BOT] - bootstrap/update .github"
             if ! git push origin "${default_branch}"; then
               echo "::notice:: push to ${default_branch} blocked (protected?) – continuing."
             fi
           else
-            echo "No changes for ${default_branch}."
+            echo "No .github changes for ${default_branch}."
+            git reset # clear index just in case
           fi
-          
-          if [[ -f "./project.json" ]]; then
-            PID="$(jq -er '.name' ./project.json)"
-            echo "PID=$PID" >> "$GITHUB_ENV"
-            echo "Project ID: $PID"
-          fi
-          
+
+          # Capture the exact tree to mirror onto non-prod
           DEFAULT_HEAD="$(git rev-parse HEAD)"
-          # Ensure we have the remote-tracking ref even in shallow clones
+
+          # -------------------------
+          # 2) Ensure non-prod exists and is current
+          # -------------------------
           git fetch --prune origin "+refs/heads/${non_branch}:refs/remotes/origin/${non_branch}" || true
           if git ls-remote --exit-code origin "refs/heads/${non_branch}" >/dev/null 2>&1; then
-            # Create/update local branch to match remote tip
             if git rev-parse --verify "${non_branch}" >/dev/null 2>&1; then
               git switch "${non_branch}"
               git reset --hard "origin/${non_branch}"
@@ -116,15 +114,24 @@ jobs:
             git switch -C "${non_branch}" "${default_branch}"
             git push -u origin "${non_branch}"
           fi
-          # Overwrite ONLY .github with the exact tree from DEFAULT_HEAD
-          git rm -r --ignore-unmatch .github
-          git restore -s "${DEFAULT_HEAD}" -- .github
-          if ! git diff --quiet; then
-            git add .github
-            git commit -m "Sync .github from ${default_branch} on ${non_branch}"
+
+          # -------------------------
+          # 3) Force .github to match DEFAULT_HEAD exactly
+          #    (remove extras, then restore both index+worktree)
+          # -------------------------
+          git rm -r --ignore-unmatch .github || true
+          git restore --source="${DEFAULT_HEAD}" --staged --worktree -- .github
+
+          # Only commit if HEAD actually changes for .github
+          if ! git diff --quiet HEAD -- .github; then
+            # (index already updated by --staged; no need to git add)
+            git commit -m "Sync .github from ${default_branch} (${DEFAULT_HEAD:0:7}) to ${non_branch}"
             git push origin "${non_branch}"
+            echo "::notice:: ${non_branch} .github updated from ${default_branch}."
           else
-            echo "${non_branch} already has desired .github."
+            echo "::notice:: ${non_branch} already matches ${default_branch} for .github."
+            # Make sure index is clean for future steps
+            git reset
           fi
 
 
