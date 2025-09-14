@@ -92,32 +92,54 @@ jobs:
 
           DEFAULT_HEAD="$(git rev-parse HEAD)"
 
-          # --- Enforce .github on NON-PROD (path-only reset to DEFAULT_HEAD) ---
-          git fetch --no-tags --prune origin "+refs/heads/${non_branch}:refs/remotes/origin/${non_branch}" || true
+          # --- Sync .github on NON-PROD so it exactly matches ${default_branch} ---
+          git fetch --no-tags --prune origin "${default_branch}" "${non_branch}" || true
 
-          # Switch/create local non-prod tracking the remote if it exists
-          if git ls-remote --exit-code origin "refs/heads/${non_branch}" >/dev/null 2>&1; then
-            git switch -C "${non_branch}" "origin/${non_branch}"
-          else
-            git switch -C "${non_branch}" "${default_branch}"
-            git push -u origin "${non_branch}"
+          # Ensure non-prod exists remotely
+          if ! git ls-remote --exit-code origin "refs/heads/${non_branch}" >/dev/null 2>&1; then
+            echo "Creating ${non_branch} from ${default_branch}…"
+            git push origin "refs/heads/${default_branch}:refs/heads/${non_branch}"
+            git fetch origin "${non_branch}"
           fi
 
-          # Completely replace ONLY the .github tree from DEFAULT_HEAD
-          # 1) Remove anything currently in .github (tracked + untracked)
-          git rm -r -f --ignore-unmatch .github || true
-          git clean -fd -- .github || true
+          MAIN_HEAD="origin/${default_branch}"
+          NONPROD_HEAD="origin/${non_branch}"
 
-          # 2) Restore .github exactly as in DEFAULT_HEAD (both worktree + index)
-          git restore --source="${DEFAULT_HEAD}" --staged --worktree -- .github
+          # Build a new tree ON TOP OF main:
+          #  - start from main
+          #  - overlay non-prod for everything EXCEPT .github
+          #  - ensure .github is exactly from main
+          work="bot-sync-non-prod-$(date +%s)"
+          git switch --detach "$MAIN_HEAD"
+          git switch -C "$work"
 
-          # 3) Commit & push if .github actually changed
-          if ! git diff --cached --quiet -- .github; then
-            git commit -m "[BOT] - reset .github to ${default_branch} (${DEFAULT_HEAD:0:7})"
-            git push origin "${non_branch}" || echo "::notice::push to ${non_branch} blocked (protected?) – continuing."
+          # Overlay non-prod except .github (stage + worktree)
+          git restore --source "$NONPROD_HEAD" --staged --worktree -- . ':(exclude).github'
+          # Force .github from main (stage + worktree)
+          git restore --source "$MAIN_HEAD"   --staged --worktree -- .github
+
+          # Commit only if anything changed vs main
+          if ! git diff --cached --quiet; then
+            git commit -m "[BOT] overlay non-prod on ${default_branch} while forcing .github from ${default_branch}"
           else
-            echo ".github already matches ${default_branch} on ${non_branch}."
+            echo "Tree already matches desired state; no commit needed."
           fi
+
+          # Try to set non-prod to this new commit (best: behind=0, ahead<=1)
+          if ! git push --force-with-lease origin "HEAD:${non_branch}"; then
+            echo "::warning::Force push to ${non_branch} blocked; falling back to merge-based sync."
+
+            # Fallback: keep non-prod history but remove 'behind' and force .github from main
+            git switch -C "${non_branch}" "$NONPROD_HEAD"
+            # Merge main but keep current tree (ours). This eliminates 'behind' without changing files yet.
+            git merge --no-edit -s ours "$MAIN_HEAD" || true
+            # Now force .github to main and commit
+            git restore --source "$MAIN_HEAD" --staged --worktree -- .github
+            if ! git diff --cached --quiet -- .github; then
+              git commit -m "[BOT] sync .github from ${default_branch}"
+            fi
+            git push origin "${non
+
 
       - name: protect non-prod
         env:
