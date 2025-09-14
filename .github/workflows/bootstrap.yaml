@@ -232,7 +232,7 @@ jobs:
             "https://api.github.com/repos/${{ github.repository_owner }}/${REPO}/rulesets" \
             -d "${payload}"
           )
-          echo "Re: $response"
+          echo "Response: $response"
 
 
 
