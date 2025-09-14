@@ -93,29 +93,34 @@ jobs:
 
           DEFAULT_HEAD="$(git rev-parse HEAD)"
 
-          # --- Enforce .github on NON-PROD (force overwrite) ---
+          # --- Enforce .github on NON-PROD (path-only reset to DEFAULT_HEAD) ---
           git fetch --no-tags --prune origin "+refs/heads/${non_branch}:refs/remotes/origin/${non_branch}" || true
 
+          # Switch/create local non-prod tracking the remote if it exists
           if git ls-remote --exit-code origin "refs/heads/${non_branch}" >/dev/null 2>&1; then
             git switch -C "${non_branch}" "origin/${non_branch}"
-            git reset --hard "origin/${non_branch}"
           else
-            echo "Creating ${non_branch} from ${default_branch}…"
             git switch -C "${non_branch}" "${default_branch}"
             git push -u origin "${non_branch}"
           fi
 
-          # Hard overwrite: remove everything then restore exactly from DEFAULT_HEAD
-          rm -rf .github
-          git checkout "${DEFAULT_HEAD}" -- .github  # (equivalently: git restore --source="${DEFAULT_HEAD}" --worktree --staged -- .github)
+          # Completely replace ONLY the .github tree from DEFAULT_HEAD
+          # 1) Remove anything currently in .github (tracked + untracked)
+          git rm -r -f --ignore-unmatch .github || true
+          git clean -fd -- .github || true
 
-          git add -A .github
-          if ! git diff --cached --quiet; then
-            git commit -m "[BOT] - force sync .github from ${default_branch} to ${non_branch}"
+          # 2) Restore .github exactly as in DEFAULT_HEAD (both worktree + index)
+          git restore --source="${DEFAULT_HEAD}" --staged --worktree -- .github
+
+          # 3) Commit & push if .github actually changed
+          if ! git diff --cached --quiet -- .github; then
+            git commit -m "[BOT] - reset .github to ${default_branch} (${DEFAULT_HEAD:0:7})"
             git push origin "${non_branch}" || echo "::notice::push to ${non_branch} blocked (protected?) – continuing."
           else
-            echo "${non_branch} already has desired .github."
+            echo ".github already matches ${default_branch} on ${non_branch}."
           fi
+
+
 
 
       - name: protect non-prod
