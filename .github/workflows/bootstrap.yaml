@@ -93,27 +93,40 @@ jobs:
           else
             echo "No changes for ${default_branch}."
           fi
-
-            # --- after your default branch update/push above ---
-
-          non_prod_branch="${non_prod_branch:-non-prod}"
-
-          # Always make non-prod point at the SAME commit as our *local* default branch
-          # (this commit already contains the new .github files you just added)
-          # If origin/non-prod exists, we fetch it to get the current tip for the lease.
-          git fetch origin --prune --depth=1 "${non_prod_branch}" || true
-
-          if git show-ref --verify --quiet "refs/remotes/origin/${non_prod_branch}"; then
-            NONPROD_OLD="$(git rev-parse "refs/remotes/origin/${non_prod_branch}")"
-            # Move non-prod pointer to the exact commit of local default (safe force)
-            git push --force-with-lease="${non_prod_branch}:${NONPROD_OLD}" \
-              origin "${default_branch}:refs/heads/${non_prod_branch}"
-            echo "Updated ${non_prod_branch} to exactly ${default_branch}@$(git rev-parse --short "${default_branch}")."
-          else
-            # Create the branch at that exact commit
-            git push -u origin "${default_branch}:refs/heads/${non_prod_branch}"
-            echo "Created ${non_prod_branch} at ${default_branch}@$(git rev-parse --short "${default_branch}")."
+          
+          if [[ -f "./project.json" ]]; then
+            PID="$(jq -er '.name' ./project.json)"
+            echo "PID=$PID" >> "$GITHUB_ENV"
+            echo "Project ID: $PID"
           fi
+          
+          DEFAULT_HEAD="$(git rev-parse HEAD)"
+          # Ensure we have the remote-tracking ref even in shallow clones
+          git fetch --prune origin "+refs/heads/${non_branch}:refs/remotes/origin/${non_branch}" || true
+          if git ls-remote --exit-code origin "refs/heads/${non_branch}" >/dev/null 2>&1; then
+            # Create/update local branch to match remote tip
+            if git rev-parse --verify "${non_branch}" >/dev/null 2>&1; then
+              git switch "${non_branch}"
+              git reset --hard "origin/${non_branch}"
+            else
+              git switch -C "${non_branch}" "origin/${non_branch}"
+            fi
+          else
+            echo "Creating ${non_branch} from ${default_branch}…"
+            git switch -C "${non_branch}" "${default_branch}"
+            git push -u origin "${non_branch}"
+          fi
+          # Overwrite ONLY .github with the exact tree from DEFAULT_HEAD
+          git rm -r --ignore-unmatch .github
+          git restore -s "${DEFAULT_HEAD}" -- .github
+          if ! git diff --quiet; then
+            git add .github
+            git commit -m "Sync .github from ${default_branch} on ${non_branch}"
+            git push origin "${non_branch}"
+          else
+            echo "${non_branch} already has desired .github."
+          fi
+
 
 
       - name: protect non-prod
