@@ -169,7 +169,7 @@ jobs:
       - name: adding bypass to default branch
         run: |
           echo "Adding bypass to $default_branch"
-          response=$(curl -sSf -X PATCH \
+          response=$(curl  -X PATCH \
               -H "Authorization: Bearer $GH_TOKEN" \
               -H "Accept: application/vnd.github+json" \
               -H "Content-Type: application/json" \
