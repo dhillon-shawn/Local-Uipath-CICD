@@ -1,23 +1,24 @@
 name: "Format UiPath analyze.json to HTML"
 description: "Reads analyze.json (utf-8/utf-16) and renders a clean HTML report"
+
 inputs:
   json_path: { required: true, description: "Path to analyze.json" }
-  out_path:  { required: false, default: "./email/analysis-report.html", description: "path to results" }
+  out_path:  { required: false, default: "./email/analysis-report.html", description: "Path to HTML results" }
+
 outputs:
   html:
-   value: ${{ steps.analysis_report.outputs.html }}
-   description: "html test results"
+    value: ${{ steps.analysis_report.outputs.html }}
+    description: "HTML body"
   html_path:
     value: ${{ steps.analysis_report.outputs.html_path }}
-    description: "Path to html results"
+    description: "Path to HTML file"
 
 runs:
   using: "composite"
   steps:
     - name: Ensure output dir
       shell: bash
-      run: mkdir -p "$(dirname '${{ inputs.out_path }}')"
-
+      run: mkdir -p "$(dirname "${{ inputs.out_path }}")"
 
     - name: Convert JSON to HTML
       id: analysis_report
@@ -27,94 +28,79 @@ runs:
         OUT: ${{ inputs.out_path }}
       run: |
         set -euo pipefail
+
         python3 - <<'PY'
-        import json, re, html, sys, pathlib
+        import os, json, re, html, pathlib
 
-        p = pathlib.Path(process.env.IN)
+        IN = os.environ['IN']
+        OUT = os.environ['OUT']
+        p = pathlib.Path(IN)
 
-        def read_json_smart(path: pathlib.Path):
-            b = path.read_bytes()
-            # UTF-8 BOM
-            if b.startswith(b'\xef\xbb\xbf'):
-                return json.loads(b[3:].decode('utf-8'))
-            # UTF-16 LE BOM
-            if b.startswith(b'\xff\xfe'):
-                return json.loads(b[2:].decode('utf-16le'))
-            # UTF-16 BE BOM
-            if b.startswith(b'\xfe\xff'):
-                return json.loads(b[2:].decode('utf-16be'))
+        # Fast BOM-aware loader
+        b = p.read_bytes()
+        if b[:3] == b'\xef\xbb\xbf':
+            s = b[3:].decode('utf-8')
+        elif b[:2] == b'\xff\xfe':
+            s = b[2:].decode('utf-16le')
+        elif b[:2] == b'\xfe\xff':
+            s = b[2:].decode('utf-16be')
+        else:
             try:
-                return json.loads(b.decode('utf-8'))
+                s = b.decode('utf-8')
             except UnicodeDecodeError:
-                return json.loads(b.decode('utf-16'))
+                s = b.decode('utf-16')
 
-        def linkify_markdown(s: str) -> str:
-            # Escape everything except recognized [text](url) spans
+        data = json.loads(s)  # list of [workflow, description, recommendation]
+
+        def linkify_markdown(text: str) -> str:
+            # Escape everything except [text](url)
             out, last = [], 0
-            for m in re.finditer(r'\[([^\]]+)\]\(([^)]+)\)', s):
-                out.append(html.escape(s[last:m.start()]))
-                text = html.escape(m.group(1))
-                url  = html.escape(m.group(2), quote=True)
-                out.append(f'<a href="{url}" target="_blank" rel="noopener noreferrer">{text}</a>')
+            for m in re.finditer(r'\[([^\]]+)\]\(([^)]+)\)', text):
+                out.append(html.escape(text[last:m.start()]))
+                out.append(f'<a href="{html.escape(m.group(2), quote=True)}" target="_blank" rel="noopener noreferrer">{html.escape(m.group(1))}</a>')
                 last = m.end()
-            out.append(html.escape(s[last:]))
+            out.append(html.escape(text[last:]))
             return ''.join(out)
 
-        data = read_json_smart(p)  # expect array of [workflow, description, recommendation]
-
-        html_doc = f'''<!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="utf-8">
-          <title>UiPath Analysis Report</title>
-          <style>
-            body {{ font-family: Arial, Helvetica, sans-serif; margin: 40px; background: #f5f5f5; }}
-            .container {{ max-width: 900px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
-            h1 {{ color: #2c3e50; text-align: center; }}
-            .issue {{ border-bottom: 1px solid #eee; padding: 16px 0; }}
-            .workflow {{ font-weight: bold; color: #e74c3c; font-size: 1.05em; }}
-            .project  {{ font-weight: bold; color: #f39c12; font-size: 1.05em; }}
-            .description {{ margin: 10px 0; color: #555; }}
-            .recommendation {{ background: #f8f9fa; padding: 12px; border-left: 3px solid #28a745; margin-top: 10px; }}
-            a {{ color: #3498db; }}
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <h1>UiPath Analysis Report</h1>
-            <p><strong>{len(data)} issues found</strong></p>
-        '''
+        doc = ["""<!DOCTYPE html>
+        <html><head><meta charset="utf-8"><title>UiPath Analysis Report</title>
+        <style>
+        body{font-family:Arial,Helvetica,sans-serif;margin:40px;background:#f5f5f5}
+        .container{max-width:900px;margin:0 auto;background:#fff;padding:20px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.1)}
+        h1{color:#2c3e50;text-align:center}
+        .issue{border-bottom:1px solid #eee;padding:16px 0}
+        .workflow{font-weight:700;color:#e74c3c}
+        .project{font-weight:700;color:#f39c12}
+        .description{margin:10px 0;color:#555}
+        .recommendation{background:#f8f9fa;padding:12px;border-left:3px solid #28a745;margin-top:10px}
+        a{color:#3498db}
+        </style></head><body><div class="container">
+        <h1>UiPath Analysis Report</h1>""",
+        f"<p><strong>{len(data)} issues found</strong></p>"
+        ]
 
         for workflow, description, recommendation in data:
             name = workflow or "Project Configuration"
-            css_class = "workflow" if workflow else "project"
-            html_doc += f'''
-            <div class="issue">
-              <div class="{css_class}">{html.escape(name)}</div>
-              <div class="description">{html.escape(description)}</div>
-              <div class="recommendation"><strong>Recommendation:</strong> {linkify_markdown(recommendation)}</div>
-            </div>'''
+            css = "workflow" if workflow else "project"
+            doc.append(
+                f'<div class="issue">'
+                f'<div class="{css}">{html.escape(name)}</div>'
+                f'<div class="description">{html.escape(description)}</div>'
+                f'<div class="recommendation"><strong>Recommendation:</strong> {linkify_markdown(recommendation)}</div>'
+                f'</div>'
+            )
 
-        html_doc += '''
-          </div>
-        </body>
-        </html>'''
+        doc.append("</div></body></html>")
+        html_doc = "".join(doc)
 
-        out_path = pathlib.Path(process.env.OUT)
-        out_path.write_text(html_doc, encoding='utf-8')
-        print("::group::HTML preview snippet")
-        print(html_doc[:500] + ("..." if len(html_doc) > 500 else ""))
-        print("::endgroup::")
-
-        # Save a tiny file containing only the HTML for the shell to read
-        pathlib.Path(process.env.OUT).write_text(html_doc, encoding='utf-8')
+        pathlib.Path(OUT).write_text(html_doc, encoding='utf-8')
         PY
 
-  
-            analysis_html="$(cat process.env.OUT)"
-            delim="HTML_$(uuidgen)"
-            {
-              echo "html<<$delim"
-              printf '%s\n' "$analysis_html"
-              echo "$delim"
-            } >> "$GITHUB_OUTPUT"
+        # Publish step outputs (fast, no temp vars)
+        delim="HTML_$(uuidgen)"
+        {
+          echo "html<<$delim"
+          cat "$OUT"
+          echo "$delim"
+          echo "html_path=$OUT"
+        } >> "$GITHUB_OUTPUT"
