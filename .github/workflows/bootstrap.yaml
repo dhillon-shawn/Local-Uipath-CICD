@@ -74,7 +74,7 @@ jobs:
           REPO_SLUG="${{ github.repository_owner }}/${repo}"
 
           # -------------------------
-          # 1) Update main (.github is authoritative here)
+          # Update default branch
           # -------------------------
           git switch "${default_branch}"
           git pull --ff-only origin "${default_branch}"
@@ -98,9 +98,8 @@ jobs:
           fi
 
           # -------------------------
-          # 2) Fetch refs robustly (no depth=0)
+          #  Fetch refs
           # -------------------------
-          # Always fetch main (authoritative source)
           git fetch --prune --no-tags origin \
             "+refs/heads/${default_branch}:refs/remotes/origin/${default_branch}"
 
@@ -121,7 +120,7 @@ jobs:
           # Ensure non-prod exists, rebase onto main, overlay ONLY .github, push
           # -------------------------
 
-          # 0) Fetch refs we care about (no depth=0)
+          # Fetch refs
           git fetch --prune --no-tags origin \
             "+refs/heads/${default_branch}:refs/remotes/origin/${default_branch}"
           git fetch --prune --no-tags origin \
@@ -129,7 +128,7 @@ jobs:
 
           DEFAULT_SRC="origin/${default_branch}"
 
-          # 1) Create or base local non-prod
+          # Create or base local non-prod
           if git ls-remote --exit-code origin "refs/heads/${non_branch}" >/dev/null 2>&1; then
             # remote exists
             git switch -C "${non_branch}" "origin/${non_branch}"
@@ -138,16 +137,16 @@ jobs:
             git switch -C "${non_branch}" "${DEFAULT_SRC}"
           fi
 
-          # 2) If shallow, grab more history so rebase works
+          # If shallow, grab more history so rebase works
           if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
             git fetch --no-tags --deepen=1000 origin "${default_branch}" || true
             git fetch --no-tags --deepen=1000 origin "${non_branch}" || true
           fi
 
-          # 3) Rebase non-prod onto main (keep dev work; ensures “not behind”)
+          # Rebase non-prod onto main (keep dev work; ensures “not behind”)
           git rebase --rebase-merges "${DEFAULT_SRC}"
 
-          # 4) Overlay ONLY .github from main (remove extras, then restore exact tree)
+          # Overlay ONLY .github from main (remove extras, then restore exact tree)
           git rm -r --quiet --ignore-unmatch .github || true
           git restore --source="${DEFAULT_SRC}" --staged --worktree -- .github
 
@@ -156,7 +155,7 @@ jobs:
             git commit -m "chore(.github): sync with ${default_branch} ($(git rev-parse --short ${DEFAULT_SRC}))"
           fi
 
-          # 5) Publish (force since we rebased; also sets upstream once)
+          # Publish (force since we rebased; also sets upstream)
           git push --force -u origin HEAD:"refs/heads/${non_branch}"
 
           echo "::notice:: ${non_branch} is up to date with ${default_branch}; only .github was changed."
