@@ -144,65 +144,79 @@ jobs:
           REPO: ${{ inputs.repo_name }}
           default_branch: ${{ steps.get_default.outputs.DEFAULT_BRANCH }}
         run: |
-            set -euo pipefail
+          set -euo pipefail
 
-            RS_NAME="protect-default-branch"
+              RS_NAME="protect-default-ci"
 
-            # Look up existing ruleset id (if any)
-            RS_ID="$(
-              curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
-                -H "Accept: application/vnd.github+json" \
-                "https://api.github.com/repos/${{ github.repository_owner }}/$REPO/rulesets?per_page=100" \
-              | jq -r --arg n "$RS_NAME" '.[] | select(.name==$n) | .id' | head -n1
-            )"
+              # Find existing ruleset id (if any)
+              RS_ID="$(
+                curl -L \
+                  -H "Authorization: Bearer $GH_TOKEN" \
+                  -H "Accept: application/vnd.github+json" \
+                  "https://api.github.com/repos/${{ github.repository_owner }}/$REPO/rulesets?per_page=100" \
+                | jq -r --arg n "$RS_NAME" '.[] | select(.name==$n) | .id' | head -n1
+              )"
 
-            RULESET_JSON="$(
-              jq -nc \
-                --arg name "$RS_NAME" \
-                --argjson gha 15368 \
-                --argjson myapp ${{ secrets.WORKFLOW_APP_ID }} \
-                '{
-                  name: $name,
-                  target: "branch",
-                  enforcement: "active",
-                  conditions: { ref_name: { include: ["~DEFAULT_BRANCH"], exclude: [] } },
-                  bypass_actors: [
-                    { actor_id: $gha,   actor_type: "Integration", bypass_mode: "always" },
-                    { actor_id: $myapp, actor_type: "Integration", bypass_mode: "always" }
-                  ],
-                  rules: [
-                    {
-                      "type": "pull_request",
-                      "parameters": {
-                        "required_approving_review_count": 1,
-                        "dismiss_stale_reviews_on_push": true,
-                        "require_last_push_approval": true,
-                        "required_review_thread_resolution": true
-                      }
-                    },
-                    { "type": "non_fast_forward" }
-                  ]
-                }'
-            )"
+              # Build the payload (keep it minimal to avoid 422s)
+              RULESET_JSON="$(
+                jq -nc \
+                  --arg name "$RS_NAME" \
+                  --arg owner "${{ github.repository_owner }}" \
+                  --arg repo "$REPO" \
+                  --arg branch "$default_branch" \
+                  --argjson app_id ${{ secrets.WORKFLOW_APP_ID }} \
+                  '{
+                    name: $name,
+                    target: "branch",
+                    enforcement: "active",
+                    conditions: { ref_name: { include: [$branch], exclude: [] } },
+                    bypass_actors: [
+                      { actor_id: ($app_id|tonumber), actor_type: "Integration", bypass_mode: "always" }
+                    ],
+                    rules: [
+                      {
+                        "type": "pull_request",
+                        "parameters": {
+                          "required_approving_review_count": 1,
+                          "require_last_push_approval": true
+                        }
+                      },
+                      { "type": "non_fast_forward" }
+                    ]
+                  }'
+              )"
 
-            if [ -n "$RS_ID" ]; then
-              curl -sSf -X PATCH \
-                -H "Authorization: Bearer $GH_TOKEN" \
-                -H "Accept: application/vnd.github+json" \
-                -H "Content-Type: application/json" \
-                -H "X-GitHub-Api-Version: 2022-11-28" \
-                "https://api.github.com/repos/${{ github.repository_owner }}/$REPO/rulesets/$RS_ID" \
-                -d "$RULESET_JSON"
-            else
-              curl -sSf -X POST \
-                -H "Authorization: Bearer $GH_TOKEN" \
-                -H "Accept: application/vnd.github+json" \
-                -H "Content-Type: application/json" \
-                -H "X-GitHub-Api-Version: 2022-11-28" \
-                "https://api.github.com/repos/${{ github.repository_owner }}/$REPO/rulesets" \
-                -d "$RULESET_JSON"
-            fi
+              # Upsert the ruleset
+              if [ -n "$RS_ID" ]; then
+                curl  -X PATCH \
+                  -H "Authorization: Bearer $GH_TOKEN" \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "Content-Type: application/json" \
+                  -H "X-GitHub-Api-Version: 2022-11-28" \
+                  "https://api.github.com/repos/${{ github.repository_owner }}/$REPO/rulesets/$RS_ID" \
+                  -d "$RULESET_JSON"
+              else
+                curl  -X POST \
+                  -H "Authorization: Bearer $GH_TOKEN" \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "Content-Type: application/json" \
+                  -H "X-GitHub-Api-Version: 2022-11-28" \
+                  "https://api.github.com/repos/${{ github.repository_owner }}/$REPO/rulesets" \
+                  -d "$RULESET_JSON"
+              fi
 
+      - name: turn on auto merge and delete on merge
+        env:
+          REPO: ${{ inputs.repo_name }}
+        run: |
+          curl -L -sSf \
+            -X PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository_owner }}/$REPO" \
+            -d '{"allow_auto_merge": true, "delete_branch_on_merge": true}'
 
 
 
@@ -220,18 +234,7 @@ jobs:
           done
           echo "gh_ids=$(IFS=,; echo "${ids[*]}")" >> $GITHUB_OUTPUT
 
-      - name: turn on auto merge
-        env:
-          REPO: ${{ inputs.repo_name }}
-        run: |
-              curl -L \
-              -X PATCH \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              https://api.github.com/repos/${{ github.repository_owner }}/$REPO \
-              -d '{"allow_auto_merge":true, 
-                   "delete_branch_on_merge": true}'
+
 
       - name: Auth
         if: inputs.folder_name == ''
