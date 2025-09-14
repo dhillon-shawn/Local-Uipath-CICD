@@ -3,8 +3,6 @@ description: Simulate version resolution without external calls
 inputs:
   target_env:      {  required: true, description: "" }
   pid:              {  required: true, description: "" }
-  or_url:           {  required: true, description: "" }
-  token:           {  required: true, description: "" }
 
 outputs:
   version:
@@ -16,7 +14,7 @@ runs:
   steps:
     - name: test
       shell: bash
-      run: echo "Token ${{ inputs.token }}"
+      run: echo "Token ${{ env.TOKEN}} - $TOKEN"
 
 
     - name: Get latest version
@@ -25,8 +23,8 @@ runs:
       run: |
         RESPONSE=$(
           curl --location \
-            --header "Authorization: Bearer ${{ inputs.token }}" \
-            "${{ inputs.or_url }}/odata/Processes/UiPath.Server.Configuration.OData.GetProcessVersions(processId='${{inputs.pid}}')?%24orderby=Version%20desc&%24top=1&%24select=Version"
+            --header "Authorization: Bearer ${{ env.TOKEN }}" \
+            "${{ env.OR_URL }}/odata/Processes/UiPath.Server.Configuration.OData.GetProcessVersions(processId='${{inputs.pid}}')?%24orderby=Version%20desc&%24top=1&%24select=Version"
         )
         LATEST_VERSION=$(echo "$RESPONSE" | jq -r '.value[0].Version')
         if [[ -z "$LATEST_VERSION" || "$LATEST_VERSION" == "null" ]]; then
@@ -42,8 +40,11 @@ runs:
         INPUT_VERSION: ${{ env.LATEST_VERSION }}
       run: |
         # extract first numeric core anywhere (strips prefixes like v/, refs/tags/, etc.)
-        CORE=$(echo "$INPUT_VERSION" | grep -Eo '[0-9]+(\.[0-9]+)*([\-+][0-9A-Za-z\.-]+)?' | head -n1)
-        # drop  +pre/-pre/rc/etc.
+        CORE=$(printf '%s\n' "$INPUT_VERSION" \
+          | LC_ALL=C grep -Eo '[[:digit:]]+(\.[[:digit:]]+)*([+-][[:alnum:].-]+)?' \
+          | head -n1)
+
+        # drop +pre/-pre/rc/etc.
         BASE="${CORE%%+*}"; BASE="${BASE%%-*}"
 
         IFS='.' read -ra PARTS <<< "$BASE"
@@ -74,7 +75,6 @@ runs:
         OPEN: '['
         CLOSE: ']'
       run: |
-
         COMMIT_MSG="$(git log -1 --pretty=%B 2>/dev/null || true)"
         ONE_LINE="$(printf '%s' "$COMMIT_MSG" | tr -d '\r' | tr '\n' ' ')"
 
@@ -94,8 +94,8 @@ runs:
         # Trim spaces
         EXTRACT_TRIMMED="$(printf '%s' "$EXTRACT" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
 
-        # must contain at least one digit
-        if echo "$EXTRACT_TRIMMED" | grep -Eq '[0-9].[0-9]'; then
+        # must contain at least one digit dot digit
+        if printf '%s' "$EXTRACT_TRIMMED" | LC_ALL=C grep -Eq '[[:digit:]]+\.[[:digit:]]+'; then
           COMMIT_VERSION_EXACT="$EXTRACT_TRIMMED"
         else
           COMMIT_VERSION_EXACT=""
@@ -111,7 +111,7 @@ runs:
         COMMIT_VERSION_EXACT: ${{ steps.commit_override.outputs.COMMIT_VERSION_EXACT }}
       run: |
         if [[ -n "$COMMIT_VERSION_EXACT" ]]; then
-          NEW_VERSION="$COMMIT_VERSION_EXACT" 
+          NEW_VERSION="$COMMIT_VERSION_EXACT"
           SRC="Commit Message"
         else
           NEW_VERSION="$AUTO_NEW_VERSION"
@@ -120,5 +120,3 @@ runs:
 
         echo "NEW_VERSION=$NEW_VERSION" >> "$GITHUB_OUTPUT"
         echo "Selected ($SRC): $NEW_VERSION"
-
-

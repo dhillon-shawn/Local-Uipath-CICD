@@ -4,7 +4,7 @@ description: "Collect changed files/message for push/PR and emit a formatted rel
 outputs:
   release_text:
     description: "Human-readable summary"
-    value: ${{ steps.run.outputs.release_text }}
+    value: ${{ steps.format.outputs.release_text }}
 
 runs:
   using: "composite"

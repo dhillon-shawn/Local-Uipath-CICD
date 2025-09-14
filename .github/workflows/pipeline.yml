@@ -104,8 +104,6 @@ jobs:
         with:
           target_env:         ${{ inputs.target_env }}
           pid:                ${{ needs.setup.outputs.pid }}
-          or_url:             ${{ env.OR_URL }}
-          token: $TOKEN
 
       - id: folder
         name: Resolve / create folder

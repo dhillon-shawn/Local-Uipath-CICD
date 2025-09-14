@@ -137,10 +137,3 @@ runs:
 
               echo "Dependencies found:"
               cat libs.txt
-
-      - name: Construct Orchestrator URLS
-        shell: bash
-        id: or
-        run: |
-             echo "TARGET_OR_URL=${{ fromJSON(inputs.vars).TARGET_BASE_URL }}/${{ fromJSON(inputs.vars).TARGET_ORG }}/${{ fromJSON(inputs.vars).TARGET_TENANT }}/orchestrator_" >> "$GITHUB_OUTPUT"
-             echo "SOURCE_OR_URL=${{ fromJSON(inputs.vars).SOURCE_BASE_URL }}/${{ fromJSON(inputs.vars).SOURCE_ORG }}/${{ fromJSON(inputs.vars).SOURCE_TENANT }}/orchestrator_" >> "$GITHUB_OUTPUT"
