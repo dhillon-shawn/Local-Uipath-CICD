@@ -92,11 +92,13 @@ jobs:
             fi
           else
             echo "No .github changes for ${default_branch}."
-            git reset # clear index just in case
+            git reset -q  # clear index if nothing to commit
           fi
 
-          # Capture the exact tree to mirror onto non-prod
-          DEFAULT_HEAD="$(git rev-parse HEAD)"
+          # Use the remote default tip as the source-of-truth for .github
+          git fetch --prune origin "${default_branch}" || true
+          DEFAULT_SRC="origin/${default_branch}"
+          DEFAULT_SHA="$(git rev-parse ${DEFAULT_SRC})"
 
           # -------------------------
           # 2) Ensure non-prod exists and is current
@@ -116,24 +118,50 @@ jobs:
           fi
 
           # -------------------------
-          # 3) Force .github to match DEFAULT_HEAD exactly
-          #    (remove extras, then restore both index+worktree)
+          # 3) Import DEFAULT history (avoid 'behind') and sync .github
+          #    -s ours: take our tree, but add default's history as a parent
+          #    Then overwrite .github from DEFAULT_SRC inside the same commit.
           # -------------------------
-          git rm -r --ignore-unmatch .github || true
-          git restore --source="${DEFAULT_HEAD}" --staged --worktree -- .github
-
-          # Only commit if HEAD actually changes for .github
-          if ! git diff --quiet HEAD -- .github; then
-            # (index already updated by --staged; no need to git add)
-            git commit -m "Sync .github from ${default_branch} (${DEFAULT_HEAD:0:7}) to ${non_branch}"
-            git push origin "${non_branch}"
-            echo "::notice:: ${non_branch} .github updated from ${default_branch}."
+          # Detect if default tip is already an ancestor (shallow-safe fallback)
+          NEED_HISTORY_MERGE=1
+          if git merge-base --is-ancestor "${DEFAULT_SRC}" HEAD 2>/dev/null; then
+            NEED_HISTORY_MERGE=0
           else
-            echo "::notice:: ${non_branch} already matches ${default_branch} for .github."
-            # Make sure index is clean for future steps
-            git reset
+            # If shallow prevents detection, we still merge when tips differ
+            if [ "$(git rev-parse HEAD)" = "${DEFAULT_SHA}" ]; then
+              NEED_HISTORY_MERGE=0
+            fi
           fi
 
+          # Start a no-change merge to import history only
+          if [ "${NEED_HISTORY_MERGE}" -eq 1 ]; then
+            git merge --no-commit -s ours "${DEFAULT_SRC}" || true
+            # We are now in a merge state (MERGE_HEAD present)
+          fi
+
+          # Overwrite .github to match default exactly (removes extras too)
+          git rm -r --ignore-unmatch .github || true
+          git restore --source="${DEFAULT_SRC}" --staged --worktree -- .github
+
+          # Decide whether to finalize a commit
+          if [ "${NEED_HISTORY_MERGE}" -eq 1 ]; then
+            # Always commit to complete the merge; include .github sync
+            git commit -m "Merge ${default_branch} (${DEFAULT_SHA:0:7}) into ${non_branch} (ours); sync .github from ${default_branch}"
+            git push origin "${non_branch}"
+            echo "::notice:: ${non_branch}: merged ${default_branch} history and synced .github."
+          else
+            # No merge needed; only commit if .github actually changed
+            if ! git diff --cached --quiet -- .github; then
+              git commit -m "Sync .github from ${default_branch} (${DEFAULT_SHA:0:7}) to ${non_branch}"
+              git push origin "${non_branch}"
+              echo "::notice:: ${non_branch}: synced .github."
+            else
+              # If a merge was started by mistake, abort it safely
+              git merge --abort || true
+              git reset -q
+              echo "::notice:: ${non_branch} already matches ${default_branch} for .github and history is up to date."
+            fi
+          fi
 
 
       - name: protect non-prod
