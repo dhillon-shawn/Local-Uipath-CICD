@@ -475,7 +475,9 @@ jobs:
         name:
           [
             EMAIL_USERNAME,
-            EMAIL_PASSWORD
+            EMAIL_PASSWORD,
+            RPA_UIPATH_CICD_ROLE_ARN,
+            RPA_UIPATH_CICD_SECRET_ARN
           ]
 
     steps:
