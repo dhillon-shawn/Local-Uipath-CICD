@@ -121,38 +121,33 @@ jobs:
           # Ensure non-prod exists, rebase onto main, overlay ONLY .github, push
           # -------------------------
 
-          # 0) Fetch both refs (no depth=0); create non-prod if missing
+          # 0) Fetch refs we care about (no depth=0)
           git fetch --prune --no-tags origin \
-            "+refs/heads/${default_branch}:refs/remotes/origin/${default_branch}" || true
+            "+refs/heads/${default_branch}:refs/remotes/origin/${default_branch}"
           git fetch --prune --no-tags origin \
             "+refs/heads/${non_branch}:refs/remotes/origin/${non_branch}" || true
 
           DEFAULT_SRC="origin/${default_branch}"
 
+          # 1) Create or base local non-prod
           if git ls-remote --exit-code origin "refs/heads/${non_branch}" >/dev/null 2>&1; then
-            # Recreate local branch from remote tip and ensure tracking
+            # remote exists
             git switch -C "${non_branch}" "origin/${non_branch}"
           else
-            # Create non-prod from main and publish it
+            # remote missing: start from main (will publish later)
             git switch -C "${non_branch}" "${DEFAULT_SRC}"
-            git push -u origin "${non_branch}"
           fi
-          git branch --set-upstream-to="origin/${non_branch}" "${non_branch}" || true
 
-          # If shallow, deepen so rebase has enough history
+          # 2) If shallow, grab more history so rebase works
           if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
             git fetch --no-tags --deepen=1000 origin "${default_branch}" || true
             git fetch --no-tags --deepen=1000 origin "${non_branch}" || true
           fi
 
-          # 1) Rebase non-prod onto main (so it’s never “behind”)
-          if ! git rebase --rebase-merges "${DEFAULT_SRC}"; then
-            echo "::warning:: Rebase conflicts; using history-only merge fallback."
-            git rebase --abort || true
-            git merge -s ours --no-ff -m "history sync with ${default_branch} $(git rev-parse --short ${DEFAULT_SRC})" "${DEFAULT_SRC}"
-          fi
+          # 3) Rebase non-prod onto main (keep dev work; ensures “not behind”)
+          git rebase --rebase-merges "${DEFAULT_SRC}"
 
-          # 2) Overlay ONLY .github from main (remove extras, then restore exact tree)
+          # 4) Overlay ONLY .github from main (remove extras, then restore exact tree)
           git rm -r --quiet --ignore-unmatch .github || true
           git restore --source="${DEFAULT_SRC}" --staged --worktree -- .github
 
@@ -161,47 +156,21 @@ jobs:
             git commit -m "chore(.github): sync with ${default_branch} ($(git rev-parse --short ${DEFAULT_SRC}))"
           fi
 
-          # 3) Push with explicit lease; retry once; then fallback to --force (allowed)
-          attempt_push() {
-            # If remote ref exists, capture its exact SHA for the lease; else push new
-            if git show-ref -q --verify "refs/remotes/origin/${non_branch}"; then
-              REMOTE_SHA="$(git rev-parse -q --verify "refs/remotes/origin/${non_branch}")"
-              git push --force-with-lease="refs/heads/${non_branch}:${REMOTE_SHA}" \
-                origin HEAD:"refs/heads/${non_branch}"
-            else
-              git push -u origin HEAD:"refs/heads/${non_branch}"
-            fi
-          }
-
-          if ! attempt_push; then
-            echo "::notice:: Lease rejected (likely a race). Refetching and retrying once…"
-            git fetch --prune --no-tags origin "+refs/heads/${non_branch}:refs/remotes/origin/${non_branch}" || true
-            # Optional: rebase again in case someone updated main/non-prod while we waited
-            git rebase --rebase-merges "${DEFAULT_SRC}" || { git rebase --abort || true; :; }
-            # re-ensure .github matches
-            git rm -r --quiet --ignore-unmatch .github || true
-            git restore --source="${DEFAULT_SRC}" --staged --worktree -- .github
-            if ! git diff --quiet HEAD -- .github; then
-              git commit -m "chore(.github): sync with ${default_branch} ($(git rev-parse --short ${DEFAULT_SRC}))"
-            fi
-
-            if ! attempt_push; then
-              echo "::warning:: Lease still stale; falling back to plain --force (branch is unprotected and owned by bot)."
-              git push --force origin HEAD:"refs/heads/${non_branch}"
-            fi
-          fi
+          # 5) Publish (force since we rebased; also sets upstream once)
+          git push --force -u origin HEAD:"refs/heads/${non_branch}"
 
           echo "::notice:: ${non_branch} is up to date with ${default_branch}; only .github was changed."
 
 
 
+
       - name: protect non-prod
-        if: false
         env:
           REPO: ${{ inputs.repo_name }}
         run: |
           echo "Protecting Non-Prod"          
-          response=$(curl -sSf -X PUT \
+          response=$(
+          curl -sSf -X PUT \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             -H "Content-Type: application/json" \
@@ -211,7 +180,10 @@ jobs:
               "required_status_checks": null,
               "enforce_admins": false,
               "required_pull_request_reviews": null,
-              "restrictions": null
+              "restrictions": null,
+              "required_linear_history": false,
+              "allow_force_pushes": true,
+              "allow_deletions": false
             }'
           )
           echo "Response $response"
@@ -225,7 +197,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Build minimal, valid payload (no heredocs; no fancy jq conditionals)
           payload="$(
             jq -nc \
               --arg name "Protect ${default_branch}" \
