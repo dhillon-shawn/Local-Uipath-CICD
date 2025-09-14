@@ -167,10 +167,10 @@ jobs:
 
 
       - name: Run CLI Task Analyze
-        run: uipcli package analyze ${{ github.workspace }}/project.json --resultPath "./results/analyze.json" --orchestratorUrl "${{ env.BASE_URL}}" --orchestratorTenant "${{ env.TENANT }}" -A "${{env.ORG}}" -I "${{ env.APP_ID }}" -S "${{env.APP_SECRET}}" --orchestratorApplicationScope "${{env.scope}}" --traceLevel Verbose
+        run: uipcli package analyze ${{ github.workspace }}/project.json --resultPath "./results/analyze.json" --orchestratorUrl "${{ env.BASE_URL}}/" --orchestratorTenant "${{ env.TENANT }}" -A "${{env.ORG}}" -I "${{ env.APP_ID }}" -S "${{env.APP_SECRET}}" --orchestratorApplicationScope "${{env.scope}}" --identityUrl "${{env.BASE_URL}}/identity" --traceLevel "Verbose"
 
       - name: Run CLI Task package
-        run: uipcli package pack ${{ github.workspace }}/project.json --o "./output" -v ${{ needs.resolve-dependencies.outputs.version }} --outputType "${{ needs.setup.outputs.ptype }}" --releaseNotes "${{ needs.setup.outputs.notes }}"  --projectUrl "url" --repositoryCommit "commit" --libraryOrchestratorUrl "${{ env.BASE_URL}}" --libraryOrchestratorTenant "${{ env.TENANT }}" -A "${{env.ORG}}" -I ${{ env.APP_ID }} -S "${{env.APP_SECRET}}" --libraryOrchestratorApplicationScope  "${{env.scope}}"           --traceLevel Verbose
+        run: uipcli package pack ${{ github.workspace }}/project.json --o "./output" -v ${{ needs.resolve-dependencies.outputs.version }} --outputType "${{ needs.setup.outputs.ptype }}" --releaseNotes "${{ needs.setup.outputs.notes }}"  --projectUrl "url" --repositoryCommit "commit" --libraryOrchestratorUrl "${{ env.BASE_URL}}/" --libraryOrchestratorTenant "${{ env.TENANT }}" -A "${{env.ORG}}" -I ${{ env.APP_ID }} -S "${{env.APP_SECRET}}" --libraryOrchestratorApplicationScope  "${{env.scope}}"   --identityUrl "${{env.BASE_URL}}/identity"   --traceLevel "Verbose"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
