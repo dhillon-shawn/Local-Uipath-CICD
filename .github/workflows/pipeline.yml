@@ -168,20 +168,7 @@ jobs:
         run: New-Item -Path "./results" -ItemType Directory
 
 
-      - name: set nuget.config
-        shell: powershell
-        run: |
-          @'
-          <?xml version="1.0" encoding="utf-8"?>
-          <configuration>
-            <packageSources>
-              <clear />
-              <add key="nuget.org"         value="https://api.nuget.org/v3/index.json" />
-            </packageSources>
-          </configuration>
-          '@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
-          $uipcli = (Get-Command uipcli).Source
-          Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
+
 
   #    - name: set nuget.config
   #      shell: powershell
@@ -200,32 +187,13 @@ jobs:
   #        Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
 
 
-      - name: restore
-        shell: powershell
-        env:
-          NUGET_PACKAGES: ${{ runner.temp }}\.nuget-cache
-          NUGET_HTTP_CACHE_PATH: ${{ runner.temp }}\.nuget-http
-        run: |
-          uipcli package restore '${{ github.workspace }}' `
-            --restoreFolder '${{ runner.temp }}\.nuget-cache' `
-            --nugetConfigFilePath '${{ github.workspace }}\nuget.config' `
-            --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
-            --libraryOrchestratorTenant '${{ env.TENANT }}' `
-            -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
-            --libraryOrchestratorApplicationScope '${{ env.scope }}' `
-            --disableBuiltInNugetFeeds `
-            --libraryIdentityUrl '${{ env.BASE_URL }}/identity_' `
-            -y `
-            --traceLevel "Verbose"
 
-            
-            
+
+
+
       - name: analyze
         if: inputs.target_env == 'dev'
         shell: powershell
-        env:
-          NUGET_PACKAGES:        ${{ runner.temp }}\.nuget-cache
-          NUGET_HTTP_CACHE_PATH: ${{ runner.temp }}\.nuget-http
         run: |
           uipcli package analyze '${{ github.workspace }}\project.json' `
             --resultPath '${{ runner.temp }}\analyze.json' `
@@ -244,9 +212,6 @@ jobs:
         if: ${{ inputs.target_env == 'test' && needs.setup.outputs.publishable == 'true' && needs.setup.outputs.ptype == 'Process' }}
 
         shell: powershell
-        env:
-          NUGET_PACKAGES:        ${{ runner.temp }}\.nuget-cache
-          NUGET_HTTP_CACHE_PATH: ${{ runner.temp }}\.nuget-http
         run: |
           uipcli test run '${{ env.BASE_URL }}/' '${{ env.TENANT }}' `
             -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
@@ -284,9 +249,6 @@ jobs:
           
       - name: pack
         shell: powershell
-        env:
-          NUGET_PACKAGES:        ${{ github.workspace }}\.nuget-cache
-          NUGET_HTTP_CACHE_PATH: ${{ github.workspace }}\.nuget-http
         run: |
             $ErrorActionPreference = 'Stop'
             $stage = Join-Path $env:RUNNER_TEMP 'uipack-stage'
