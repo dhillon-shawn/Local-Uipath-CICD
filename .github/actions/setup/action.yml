@@ -155,11 +155,10 @@ runs:
         shell: bash
         id: deployment_matrix
         run: |
-          target="${{ github.event.inputs.target_env }}"
-          case "$target" in
+          case "${{ inputs.target_env }}" in
             dev)     envs='["dev"]' ;;
             test)    envs='["dev","test"]' ;;
             prod|hotfix) envs='["dev","test","prod"]' ;;
-            *) echo "Unknown target_env: $target" >&2; exit 1 ;;
+            *) echo "Unknown target_env: ${{ inputs.target_env }}" >&2; exit 1 ;;
           esac
           echo "DEPLOYMENT_MATRIX={\"env\":$envs}" >> "$GITHUB_OUTPUT"
