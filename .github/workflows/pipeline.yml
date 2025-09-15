@@ -214,8 +214,9 @@ jobs:
             -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
             --libraryOrchestratorApplicationScope '${{ env.scope }}' `
             --disableBuiltInNugetFeeds `
+            --libraryIdentityUrl '${{ env.BASE_URL }}/identity_' `
             -y `
-            --traceLevel 'Verbose'
+            --traceLevel "Verbose"
 
             
             
@@ -234,7 +235,7 @@ jobs:
             --orchestratorApplicationScope '${{env.scope}}' `
             --analyzerTraceLevel "Error" `
             --traceLevel Verbose --disableBuiltInNugetFeeds -y `
-            -identityUrl '${{ env.BASE_URL }}/identity_'
+            --identityUrl '${{ env.BASE_URL }}/identity_'
             
           New-Item -ItemType Directory -Force -Path '.\results' | Out-Null
           Copy-Item '${{ runner.temp }}\analyze.json' '.\results\analyze.json' -Force
@@ -259,7 +260,7 @@ jobs:
             --retryCount '0' `
             --attachRobotLogs `
             --disableBuiltInNugetFeeds `
-            --traceLevel 'Verbose' -y
+            --traceLevel Verbose -y
           
           
           
