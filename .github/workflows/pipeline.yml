@@ -183,21 +183,9 @@ jobs:
       - name: pack
         shell: powershell
         run: |
-            uipcli package pack '${{ github.workspace }}/project.json' --output './output' `
-              --outputType '${{ needs.setup.outputs.ptype }}' `
-              --repositoryUrl 'https://github.com/${{ github.repository_owner }}/${{ github.repository }}' `
-              --repositoryBranch 'non-prod' --repositoryCommit 'commit msg' `
-              --repositoryType 'git' --projectUrl 'project/url.com' `
-              --releaseNotes '${{ needs.setup.outputs.notes }}' --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
-              --libraryOrchestratorTenant '${{ env.TENANT }}' -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
-              --libraryOrchestratorApplicationScope '${{ env.scope }}' 
-              --traceLevel Verbose --disableBuiltInNugetFeeds 
-              
-              
             uipcli package pack '${{ github.workspace }}/project.json' `
               --output './output' `
               --outputType '${{ needs.setup.outputs.ptype }}' `
-              --splitOutput `
               -v '${{ needs.resolve-dependencies.outputs.version }}' `
               --repositoryUrl 'https://github.com/${{ github.repository }}' `
               --repositoryBranch '${{ github.ref_name }}' `
@@ -211,7 +199,7 @@ jobs:
               --libraryOrchestratorApplicationScope '${{ env.scope }}' `
               --disableBuiltInNugetFeeds `
               --traceLevel 'Verbose'
-          
+
       - name: test
         if: (inputs.target_env == 'test') && (${{ needs.setup.outputs.publishable }} == 'true')  && (needs.setup.outputs.ptype == 'Process')
         shell: powershell
