@@ -183,6 +183,12 @@ jobs:
           @'
           <?xml version="1.0" encoding="utf-8"?>
           <configuration>
+            <config>
+              <add key="globalPackagesFolder" value="%ProgramData%\uipath\nuget\packages" />
+            </config>
+            <fallbackPackageFolders>
+              <add key="UiPathMachineCache" value="%ProgramData%\uipath\nuget\packages" />
+            </fallbackPackageFolders>
             <packageSources>
               <clear />
               <add key="UiPath-Marketplace" value="https://gallery.uipath.com/api/v3/index.json" />
@@ -190,6 +196,7 @@ jobs:
             </packageSources>
           </configuration>
           '@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
+
           $uipcli = (Get-Command uipcli).Source
           Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
 
@@ -401,7 +408,19 @@ jobs:
         shell: powershell
         run: dotnet nuget locals all --list
 
+      - name: Upload artifact
+        if: ((${{ needs.setup.outputs.publishable }} == 'true')  && inputs.target_env == 'test') || inputs.target_env == 'dev'
+        uses: actions/upload-artifact@v4
+        with:
+          name: results
+          path: ./results/*
 
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+              name: output
+              path: ./output/
 
   #    - name: Restore, CI (analyze/test cases), Pack, Upload artifacts
   #      id: CLI
