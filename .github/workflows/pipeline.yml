@@ -170,6 +170,18 @@ jobs:
         if: steps.check-uipcli.outputs.has_uipcli != 'true'
         uses: Mikael-RnD/setup-uipath@v2
 
+      - name: Check UiPath CLI
+        shell: powershell
+        run: |
+          $cmd = Get-Command uipcli -ErrorAction SilentlyContinue
+          if ($cmd) {
+            "has_uipcli=true"  >> $env:GITHUB_OUTPUT
+            "uipcli_dir=$((Split-Path $cmd.Source -Parent))" >> $env:GITHUB_OUTPUT
+            Write-Host "Found uipcli in $((Split-Path $cmd.Source -Parent))"
+          } else {
+            "has_uipcli=false" >> $env:GITHUB_OUTPUT
+            Write-Host "uipcli not found on PATH"
+          }
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -219,7 +231,7 @@ jobs:
           "NUGET_PACKAGES=$JOB_NUGET_ROOT\packages"    >> $env:GITHUB_ENV
           "NUGET_HTTP_CACHE_PATH=$JOB_NUGET_ROOT\http" >> $env:GITHUB_ENV
 
-      # 5) Show effective NuGet folders
+
       - name: Confirm NuGet folders
         shell: powershell
         run: |
@@ -252,23 +264,26 @@ jobs:
 
           function Copy-PkgIfExists {
             param([string]$Id,[string]$Version)
-            $src1 = Join-Path (Join-Path $env:MACHINE_NUGET_ROOT 'packages') ($Id.ToLower())
-            $src2 = Join-Path (Join-Path $env:MACHINE_NUGET_ROOT 'packages') $Id
-            $src  = if (Test-Path $src1) { $src1 } elseif (Test-Path $src2) { $src2 } else { $null }
+
+            # Locate Id folder in MACHINE cache (lowercase first, then original case)
+            $mRoot = Join-Path $env:MACHINE_NUGET_ROOT 'packages'
+            $src1  = Join-Path $mRoot ($Id.ToLower())
+            $src2  = Join-Path $mRoot $Id
+            $src   = if (Test-Path $src1) { $src1 } elseif (Test-Path $src2) { $src2 } else { $null }
             if (-not $src) { return $false }
 
             $srcVer = Join-Path $src $Version
             if (-not (Test-Path $srcVer)) { return $false }
 
-            $dstId = Join-Path $env:NUGET_PACKAGES ($Id.ToLower())
+            $dstId  = Join-Path $env:NUGET_PACKAGES ($Id.ToLower())
             $dstVer = Join-Path $dstId $Version
+            if (-not (Test-Path $dstId)) { New-Item -ItemType Directory -Force -Path $dstId | Out-Null }
 
-            if (-not (Test-Path $dstVer)) {
-              New-Item -ItemType Directory -Force -Path $dstId | Out-Null
-              robocopy $srcVer $dstVer /E /NFL /NDL /NJH /NJS /XO /XN /XC | Out-Null
-              $rc = $LASTEXITCODE; if ($rc -ge 8) { throw "robocopy failed with exit $rc" }
-              Write-Host "Primed $Id@$Version -> $dstVer"
-            }
+            # robocopy dir->dir (no wildcard). Treat 0–7 as success.
+            robocopy "$srcVer" "$dstVer" /E /NFL /NDL /NJH /NJS /XO /XN /XC | Out-Null
+            $rc = $LASTEXITCODE
+            if ($rc -ge 8) { throw "robocopy failed with exit $rc while priming $Id@$Version" }
+            Write-Host "robocopy exit $rc (OK) : primed $Id@$Version -> $dstVer"
             return $true
           }
 
@@ -277,9 +292,9 @@ jobs:
             $id  = [string]$p.Name
             $ver = [string]$p.Value
             if ([string]::IsNullOrWhiteSpace($id) -or [string]::IsNullOrWhiteSpace($ver)) { continue }
-            $primed = Copy-PkgIfExists -Id $id -Version $ver
+            $null = Copy-PkgIfExists -Id $id -Version $ver
 
-            # After priming, see if the package is present in JOB cache (NuGet install markers)
+            # Verify NuGet install markers exist in the JOB cache
             $idDir  = Join-Path $env:NUGET_PACKAGES ($id.ToLower())
             $verDir = Join-Path $idDir $ver
             $sha = Get-ChildItem -Path $verDir -Filter '*.nupkg.sha512' -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -295,6 +310,7 @@ jobs:
             "needs_restore=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
             Write-Host "All deps present in JOB cache."
           }
+
 
 
 
@@ -323,11 +339,17 @@ jobs:
         env:
           MACHINE_NUGET_ROOT: ${{ steps.cache-roots.outputs.MACHINE_NUGET_ROOT }}
         run: |
-          $src = Join-Path $env:NUGET_PACKAGES '*'
-          $dst = Join-Path $env:MACHINE_NUGET_ROOT 'packages'
-          robocopy $src $dst /E /NFL /NDL /NJH /NJS /XO /XN /XC | Out-Null
-          $rc = $LASTEXITCODE; if ($rc -ge 8) { throw "robocopy failed with exit $rc" }
-          Write-Host "Backfilled machine cache from JOB cache."
+          $src = $env:NUGET_PACKAGES                              # JOB cache root (directory)
+          $dst = Join-Path $env:MACHINE_NUGET_ROOT 'packages'     # MACHINE cache root
+
+          if (-not (Test-Path $dst)) { New-Item -ItemType Directory -Force -Path $dst | Out-Null }
+
+          # robocopy dir->dir; /E recurse; /XO/XN/XC avoid unnecessary overwrites
+          robocopy "$src" "$dst" /E /NFL /NDL /NJH /NJS /XO /XN /XC | Out-Null
+          $rc = $LASTEXITCODE
+          if ($rc -ge 8) { throw "robocopy failed with exit $rc during backfill" }
+          Write-Host "robocopy exit $rc (OK) : backfilled machine cache."
+
 
       - name: Create Results DIR
         shell: powershell
