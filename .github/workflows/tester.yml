@@ -48,7 +48,7 @@ jobs:
                 jq -r . "$body" || cat "$body"
                 echo "::endgroup::"
 
-                if [[ $curl_rc -ne 0 ]]; then
+                if [[ $curl_rc -ne 0 || "$status" -ge 400 ]]; then
                   exit 1
                 fi
 
@@ -68,6 +68,6 @@ jobs:
                 jq -r . "$body" || cat "$body"
                 echo "::endgroup::"
 
-                if [[ $curl_rc -ne 0 ]]; then
+                if [[ $curl_rc -ne 0 || "$status" -ge 400]]; then
                   exit 1
                 fi
