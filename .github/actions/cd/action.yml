@@ -80,17 +80,16 @@ runs:
       run: |
         set -euo pipefail
         echo "Setting Entry Point on existing Release"
+
+        DATA=$(jq -n --arg ep "${{ env.ENTRY_POINT }}" '{EntryPoint:$ep}')
+
         response=$(curl -fsS -X PATCH \
           -H "Authorization: Bearer ${{ inputs.token }}" \
           -H "X-UIPATH-OrganizationUnitId: ${{ inputs.fid }}" \
           -H "Content-Type: application/json" \
-          --data @- \
-          "${{ inputs.or_url }}/odata/Releases(${{ env.id_found }})" <<JSON
-            {
-              "EntryPoint": "${{ env.ENTRY_POINT }}"
-            }
-            JSON
-        )
+          --data "$DATA" \
+          "${{ inputs.or_url }}/odata/Releases(${{ env.id_found }})")
+
         echo "Response: $response"
 
 
