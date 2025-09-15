@@ -52,22 +52,16 @@ jobs:
 
                 
                 
-          - name: folders
+          - name: releases
             run: |
                 response=$(curl -L  \
                   --header "Authorization: Bearer $TOKEN" \
-                  "${{env.OR_URL}}/odata/Folders"
+                  --header "X-UIPATH-FolderPath" : "t2" \
+                  "${{env.OR_URL}}/odata/Releases"
                 ) 
                 echo "REPONSE $response"
                 
   
-          - name: folders
-            run: |
-                response=$(curl -L  \
-                  "${{env.OR_URL}}/odata/Folders"
-                ) 
-                echo "REPONSE $response"
-
 
 
 
