@@ -2,7 +2,8 @@ name: CD
 description: Continuos Deployment
 
 inputs:
-  FOLDER_NAME: { required: true, description: "" }
+  base_folder_name: { required: true, description: "" }
+  full_folder_name: { required: true, description: "" }
   fid: { required: true, description: "" }
   version: { required: true, description: "" }
   pid: { required: true, description: "" }
@@ -99,7 +100,7 @@ runs:
         if [[ $curl_rc -ne 0 || "$code" -ge 400 ]]; then
           exit 1
         fi
-        rm -f "$code"
+
 
 
     - name: Create Release
