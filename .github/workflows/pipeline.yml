@@ -167,6 +167,40 @@ jobs:
       - name: Create Results DIR
         run: New-Item -Path "./results" -ItemType Directory
 
+
+      # 0) Create a minimal NuGet.config (Marketplace + nuget.org only)
+      - name: Write minimal NuGet.config
+        shell: powershell
+        run: |
+          @'
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="UiPath-Marketplace" value="https://gallery.uipath.com/api/v3/index.json" />
+              <add key="Official" value="https://pkgs.dev.azure.com/uipath/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json" />
+            </packageSources>
+          </configuration>
+          '@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
+
+
+        
+      - name: restore
+        shell: powershell
+        env:
+          NUGET_PACKAGES: ${{ github.workspace }}\.nuget-cache
+        run: |
+          uipcli package restore '${{ github.workspace }}/project.json' `
+            --restoreFolder '${{ github.workspace }}/.nuget-cache' `
+            --nugetConfigFilePath '${{ github.workspace }}/nuget.config' `
+            --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
+            --libraryOrchestratorTenant '${{ env.TENANT }}' `
+            -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
+            --libraryOrchestratorApplicationScope '${{ env.scope }}' `
+            --disableBuiltInNugetFeeds `
+            --traceLevel 'Verbose'
+            
+            
       - name: analyze
         if: inputs.target_env == 'dev'
         shell: powershell
@@ -177,6 +211,8 @@ jobs:
             --orchestratorTenant '${{ env.TENANT}}' `
             -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
             --orchestratorApplicationScope '${{env.scope}}' `
+            --query "violations[?severity == 'Error' ].[workflowDisplayName, description, recommendation]"
+            --stop-on-rule-violation false `
             --traceLevel Verbose --disableBuiltInNugetFeeds
 
 
@@ -201,7 +237,8 @@ jobs:
               --traceLevel 'Verbose'
 
       - name: test
-        if: (inputs.target_env == 'test') && (${{ needs.setup.outputs.publishable }} == 'true')  && (needs.setup.outputs.ptype == 'Process')
+        if: ${{ inputs.target_env == 'test' && needs.setup.outputs.publishable == 'true' && needs.setup.outputs.ptype == 'Process' }}
+
         shell: powershell
         run: |
           uipcli test run '${{ env.BASE_URL }}/' '${{ env.TENANT }}' `
