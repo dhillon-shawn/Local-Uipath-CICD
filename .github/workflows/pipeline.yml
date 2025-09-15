@@ -318,11 +318,12 @@ jobs:
           uipcli package deploy "$($pkg.FullName)" `
             '${{ env.BASE_URL }}/' '${{ env.TENANT }}' `
             -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
-            --orchestratorApplicationScope '${{ env.scope }}' `
+            --applicationScope '${{ env.scope }}' `
             --identityUrl '${{ env.BASE_URL }}/identity_' `
-            --processName '${{ inputs.pid }}' `
+            --processName '${{ needs.setup.outputs.pid }}' `
             --entryPointsPath '${{ needs.setup.outputs.entry_point }}' `
             --traceLevel 'Verbose' `
+            -o '${{ needs.resolve-dependencies.outputs.base_folder_name }}' ` 
             -y
 
             
