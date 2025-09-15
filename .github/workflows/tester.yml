@@ -78,18 +78,29 @@ jobs:
                   exit 1
                 fi
                 
-                
-          - name: releases
-            run: |
-                response=$(curl -L  \
-                  --header "Authorization: Bearer $TOKEN" \
-                  "${{env.OR_URL}}/odata/Releases"
-                ) 
-                echo "REPONSE $response"
           - name: release
             run: |
                 body="$(mktemp)"
-                trap 'rm -f "$body"' EXIT
+                status=$(curl -L -sS \
+                --connect-timeout 10 --max-time 120 \
+                --output "$body" --write-out '%{http_code}' \
+                --header "Authorization: Bearer $TOKEN" \
+                --header "X-UIPATH-FolderPath: t2" \
+                "${{env.OR_URL}}/odata/Releases"
+                ) || curl_rc=$?
+                 
+                echo "Status Code: $status"
+                echo "::group::Response body"
+                jq -r . "$body" || cat "$body"
+                echo "::endgroup::"
+
+                if [[ $curl_rc -ne 0 || "$status" -ge 400 ]]; then
+                  exit 1
+                fi
+
+          - name: release
+            run: |
+                body="$(mktemp)"
                 status=$(curl -L -sS \
                 --connect-timeout 10 --max-time 120 \
                 --output "$body" --write-out '%{http_code}' \
@@ -99,7 +110,7 @@ jobs:
                  
                 echo "Status Code: $status"
                 echo "::group::Response body"
-                if command -v jq >/dev/null; then jq -r . "$body" || cat "$body"; else cat "$body"; fi
+                jq -r . "$body" || cat "$body"
                 echo "::endgroup::"
 
                 if [[ $curl_rc -ne 0 || "$status" -ge 400 ]]; then
