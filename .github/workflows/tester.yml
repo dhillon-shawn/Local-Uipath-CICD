@@ -29,89 +29,44 @@ jobs:
                 scopes: ${{env.scope}}
 
 
-          - name: f1
+
+
+
+          - name: folders
             run: |
-                response=$(curl -L -sS \
-                --connect-timeout 10 --max-time 120 -w '\n%{http_code}' \
-                --header "Authorization: Bearer $TOKEN" \
-                "${{env.OR_URL}}/odata/Folders"
-                )
-                echo "Response: $response"
-                curl_rc=$?
+                body="$(mktemp)"
                 
-                if [[ $curl_rc -ne 0 ]]; then
-                  exit 1
-                fi
-
-          - name: f2
-            run: |
-                body="$(mktemp)"
-                response=$(curl -L -sS \
-                --connect-timeout 10 --max-time 120 --output "$body" --write-out '%{http_code}' \
+                status=$(curl -L -sS \
+                --connect-timeout 10 --max-time 120 \
+                --output "$body" --write-out '%{http_code}' \
                 --header "Authorization: Bearer $TOKEN" \
                 "${{env.OR_URL}}/odata/Folders"
-                )
-                echo "Response: $response"
-                echo "::group::Response body"
-                if command -v jq >/dev/null; then jq -r . "$body" || cat "$body"; else cat "$body"; fi
-                echo "::endgroup::"
-
-                curl_rc=$?
-
-                if [[ $curl_rc -ne 0 ]]; then
-                  exit 1
-                fi
-
-          - name: f2
-            run: |
-                body="$(mktemp)"
-                response=$(curl -L -sS \
-                --connect-timeout 10 --max-time 120 --output "$body" --write-out '%{http_code}' \
-                --header "Authorization: Bearer $TOKEN" \
-                "${{env.OR_URL}}/odata/Folders"
-                )
-                echo "Response: $response"
-                echo "::group::Response body"
-                cat "$body"
-                echo "::endgroup::"
-
-                curl_rc=$?
-
-                if [[ $curl_rc -ne 0 ]]; then
-                  exit 1
-                fi
-          - name: f4
-            run: |
-                body="$(mktemp)"
-                response=$(curl -L -sS \
-                --connect-timeout 10 --max-time 120 --output "$body" --write-out '%{http_code}' \
-                --header "Authorization: Bearer $TOKEN" \
-                "${{env.OR_URL}}/odata/Folders"
-                )
-                echo "Response: $response"
+                ) || curl_rc=$?
+                 
+                echo "Status Code: $status"
                 echo "::group::Response body"
                 jq -r . "$body" || cat "$body"
                 echo "::endgroup::"
 
-                curl_rc=$?
-
                 if [[ $curl_rc -ne 0 ]]; then
                   exit 1
                 fi
-          - name: f5
+
+          - name: folders
             run: |
                 body="$(mktemp)"
-                response=$(curl -L -sS \
-                --connect-timeout 10 --max-time 120 --output "$body" --write-out '%{http_code}' \
+                
+                status=$(curl -L -sS \
+                --connect-timeout 10 --max-time 120 \
+                --output "$body" --write-out '%{http_code}' \
                 --header "Authorization: Bearer $TOKEN" \
-                "${{env.OR_URL}}/odata/Folders"
-                )
-                echo "Response: $response"
+                "${{env.OR_URL}}/odata/Folder"
+                ) || curl_rc=$?
+                 
+                echo "Status Code: $status"
                 echo "::group::Response body"
-                echo "jq -r . "$body" 
+                jq -r . "$body" || cat "$body"
                 echo "::endgroup::"
-
-                curl_rc=$?
 
                 if [[ $curl_rc -ne 0 ]]; then
                   exit 1
