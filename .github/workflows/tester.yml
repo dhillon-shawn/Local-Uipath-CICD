@@ -29,7 +29,8 @@ jobs:
                 scopes: ${{env.scope}}
 
 
-
+          - name: contents
+            run: ls
 
 
           - name: folders
@@ -52,7 +53,7 @@ jobs:
                   exit 1
                 fi
   
-                ls
+
                 
                 
           - name: folders
@@ -74,11 +75,28 @@ jobs:
                 ) || curl_rc=$?
                 echo "REPONSE $reponse"
 
-
           - name: folders
             run: |
                 body="$(mktemp)"
                 trap 'rm -f "$body"' EXIT
+                status=$(curl -L -sS \
+                --connect-timeout 10 --max-time 120 \
+                --output "$body" --write-out '%{http_code}' \
+                --header "Authorization: Bearer " \
+                "${{env.OR_URL}}/odata/Folders"
+                ) || curl_rc=$?
+                 
+                echo "Status Code: $status"
+                echo "::group::Response body"
+                jq -r . "$body" || cat "$body"
+                echo "::endgroup::"
+
+                if [[ $curl_rc -ne 0 || "$status" -ge 400 ]]; then
+                  exit 1
+                fi
+          - name: folders
+            run: |
+                body="$(mktemp)"
                 status=$(curl -L -sS \
                 --connect-timeout 10 --max-time 120 \
                 --output "$body" --write-out '%{http_code}' \
@@ -91,9 +109,6 @@ jobs:
                 if command -v jq >/dev/null; then jq -r . "$body" || cat "$body"; else cat "$body"; fi
                 echo "::endgroup::"
 
-                if [[ $curl_rc -ne 0 || "$status" -ge 400 ]]; then
-                  exit 1
-                fi
                 ls
                 ls templates
 
