@@ -20,6 +20,10 @@ outputs:
         description: ""
         value:    ${{ steps.ptype.outputs.ptype }}
 
+      entry_point:
+        description: ""
+        value:    ${{ steps.entry.outputs.ENTRY_POINT }}
+
       email:
         description: ""
         value:        ${{ steps.author.outputs.EMAIL }}
@@ -39,14 +43,7 @@ outputs:
         value:             ${{ steps.pr.outputs.MIGRATE }}
 
 
-      TARGET_OR_URL:
-        description: ""
-        value:      ${{ steps.or.outputs.TARGET_OR_URL }}
 
-
-      SOURCE_OR_URL:
-        description: ""
-        value:     ${{ steps.or.outputs.SOURCE_OR_URL }}
 
 runs:
   using: composite
@@ -137,3 +134,14 @@ runs:
 
               echo "Dependencies found:"
               cat libs.txt
+
+      - name: Parse Entry Point
+        id: entry
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f "./project.json" ]]; then
+            EP=$(jq -er '.entryPoints[0].filePath' ./project.json)
+            echo "ENTRY_POINT=$EP" >> "$GITHUB_OUTPUT"
+            echo "Entry Point: $EP"
+          fi
