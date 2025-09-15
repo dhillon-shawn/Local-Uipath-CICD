@@ -55,17 +55,31 @@ jobs:
                 rm -f "$body"
                 ls
                 
+                
+                
+          - name: folders
+            run: |
+
+                response=$(curl -L -sS \
+                --connect-timeout 10 --max-time 120 \
+
+                --header "Authorization: Bearer $TOKEN" \
+                "${{env.OR_URL}}/odata/Folder"
+                ) || curl_rc=$?
+                echo "REPONSE $reponse"
+
+
           - name: folders
             run: |
                 body="$(mktemp)"
-                
+                trap 'rm -f "$body"' EXIT
                 status=$(curl -L -sS \
                 --connect-timeout 10 --max-time 120 \
                 --output "$body" --write-out '%{http_code}' \
                 --header "Authorization: Bearer $TOKEN" \
                 "${{env.OR_URL}}/odata/Folder"
                 ) || curl_rc=$?
-                 
+
                 echo "Status Code: $status"
                 echo "::group::Response body"
                 if command -v jq >/dev/null; then jq -r . "$body" || cat "$body"; else cat "$body"; fi
@@ -75,9 +89,9 @@ jobs:
                   exit 1
                 fi
                 ls
-                rm -f "$body"
-                ls
-                
+                ls templates
+
+
 
 
 
