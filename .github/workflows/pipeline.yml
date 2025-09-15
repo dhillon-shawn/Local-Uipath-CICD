@@ -171,7 +171,7 @@ jobs:
               --resultPath ".\results\analyze.json" `
               --orchestratorUrl "https://cloud.uipath.com/" `
               --orchestratorTenant "Default" `
-              -A "dev_sandbox" -I '${{env.APP_ID}}' -S '${{env.APP_SECRET}}' `
+              -A "dev_sandbox" -I "150d1db9-ece4-41ae-99bd-ef095f5e86ee" -S "${{env.APP_SECRET}}" `
               --orchestratorApplicationScope "OR.Default" `
               --traceLevel Verbose --disableBuiltInNugetFeeds
 
