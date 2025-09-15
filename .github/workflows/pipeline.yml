@@ -164,9 +164,25 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: '${{ runner.temp }}/.dotnet'
 
+      - name: analyze
+        shell: powershell
+        env:
+          O: ${{env.ORG}}
+          I: ${{ env.APP_ID}}
+          S: ${{env.APP_SECRET}}
+          T: ${{env.TENANT}}
+        run: |
+            uipcli package analyze "${{ github.workspace }}/project.json" `
+              --resultPath ".\results\analyze.json" `
+              --orchestratorUrl "https://cloud.uipath.com/" `
+              --orchestratorTenant "${{env.T}}" `
+              -A "${{env.O}}" -I "${{env.I}}" -S "${{env.S}}" `
+              --orchestratorApplicationScope "OR.Default" `
+              --traceLevel Verbose
 
-      - name: Run CLI Task Analyze
-        run: uipcli package analyze "${{ github.workspace }}/project.json" --resultPath "./results/analyze.json" --orchestratorUrl "${{ env.BASE_URL}}/" --orchestratorTenant "${{ env.TENANT }}" -A "${{env.ORG}}" -I "${{ env.APP_ID }}" -S "${{env.APP_SECRET}}" --orchestratorApplicationScope "${{env.scope}}"  --traceLevel Verbose --disableBuiltInNugetFeeds --orchestratorFolder "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
+
+    #  - name: Run CLI Task Analyze
+    #    run: uipcli package analyze "${{ github.workspace }}/project.json" --resultPath "./results/analyze.json" --orchestratorUrl "${{ env.BASE_URL}}/" --orchestratorTenant "${{ env.TENANT }}" -A "${{env.ORG}}" -I "${{ env.APP_ID }}" -S "${{env.APP_SECRET}}" --orchestratorApplicationScope "${{env.scope}}"  --traceLevel Verbose --disableBuiltInNugetFeeds --orchestratorFolder "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
 
       - name: Run CLI Task package
         run: uipcli package pack ${{ github.workspace }}/project.json --o "./output" -v ${{ needs.resolve-dependencies.outputs.version }} --outputType "${{ needs.setup.outputs.ptype }}" --releaseNotes "${{ needs.setup.outputs.notes }}"  --projectUrl "url" --repositoryCommit "commit" --libraryOrchestratorUrl "${{ env.BASE_URL}}/" --libraryOrchestratorTenant "${{ env.TENANT }}" -A "${{env.ORG}}" -I ${{ env.APP_ID }} -S "${{env.APP_SECRET}}" --libraryOrchestratorApplicationScope  "${{env.scope}}"   --identityUrl "${{env.BASE_URL}}/identity"   --traceLevel "Verbose" --disableBuiltInNugetFeeds
