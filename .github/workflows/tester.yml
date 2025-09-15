@@ -1,4 +1,4 @@
-name: AWS TEST
+name: TEST
 
 on:
   workflow_dispatch:
@@ -7,6 +7,9 @@ on:
 
 permissions:
     write-all
+
+env:
+  scope: "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines.Read OR.Monitoring OR.Robots.Read OR.Settings.Read OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Users.Read"
 
 jobs:
     Test:
@@ -19,10 +22,11 @@ jobs:
           - name: get dev
             uses: ./.github/actions/auth
             with:
-                env: "DEV"
+                target_env: "dev"
                 role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
                 aws_region: "us-west-2"
                 secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
+                scope: ${{env.scope}}
 
 
           - name: Folder
