@@ -24,6 +24,10 @@ outputs:
         description: ""
         value:    ${{ steps.entry.outputs.ENTRY_POINT }}
 
+      deployment_matrix:
+        description: ""
+        value:    ${{ steps.deployment_matrix.outputs.DEPLOYMENT_MATRIX }}
+
       email:
         description: ""
         value:        ${{ steps.author.outputs.EMAIL }}
@@ -145,3 +149,17 @@ runs:
             echo "ENTRY_POINT=$EP" >> "$GITHUB_OUTPUT"
             echo "Entry Point: $EP"
           fi
+
+
+      - name: create deployment matrix
+        shell: bash
+        id: deployment_matrix
+        run: |
+          target="${{ github.event.inputs.target_env }}"
+          case "$target" in
+            dev)     envs='["dev"]' ;;
+            test)    envs='["dev","test"]' ;;
+            prod|hotfix) envs='["dev","test","prod"]' ;;
+            *) echo "Unknown target_env: $target" >&2; exit 1 ;;
+          esac
+          echo "DEPLOYMENT_MATRIX={\"env\":$envs}" >> "$GITHUB_OUTPUT"

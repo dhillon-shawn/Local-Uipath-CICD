@@ -13,16 +13,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Parse Entry Point
-      shell: bash
-      run: |
-        set -euo pipefail
-        if [[ -f "./project.json" ]]; then
-          EP=$(jq -er '.entryPoints[0].filePath' ./project.json)
-          echo "ENTRY_POINT=$EP" >> "$GITHUB_ENV"
-          echo "Entry Point: $EP"
-        fi
-        
+
     - name: Publishing
       shell: bash
       run: |
@@ -64,7 +55,7 @@ runs:
       if: env.CREATE != 'true'
       run: |
         echo "Upgrading Release "
-        response=$(curl --request POST  --fail --location \
+        response=$(curl --request POST  --location \
           --header "Authorization: Bearer ${{ inputs.token }}" \
           --header "X-UIPATH-OrganizationUnitId: ${{ inputs.fid }}" \
           --header "Content-Type: application/json" \
@@ -76,7 +67,39 @@ runs:
 
 
 
+    - name: Update Release
+      shell: bash
+      if: env.CREATE != 'true'
+      run: |
+        set -euo pipefail
+        echo "Updating Release"
+        
+        code="$(mktemp)"
 
+        response=$(curl --request PATCH -L  \ 
+          -sS --connect-timeout 10 --max-time 120 -w '%{http_code}' >"$code" \
+          -H "Authorization: Bearer ${{ inputs.token }}" \
+          -H "Content-Type: application/json" \
+          -H "X-UIPATH-FolderPath: ${{ inputs.full_folder_name }}" \
+          --data @- \
+          "${{ inputs.or_url }}/odata/Releases(${{ env.id_found }})" <<'JSON'
+              {
+                "Name": "${{ inputs.pid }}",
+                "ProcessKey": "${{ inputs.pid }}",
+                "ProcessVersion": "${{ inputs.version }}",
+                "EntryPointPath": "${{ inputs.entry_point }}",
+                "Description": "https://github.com/${{ github.repository_owner }}/${{ github.repository }}"
+              }
+          JSON
+        )
+        curl_rc=$?
+        set -e
+        echo "Status Code: $code"
+        echo "Response: $reponse"
+        if [[ $curl_rc -ne 0 || "$code" -ge 400 ]]; then
+          exit 1
+        fi
+        rm -f "$code"
 
 
     - name: Create Release

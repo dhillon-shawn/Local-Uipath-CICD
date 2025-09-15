@@ -22,6 +22,7 @@ jobs:
       pid:                  ${{ steps.setup.outputs.PID }}
       ptype:                ${{ steps.setup.outputs.ptype }}
       entry_point:          ${{ steps.setup.outputs.entry_point }}
+      deployment_matrix:          ${{ steps.setup.outputs.deployment_matrix }}
       email:                ${{ steps.setup.outputs.EMAIL }}
       publishable:          ${{ steps.setup.outputs.PUBLISHABLE }}
 
@@ -150,10 +151,6 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.source_ref }}
           persist-credentials: true
-          sparse-checkout: |
-            /*
-            !/.github/
-          sparse-checkout-cone-mode: false
 
       - name: uipath-setup
         uses: Mikael-RnD/setup-uipath@v2
@@ -164,10 +161,6 @@ jobs:
           dotnet-version: '8.0.x'
         env:
           DOTNET_INSTALL_DIR: '${{ runner.temp }}/.dotnet'
-
-      - name: Create Results DIR
-        run: New-Item -Path "./results" -ItemType Directory
-
 
       - name: set nuget.config
         shell: powershell
@@ -186,167 +179,30 @@ jobs:
           Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
 
 
-      - name: restore
-        shell: powershell
-        env:
-          NUGET_PACKAGES: ${{ runner.temp }}\.nuget-cache
-          NUGET_HTTP_CACHE_PATH: ${{ runner.temp }}\.nuget-http
-        run: |
-          uipcli package restore '${{ github.workspace }}' `
-            --restoreFolder '${{ runner.temp }}\.nuget-cache' `
-            --nugetConfigFilePath '${{ github.workspace }}\nuget.config' `
-            --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
-            --libraryOrchestratorTenant '${{ env.TENANT }}' `
-            -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
-            --libraryOrchestratorApplicationScope '${{ env.scope }}' `
-            --disableBuiltInNugetFeeds `
-            --libraryIdentityUrl '${{ env.BASE_URL }}/identity_' `
-            -y `
-            --traceLevel "Verbose"
-
-            
-            
-      - name: analyze
-        if: inputs.target_env == 'dev'
-        shell: powershell
-        env:
-          NUGET_PACKAGES:        ${{ runner.temp }}\.nuget-cache
-          NUGET_HTTP_CACHE_PATH: ${{ runner.temp }}\.nuget-http
-        run: |
-          uipcli package analyze '${{ github.workspace }}\project.json' `
-            --resultPath '${{ runner.temp }}\analyze.json' `
-            --orchestratorUrl '${{ env.BASE_URL }}/' `
-            --orchestratorTenant '${{ env.TENANT}}' `
-            -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
-            --orchestratorApplicationScope '${{env.scope}}' `
-            --analyzerTraceLevel "Error" `
-            --traceLevel Verbose --disableBuiltInNugetFeeds -y `
-            --identityUrl '${{ env.BASE_URL }}/identity_'
-            
-          New-Item -ItemType Directory -Force -Path '.\results' | Out-Null
-          Copy-Item '${{ runner.temp }}\analyze.json' '.\results\analyze.json' -Force
-
-      - name: test
-        if: ${{ inputs.target_env == 'test' && needs.setup.outputs.publishable == 'true' && needs.setup.outputs.ptype == 'Process' }}
-
-        shell: powershell
-        env:
-          NUGET_PACKAGES:        ${{ runner.temp }}\.nuget-cache
-          NUGET_HTTP_CACHE_PATH: ${{ runner.temp }}\.nuget-http
-        run: |
-          uipcli test run '${{ env.BASE_URL }}/' '${{ env.TENANT }}' `
-            -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
-            --identityURL  '${{ env.BASE_URL }}/identity_' `
-            --applicationScope '${{ env.scope }}' `
-            -o '${{ needs.resolve-dependencies.outputs.base_folder_name }}' `
-            -P '${{ github.workspace }}/project.json' `
-            --out 'junit' `
-            --result_path './results/TestResults.xml' `
-            --timeout '7200' `
-            --retryCount '0' `
-            --attachRobotLogs `
-            --disableBuiltInNugetFeeds `
-            --traceLevel Verbose -y
-          
-          
-          
-      - name: stage for pack
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $stage = Join-Path $env:RUNNER_TEMP 'uipack-stage'
-          if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
-          New-Item -ItemType Directory -Path $stage | Out-Null
-
-          robocopy "${{ github.workspace }}" "$stage" /MIR `
-            /XD '.git' '.github' 'output' 'results' '.nuget-cache' '.nuget-http' '.nuget' `
-            /XF '*.nupkg' 'nuget.config'
-
-
-          # Treat Robocopy exit codes 0–7 as success
-          $rc = $LASTEXITCODE
-          if ($rc -ge 8) { throw "robocopy failed with exit $rc" } else { Write-Host "robocopy exit $rc (OK)"; exit 0 }
-
-          
-      - name: pack
-        shell: powershell
-        env:
-          NUGET_PACKAGES:        ${{ github.workspace }}\.nuget-cache
-          NUGET_HTTP_CACHE_PATH: ${{ github.workspace }}\.nuget-http
-        run: |
-            $ErrorActionPreference = 'Stop'
-            $stage = Join-Path $env:RUNNER_TEMP 'uipack-stage'
-            $proj  = Join-Path $stage 'project.json'
-            if (-not (Test-Path $proj)) { throw "Staged project.json not found at $proj" }
-            
-            $stageOut = Join-Path $stage 'output'
-            $repoOut  = Join-Path $env:GITHUB_WORKSPACE 'output'
-            New-Item -ItemType Directory -Force -Path $stageOut | Out-Null
-            New-Item -ItemType Directory -Force -Path $repoOut  | Out-Null
-
-            uipcli package pack "$proj" `
-              --output "$stageOut" `
-              --outputType '${{ needs.setup.outputs.ptype }}' `
-              -v '${{ needs.resolve-dependencies.outputs.version }}' `
-              --repositoryUrl 'https://github.com/${{ github.repository }}' `
-              --repositoryBranch '${{ github.ref_name }}' `
-              --repositoryCommit '${{ github.sha }}' `
-              --repositoryType 'git' `
-              --projectUrl 'https://project/url.com' `
-              --releaseNotes '${{ needs.setup.outputs.notes }}' `
-              --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
-              --libraryOrchestratorTenant '${{ env.TENANT }}' `
-              -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
-              --libraryOrchestratorApplicationScope '${{ env.scope }}' `
-              --libraryIdentityUrl '${{ env.BASE_URL }}/identity_' `
-              --disableBuiltInNugetFeeds `
-              --traceLevel 'Verbose' -y 
-              
-            Get-ChildItem "$stageOut" -Filter '*.nupkg' | ForEach-Object {
-              Copy-Item $_.FullName $repoOut -Force
-              Write-Host "Packaged: $($_.Name) -> $repoOut"
-            }
-
-      - name: Deploy
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-
-          $pkg = Get-ChildItem '${{ github.workspace }}\output' -Recurse -Filter *.nupkg | Select-Object -First 1
-          if (-not $pkg) { throw "No package found under ./output" }
-
-          uipcli package deploy "$($pkg.FullName)" `
-            '${{ env.BASE_URL }}/' '${{ env.TENANT }}' `
-            -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
-            --applicationScope '${{ env.scope }}' `
-            --identityUrl '${{ env.BASE_URL }}/identity_' `
-            --processName '${{ needs.setup.outputs.pid }}' `
-            --entryPointsPath '${{ needs.setup.outputs.entry_point }}' `
-            --traceLevel 'Verbose' `
-            -o '${{ needs.resolve-dependencies.outputs.base_folder_name }}' ` 
-            -y
-
-            
-            
-      - name: Upload artifact
-        if: ((${{ needs.setup.outputs.publishable }} == 'true')  && inputs.target_env == 'test') || inputs.target_env == 'dev'
-        uses: actions/upload-artifact@v4
+      - name: Restore, CI (analyze/test cases), Pack, Upload artifacts
+        id: CLI
+        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/cli@main
         with:
-          name: results
-          path: ./results/*
+          full_folder_name:  "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
+          base_folder_name:  "${{ needs.resolve-dependencies.outputs.base_folder_name }}"
+          target_env:   ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
+          version:      ${{ needs.resolve-dependencies.outputs.version }}
+          ptype:        ${{ needs.setup.outputs.ptype }}
+          pid:          ${{ needs.setup.outputs.pid }}
+          base_url:       ${{ env.BASE_URL }}
+          notes: ${{ needs.setup.outputs.notes }}
 
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-              name: output
-              path: ./output/
 
 
   DEPLOY:
     runs-on: ubuntu-latest
     needs: [setup, resolve-dependencies, CLI   ]
-    if: false
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.setup.outputs.deployment_matrix) }}
+    concurrency:
+      group: deploy-${{ matrix.env }}-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - name: Checkout exact source ref
         uses: actions/checkout@v4
@@ -364,7 +220,7 @@ jobs:
       - name: auth
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
         with:
-                target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
+                target_env: ${{ matrix.env }}
                 role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
                 aws_region: "us-west-2"
                 secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
@@ -375,9 +231,10 @@ jobs:
         id: CD
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/cd@main
         with:
-          FOLDER_NAME:  "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
+          full_folder_name:  "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
+          base_folder_name:  "${{ needs.resolve-dependencies.outputs.base_folder_name }}"
           fid:          ${{ needs.resolve-dependencies.outputs.fid }}
-          target_env:   ${{ inputs.target_env }}
+          target_env:   ${{ matrix.env }}
           version:      ${{ needs.resolve-dependencies.outputs.version }}
           pid:          ${{ needs.setup.outputs.pid }}
           or_url:       ${{ env.OR_URL }}
