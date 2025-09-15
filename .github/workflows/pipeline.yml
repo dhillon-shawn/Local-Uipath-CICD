@@ -242,20 +242,14 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-
-          # Find the UiPath project folder (the one that contains project.json)
-          $src = (Get-ChildItem -Path '${{ github.workspace }}' -Filter 'project.json' -Recurse |
-                  Select-Object -First 1).DirectoryName
-          if (-not $src) { throw "project.json not found under $env:GITHUB_WORKSPACE" }
-
           $stage = Join-Path $env:RUNNER_TEMP 'uipack-stage'
           if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
           New-Item -ItemType Directory -Path $stage | Out-Null
 
-          # Copy only the project, exclude caches/results/etc.
-          robocopy "$src" "$stage" /MIR `
+          robocopy "${{ github.workspace }}" "$stage" /MIR `
             /XD '.git' '.github' '.local' '.settings' 'output' 'results' '.nuget-cache' '.nuget-http' '.nuget' `
             /XF '*.nupkg' 'nuget.config'
+
 
           # Treat Robocopy exit codes 0–7 as success
           $rc = $LASTEXITCODE
@@ -272,11 +266,14 @@ jobs:
             $stage = Join-Path $env:RUNNER_TEMP 'uipack-stage'
             $proj  = Join-Path $stage 'project.json'
             if (-not (Test-Path $proj)) { throw "Staged project.json not found at $proj" }
-
-            New-Item -ItemType Directory -Force -Path '.\output' | Out-Null
+            
+            $stageOut = Join-Path $stage 'output'
+            $repoOut  = Join-Path $env:GITHUB_WORKSPACE 'output'
+            New-Item -ItemType Directory -Force -Path $stageOut | Out-Null
+            New-Item -ItemType Directory -Force -Path $repoOut  | Out-Null
 
             uipcli package pack "$proj" `
-              --output './output' `
+              --output "$stageOut" `
               --outputType '${{ needs.setup.outputs.ptype }}' `
               -v '${{ needs.resolve-dependencies.outputs.version }}' `
               --repositoryUrl 'https://github.com/${{ github.repository }}' `
@@ -291,6 +288,11 @@ jobs:
               --libraryOrchestratorApplicationScope '${{ env.scope }}' `
               --disableBuiltInNugetFeeds `
               --traceLevel 'Verbose' -y
+              
+            Get-ChildItem "$stageOut" -Filter '*.nupkg' | ForEach-Object {
+              Copy-Item $_.FullName $repoOut -Force
+              Write-Host "Packaged: $($_.Name) -> $repoOut"
+            }
 
       - name: test
         if: ${{ inputs.target_env == 'test' && needs.setup.outputs.publishable == 'true' && needs.setup.outputs.ptype == 'Process' }}
