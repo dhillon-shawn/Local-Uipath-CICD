@@ -172,7 +172,7 @@ jobs:
             --orchestratorUrl 'https://cloud.uipath.com/' `
             --orchestratorTenant 'Default' `
             -A 'dev_sandbox' -I '${{env.APP_ID}}' -S '${{env.APP_SECRET}}' `
-            --orchestratorApplicationScope 'OR.Default' `
+            --orchestratorApplicationScope '${{env.scope}}' `
             --traceLevel Verbose --disableBuiltInNugetFeeds
 
 
