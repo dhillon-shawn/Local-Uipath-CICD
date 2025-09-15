@@ -168,8 +168,7 @@ jobs:
         run: New-Item -Path "./results" -ItemType Directory
 
 
-      # 0) Create a minimal NuGet.config (Marketplace + nuget.org only)
-      - name: Write minimal NuGet.config
+      - name: set nuget.config
         shell: powershell
         run: |
           @'
@@ -178,26 +177,22 @@ jobs:
             <packageSources>
               <clear />
               <add key="UiPath-Marketplace" value="https://gallery.uipath.com/api/v3/index.json" />
-              <add key="Official" value="https://pkgs.dev.azure.com/uipath/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json" />
+              <add key="nuget.org"         value="https://api.nuget.org/v3/index.json" />
             </packageSources>
           </configuration>
           '@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
-
-      - name: install nuget.config next to uipcli
-        shell: powershell
-        run: |
           $uipcli = (Get-Command uipcli).Source
           Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
 
-        
+
       - name: restore
         shell: powershell
         env:
-          NUGET_PACKAGES: ${{ github.workspace }}\.nuget-cache
-          NUGET_HTTP_CACHE_PATH: ${{ github.workspace }}\.nuget-http
+          NUGET_PACKAGES: ${{ runner.temp }}\.nuget-cache
+          NUGET_HTTP_CACHE_PATH: ${{ runner.temp }}\.nuget-http
         run: |
           uipcli package restore '${{ github.workspace }}' `
-            --restoreFolder '${{ github.workspace }}\.nuget-cache' `
+            --restoreFolder '${{ runner.temp }}\.nuget-cache' `
             --nugetConfigFilePath '${{ github.workspace }}\nuget.config' `
             --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
             --libraryOrchestratorTenant '${{ env.TENANT }}' `
@@ -213,26 +208,44 @@ jobs:
         if: inputs.target_env == 'dev'
         shell: powershell
         env:
-          NUGET_PACKAGES:        ${{ github.workspace }}\.nuget-cache
-          NUGET_HTTP_CACHE_PATH: ${{ github.workspace }}\.nuget-http
+          NUGET_PACKAGES:        ${{ runner.temp }}\.nuget-cache
+          NUGET_HTTP_CACHE_PATH: ${{ runner.temp }}\.nuget-http
         run: |
-          uipcli package analyze '${{ github.workspace }}' `
-            --resultPath './results/analyze.json' `
+          uipcli package analyze '${{ github.workspace }}\project.json' `
+            --resultPath '${{ runner.temp }}\analyze.json' `
             --orchestratorUrl '${{ env.BASE_URL }}/' `
             --orchestratorTenant '${{ env.TENANT}}' `
             -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
             --orchestratorApplicationScope '${{env.scope}}' `
             --analyzerTraceLevel 'Error' `
             --traceLevel Verbose --disableBuiltInNugetFeeds -y
+            
+          New-Item -ItemType Directory -Force -Path '.\results' | Out-Null
+          Copy-Item '${{ runner.temp }}\analyze.json' '.\results\analyze.json' -Force
 
-
+      - name: stage for pack
+        shell: powershell
+        env:
+          PROJECT_DIR: ${{ env.PROJECT_DIR }}
+        run: |
+          $stage = Join-Path $env:RUNNER_TEMP 'uipack-stage'
+          if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+          New-Item -ItemType Directory -Path $stage | Out-Null
+          robocopy "${{ env.PROJECT_DIR }}" "$stage" /MIR `
+            /XD '.git' '.github' '.local' '.settings' 'output' 'results' '.nuget-cache' '.nuget-http' '.nuget' `
+            /XF '*.nupkg' 'nuget.config'
+          if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit $LASTEXITCODE" }
+          
       - name: pack
         shell: powershell
         env:
           NUGET_PACKAGES:        ${{ github.workspace }}\.nuget-cache
           NUGET_HTTP_CACHE_PATH: ${{ github.workspace }}\.nuget-http
         run: |
-            uipcli package pack '${{ github.workspace }}' `
+            New-Item -ItemType Directory -Force -Path '.\output' | Out-Null
+            $stage = Join-Path $env:RUNNER_TEMP 'uipack-stage'
+            
+            uipcli package pack '$stage\project.json' `
               --output './output' `
               --outputType '${{ needs.setup.outputs.ptype }}' `
               -v '${{ needs.resolve-dependencies.outputs.version }}' `
