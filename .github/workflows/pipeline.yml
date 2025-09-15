@@ -227,26 +227,16 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-
-          # Use PROJECT_DIR if you set it; otherwise auto-find the folder that has project.json
-          $src = $env:PROJECT_DIR
-          if ([string]::IsNullOrWhiteSpace($src)) {
-            $pj = Get-ChildItem -Path '${{ github.workspace }}' -Filter 'project.json' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($pj) { $src = $pj.DirectoryName } else { $src = '${{ github.workspace }}' }
-          }
-          if (-not (Test-Path (Join-Path $src 'project.json'))) {
-            throw "project.json not found in $src"
-          }
-
           $stage = Join-Path $env:RUNNER_TEMP 'uipack-stage'
           if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
           New-Item -ItemType Directory -Path $stage | Out-Null
 
-          robocopy "$src" "$stage" /MIR `
+          # Copy ONLY the UiPath project, exclude caches/results so they won't be packaged
+          robocopy "${{ github.workspace }}" "$stage" /MIR `
             /XD '.git' '.github' '.local' '.settings' 'output' 'results' '.nuget-cache' '.nuget-http' '.nuget' `
             /XF '*.nupkg' 'nuget.config'
 
-          # Normalize robocopy exit code: 0–7 are success
+          # Normalize robocopy exit code (0–7 are success)
           $rc = $LASTEXITCODE
           if ($rc -ge 8) { throw "robocopy failed with exit $rc" } else { Write-Host "robocopy exit $rc (OK)"; exit 0 }
 
@@ -257,10 +247,13 @@ jobs:
           NUGET_PACKAGES:        ${{ github.workspace }}\.nuget-cache
           NUGET_HTTP_CACHE_PATH: ${{ github.workspace }}\.nuget-http
         run: |
-            New-Item -ItemType Directory -Force -Path '.\output' | Out-Null
             $stage = Join-Path $env:RUNNER_TEMP 'uipack-stage'
-            
-            uipcli package pack '$stage\project.json' `
+            $proj = Join-Path $stage 'project.json'
+            if (-not (Test-Path $proj)) { throw "Staged project.json not found at $proj" }
+
+            New-Item -ItemType Directory -Force -Path '.\output' | Out-Null
+
+            uipcli package pack '$proj' `
               --output './output' `
               --outputType '${{ needs.setup.outputs.ptype }}' `
               -v '${{ needs.resolve-dependencies.outputs.version }}' `
