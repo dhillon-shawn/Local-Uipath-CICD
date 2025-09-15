@@ -213,7 +213,7 @@ jobs:
             --orchestratorTenant '${{ env.TENANT}}' `
             -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
             --orchestratorApplicationScope '${{env.scope}}' `
-            --query "violations[?severity == 'Error' ].[workflowDisplayName, description, recommendation]"
+            --query "violations[?severity == 'Error' ].[workflowDisplayName, description, recommendation]" `
             --stop-on-rule-violation false `
             --traceLevel Verbose --disableBuiltInNugetFeeds -y
 
