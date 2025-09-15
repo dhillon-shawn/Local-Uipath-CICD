@@ -29,10 +29,6 @@ jobs:
                 scopes: ${{env.scope}}
 
 
-          - name: contents
-            run: ls
-
-
           - name: folders
             run: |
                 body="$(mktemp)"
@@ -58,11 +54,10 @@ jobs:
                 
           - name: folders
             run: |
-                ls
                 response=$(curl -L -sS \
                 --connect-timeout 10 --max-time 120 \
                 --header "Authorization: Bearer $TOKEN" \
-                "${{env.OR_URL}}/odata/Folder"
+                "${{env.OR_URL}}/odata/Folders"
                 ) 
                 echo "REPONSE $reponse"
                 
@@ -70,11 +65,18 @@ jobs:
             run: |
                 response=$(curl -L -sS \
                 --connect-timeout 10 --max-time 120 \
-                --header "Authorization: Bearer $TOKEN" \
-                "${{env.OR_URL}}/odata/Folder"
+                --header "Authorization: Bearer " \
+                "${{env.OR_URL}}/odata/Folders"
                 ) || curl_rc=$?
                 echo "REPONSE $reponse"
 
+          - name: folders
+            run: |
+                response=$(curl -L -sS \
+                --connect-timeout 10 --max-time 120 \
+                "${{env.OR_URL}}/odata/Folders"
+                ) || curl_rc=$?
+                echo "REPONSE $reponse"
           - name: folders
             run: |
                 body="$(mktemp)"
