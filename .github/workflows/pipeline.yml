@@ -190,22 +190,22 @@ jobs:
         env:
           NUGET_PACKAGES: ${{ github.workspace }}\.nuget-cache
         run: |
-          uipcli package restore '${{ github.workspace }}/project.json' `
-            --restoreFolder '${{ github.workspace }}/.nuget-cache' `
-            --nugetConfigFilePath '${{ github.workspace }}/nuget.config' `
+          uipcli package restore '${{ github.workspace }}\project.json' `
+            --restoreFolder '${{ github.workspace }}\.nuget-cache' `
+            --nugetConfigFilePath '${{ github.workspace }}\nuget.config' `
             --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
             --libraryOrchestratorTenant '${{ env.TENANT }}' `
             -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
             --libraryOrchestratorApplicationScope '${{ env.scope }}' `
             --disableBuiltInNugetFeeds `
-            --traceLevel 'Verbose'
+            --traceLevel 'Verbose' -y
             
             
       - name: analyze
         if: inputs.target_env == 'dev'
         shell: powershell
         run: |
-          uipcli package analyze '${{ github.workspace }}/project.json' `
+          uipcli package analyze '${{ github.workspace }}\project.json' `
             --resultPath './results/analyze.json' `
             --orchestratorUrl '${{ env.BASE_URL }}/' `
             --orchestratorTenant '${{ env.TENANT}}' `
@@ -213,7 +213,7 @@ jobs:
             --orchestratorApplicationScope '${{env.scope}}' `
             --query "violations[?severity == 'Error' ].[workflowDisplayName, description, recommendation]"
             --stop-on-rule-violation false `
-            --traceLevel Verbose --disableBuiltInNugetFeeds
+            --traceLevel Verbose --disableBuiltInNugetFeeds -y
 
 
       - name: pack
@@ -234,7 +234,7 @@ jobs:
               -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
               --libraryOrchestratorApplicationScope '${{ env.scope }}' `
               --disableBuiltInNugetFeeds `
-              --traceLevel 'Verbose'
+              --traceLevel 'Verbose' -y
 
       - name: test
         if: ${{ inputs.target_env == 'test' && needs.setup.outputs.publishable == 'true' && needs.setup.outputs.ptype == 'Process' }}
@@ -252,7 +252,7 @@ jobs:
             --retryCount '0' `
             --attachRobotLogs `
             --disableBuiltInNugetFeeds `
-            --traceLevel 'Verbose'
+            --traceLevel 'Verbose' -y
             
             
       - name: Upload artifact
