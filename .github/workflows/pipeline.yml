@@ -189,16 +189,14 @@ jobs:
         shell: powershell
         env:
           NUGET_PACKAGES: ${{ github.workspace }}\.nuget-cache
-          PROJECT_DIR: ${{ github.workspace }}
         run: |
-          uipcli package restore '${{ env.PROJECT_DIR }}' `
+          uipcli package restore '${{ github.workspace }}' `
             --restoreFolder '${{ github.workspace }}\.nuget-cache' `
             --nugetConfigFilePath '${{ github.workspace }}\nuget.config' `
             --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
             --libraryOrchestratorTenant '${{ env.TENANT }}' `
             -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
             --libraryOrchestratorApplicationScope '${{ env.scope }}' `
-            --libraryOrchestratorFolder '${{ env.FOLDER }}' `
             --disableBuiltInNugetFeeds `
             -y `
             --traceLevel 'Verbose'
