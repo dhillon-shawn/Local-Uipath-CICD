@@ -231,7 +231,7 @@ jobs:
           $stage = Join-Path $env:RUNNER_TEMP 'uipack-stage'
           if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
           New-Item -ItemType Directory -Path $stage | Out-Null
-          robocopy "${{ env.PROJECT_DIR }}" "$stage" /MIR `
+          robocopy "${{ github.workspace }}" "$stage" /MIR `
             /XD '.git' '.github' '.local' '.settings' 'output' 'results' '.nuget-cache' '.nuget-http' '.nuget' `
             /XF '*.nupkg' 'nuget.config'
           if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit $LASTEXITCODE" }
