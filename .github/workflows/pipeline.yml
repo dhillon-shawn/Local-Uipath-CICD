@@ -167,7 +167,7 @@ jobs:
       - name: analyze
         shell: powershell
         run: |
-            uipcli package analyze "D:\a\t2\t2\project.json" `
+            uipcli package analyze "./project.json" `
               --resultPath ".\results\analyze.json" `
               --orchestratorUrl "https://cloud.uipath.com/" `
               --orchestratorTenant "Default" `
