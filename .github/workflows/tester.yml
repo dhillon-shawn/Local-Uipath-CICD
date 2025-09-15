@@ -45,7 +45,7 @@ jobs:
 
           - name: f2
             run: |
-            
+                body="$(mktemp)"
                 response=$(curl -L -sS \
                 --connect-timeout 10 --max-time 120 --output "$body" --write-out '%{http_code}' \
                 --header "Authorization: Bearer $TOKEN" \
@@ -64,7 +64,7 @@ jobs:
 
           - name: f3
             run: |
-            
+                body="$(mktemp)"
                 response=$(curl -L -sS \
                 --connect-timeout 10 --max-time 120 --output "$body" --write-out '%{http_code}' \
                 --header "Authorization: Bearer $TOKEN" \
