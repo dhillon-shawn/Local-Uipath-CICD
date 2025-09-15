@@ -54,7 +54,7 @@ jobs:
                 
           - name: folders
             run: |
-                response=$(curl -L -sS \
+                response=$(curl -L  \
                 --connect-timeout 10 --max-time 120 \
                 --header "Authorization: Bearer $TOKEN" \
                 "${{env.OR_URL}}/odata/Folders"
@@ -63,7 +63,7 @@ jobs:
                 
           - name: folders
             run: |
-                response=$(curl -L -sS \
+                response=$(curl -L  \
                 --connect-timeout 10 --max-time 120 \
                 --header "Authorization: Bearer " \
                 "${{env.OR_URL}}/odata/Folders"
@@ -72,10 +72,10 @@ jobs:
 
           - name: folders
             run: |
-                response=$(curl -L -sS \
+                response=$(curl -L  \
                 --connect-timeout 10 --max-time 120 \
                 "${{env.OR_URL}}/odata/Folders"
-                ) || curl_rc=$?
+                ) 
                 echo "REPONSE $reponse"
           - name: folders
             run: |
