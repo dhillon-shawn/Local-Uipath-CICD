@@ -26,10 +26,10 @@ jobs:
                 role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
                 aws_region: "us-west-2"
                 secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
-                scope: ${{env.scope}}
+                scopes: ${{env.scope}}
 
 
-          - name: Folder
+          - name: f1
             run: |
                 response=$(curl -L -sS \
                 --connect-timeout 10 --max-time 120 -w '\n%{http_code}' \
@@ -39,6 +39,44 @@ jobs:
                 echo "Response: $response"
                 curl_rc=$?
                 
+                if [[ $curl_rc -ne 0 ]]; then
+                  exit 1
+                fi
+
+          - name: f2
+            run: |
+            
+                response=$(curl -L -sS \
+                --connect-timeout 10 --max-time 120 --output "$body" --write-out '%{http_code}' \
+                --header "Authorization: Bearer $TOKEN" \
+                "${{env.OR_URL}}/odata/Folders"
+                )
+                echo "Response: $response"
+                echo "::group::Response body"
+                if command -v jq >/dev/null; then jq -r . "$body" || cat "$body"; else cat "$body"; fi
+                echo "::endgroup::"
+
+                curl_rc=$?
+
+                if [[ $curl_rc -ne 0 ]]; then
+                  exit 1
+                fi
+
+          - name: f3
+            run: |
+            
+                response=$(curl -L -sS \
+                --connect-timeout 10 --max-time 120 --output "$body" --write-out '%{http_code}' \
+                --header "Authorization: Bearer $TOKEN" \
+                "${{env.OR_URL}}/odata/Folders"
+                )
+                echo "Response: $response"
+
+                if command -v jq >/dev/null; then jq -r . "$body" || cat "$body"; else cat "$body"; fi
+
+
+                curl_rc=$?
+
                 if [[ $curl_rc -ne 0 ]]; then
                   exit 1
                 fi
