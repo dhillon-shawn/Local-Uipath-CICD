@@ -176,7 +176,7 @@ jobs:
           <configuration>
             <packageSources>
               <clear />
-              <add key="UiPath-Marketplace" value="https://gallery.uipath.com/api/v3/index.json" />
+              <add key="nuget.org"         value="https://api.nuget.org/v3/index.json" />
             </packageSources>
           </configuration>
           '@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
@@ -242,16 +242,22 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
+
+          # Find the UiPath project folder (the one that contains project.json)
+          $src = (Get-ChildItem -Path '${{ github.workspace }}' -Filter 'project.json' -Recurse |
+                  Select-Object -First 1).DirectoryName
+          if (-not $src) { throw "project.json not found under $env:GITHUB_WORKSPACE" }
+
           $stage = Join-Path $env:RUNNER_TEMP 'uipack-stage'
           if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
           New-Item -ItemType Directory -Path $stage | Out-Null
 
-          # Copy ONLY the UiPath project, exclude caches/results so they won't be packaged
-          robocopy "${{ github.workspace }}" "$stage" /MIR `
+          # Copy only the project, exclude caches/results/etc.
+          robocopy "$src" "$stage" /MIR `
             /XD '.git' '.github' '.local' '.settings' 'output' 'results' '.nuget-cache' '.nuget-http' '.nuget' `
             /XF '*.nupkg' 'nuget.config'
 
-          # Normalize robocopy exit code (0–7 are success)
+          # Treat Robocopy exit codes 0–7 as success
           $rc = $LASTEXITCODE
           if ($rc -ge 8) { throw "robocopy failed with exit $rc" } else { Write-Host "robocopy exit $rc (OK)"; exit 0 }
 
@@ -262,13 +268,14 @@ jobs:
           NUGET_PACKAGES:        ${{ github.workspace }}\.nuget-cache
           NUGET_HTTP_CACHE_PATH: ${{ github.workspace }}\.nuget-http
         run: |
+            $ErrorActionPreference = 'Stop'
             $stage = Join-Path $env:RUNNER_TEMP 'uipack-stage'
-            $proj = Join-Path $stage 'project.json'
+            $proj  = Join-Path $stage 'project.json'
             if (-not (Test-Path $proj)) { throw "Staged project.json not found at $proj" }
 
             New-Item -ItemType Directory -Force -Path '.\output' | Out-Null
 
-            uipcli package pack '$proj' `
+            uipcli package pack "$proj" `
               --output './output' `
               --outputType '${{ needs.setup.outputs.ptype }}' `
               -v '${{ needs.resolve-dependencies.outputs.version }}' `
