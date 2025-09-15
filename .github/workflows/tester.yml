@@ -56,7 +56,7 @@ jobs:
             run: |
                 response=$(curl -L  \
                   --header "Authorization: Bearer $TOKEN" \
-                  --header "X-UIPATH-FolderPath" : "t2" \
+                  --header "X-UIPATH-FolderPath: t2" \
                   "${{env.OR_URL}}/odata/Releases"
                 ) 
                 echo "REPONSE $response"
