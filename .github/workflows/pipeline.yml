@@ -166,19 +166,14 @@ jobs:
 
       - name: analyze
         shell: powershell
-        env:
-          O: ${{env.ORG}}
-          I: ${{ env.APP_ID}}
-          S: ${{env.APP_SECRET}}
-          T: ${{env.TENANT}}
         run: |
-            uipcli package analyze "${{ github.workspace }}/project.json" `
+            uipcli package analyze "D:\a\t2\t2\project.json" `
               --resultPath ".\results\analyze.json" `
               --orchestratorUrl "https://cloud.uipath.com/" `
-              --orchestratorTenant "${{env.T}}" `
-              -A "${{env.O}}" -I "${{env.I}}" -S "${{env.S}}" `
+              --orchestratorTenant "Default" `
+              -A "dev_sandbox" -I "${{env.APP_ID}}" -S "${{env.APP_SECRET}}" `
               --orchestratorApplicationScope "OR.Default" `
-              --traceLevel Verbose
+              --traceLevel Verbose --disableBuiltInNugetFeeds
 
 
     #  - name: Run CLI Task Analyze
