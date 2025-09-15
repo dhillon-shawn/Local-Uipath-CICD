@@ -183,96 +183,93 @@ jobs:
           @'
           <?xml version="1.0" encoding="utf-8"?>
           <configuration>
-            <config>
-              <add key="globalPackagesFolder" value="%ProgramData%\uipath\nuget\packages" />
-            </config>
-            <fallbackPackageFolders>
-              <add key="UiPathMachineCache" value="%ProgramData%\uipath\nuget\packages" />
-            </fallbackPackageFolders>
+            <!-- Feeds -->
             <packageSources>
               <clear />
               <add key="UiPath-Marketplace" value="https://gallery.uipath.com/api/v3/index.json" />
               <add key="Official"           value="https://pkgs.dev.azure.com/uipath/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json" />
             </packageSources>
+            <!-- Optional: keep in sync with MACHINE_NUGET_ROOT below
+                NuGet honors NUGET_PACKAGES env first; this is a fallback -->
+            <config>
+              <add key="globalPackagesFolder" value="%ProgramData%\uipath\nuget\packages" />
+            </config>
           </configuration>
           '@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
 
           $uipcli = (Get-Command uipcli).Source
           Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
 
-      - name: Configure NuGet caches (machine path with fallback)
-        id: nuget-paths
+
+      - name: Configure NuGet cache roots
+        id: cache-roots
         shell: powershell
         run: |
-          $persistentRoot = Join-Path $env:ProgramData 'uipath\nuget'
-          $useRoot = $persistentRoot
-          try {
-            New-Item -ItemType Directory -Force -Path (Join-Path $useRoot 'packages'),(Join-Path $useRoot 'http') | Out-Null
-          } catch {
-            Write-Warning "Could not create $persistentRoot; falling back to RUNNER_TEMP."
-            $useRoot = Join-Path $env:RUNNER_TEMP 'uipath-nuget'
-            New-Item -ItemType Directory -Force -Path (Join-Path $useRoot 'packages'),(Join-Path $useRoot 'http') | Out-Null
-          }
+          $MACHINE_NUGET_ROOT = Join-Path $env:ProgramData 'uipath\nuget'
+          $JOB_NUGET_ROOT     = Join-Path $env:RUNNER_TEMP  'nuget'
 
-          "NUGET_PACKAGES=$useRoot\packages"         >> $env:GITHUB_ENV
-          "NUGET_HTTP_CACHE_PATH=$useRoot\http"      >> $env:GITHUB_ENV
-          "nuget_root=$useRoot"                      >> $env:GITHUB_OUTPUT
-          Write-Host "NuGet packages: $useRoot\packages"
-          Write-Host "NuGet http cache: $useRoot\http"
-          
-      - name: Show NuGet cache locations
+          New-Item -ItemType Directory -Force -Path `
+            (Join-Path $MACHINE_NUGET_ROOT 'packages'),(Join-Path $MACHINE_NUGET_ROOT 'http'),`
+            (Join-Path $JOB_NUGET_ROOT     'packages'),(Join-Path $JOB_NUGET_ROOT     'http') | Out-Null
+
+          "MACHINE_NUGET_ROOT=$MACHINE_NUGET_ROOT" >> $env:GITHUB_OUTPUT
+          "JOB_NUGET_ROOT=$JOB_NUGET_ROOT"         >> $env:GITHUB_OUTPUT
+
+          # For the current job, point NuGet *at the JOB cache* (fast & isolated)
+          "NUGET_PACKAGES=$JOB_NUGET_ROOT\packages"    >> $env:GITHUB_ENV
+          "NUGET_HTTP_CACHE_PATH=$JOB_NUGET_ROOT\http" >> $env:GITHUB_ENV
+
+      # 5) Show effective NuGet folders
+      - name: Confirm NuGet folders
         shell: powershell
-        run: dotnet nuget locals all --list
+        run: |
+          Write-Host "NUGET_PACKAGES=$env:NUGET_PACKAGES"
+          Write-Host "NUGET_HTTP_CACHE_PATH=$env:NUGET_HTTP_CACHE_PATH"
+          dotnet nuget locals all --list
 
-
-      - name: Decide if restore is needed
+          
+      - name: Prime cache + depcheck
         id: depcheck
         shell: powershell
         env:
-          NUGET_PACKAGES:        ${{ env.NUGET_PACKAGES }}
-          NUGET_HTTP_CACHE_PATH: ${{ env.NUGET_HTTP_CACHE_PATH }}
+          MACHINE_NUGET_ROOT: ${{ steps.cache-roots.outputs.MACHINE_NUGET_ROOT }}
         run: |
           $ErrorActionPreference = 'Stop'
-
           $proj = Join-Path $env:GITHUB_WORKSPACE 'project.json'
           if (-not (Test-Path $proj)) { throw "project.json not found at $proj" }
 
           $json = Get-Content $proj -Raw | ConvertFrom-Json
-
-          # Gather top-level UiPath dependencies.
           $depProps = @()
           if ($json.PSObject.Properties.Name -contains 'dependencies' -and $json.dependencies) {
             $depProps = $json.dependencies.PSObject.Properties
           }
 
           if (-not $depProps -or $depProps.Count -eq 0) {
-            Write-Host "No 'dependencies' section found in project.json. Skipping restore."
+            Write-Host "No 'dependencies' found; skipping restore."
             'needs_restore=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
             exit 0
           }
 
-          function Test-PackagePresent {
-            param(
-              [Parameter(Mandatory=$true)][string]$Id,
-              [Parameter(Mandatory=$true)][string]$Version
-            )
-            # NuGet global-packages layout: <root>\<id-lower>\<version>\
-            $idLower = $Id.ToLower()
-            $idDir   = Join-Path $env:NUGET_PACKAGES $idLower
-            if (-not (Test-Path $idDir)) {
-              # Rarely NuGet may keep original casing; try that too
-              $idDirOrig = Join-Path $env:NUGET_PACKAGES $Id
-              if (-not (Test-Path $idDirOrig)) { return $false }
-              $idDir = $idDirOrig
+          function Copy-PkgIfExists {
+            param([string]$Id,[string]$Version)
+            $src1 = Join-Path (Join-Path $env:MACHINE_NUGET_ROOT 'packages') ($Id.ToLower())
+            $src2 = Join-Path (Join-Path $env:MACHINE_NUGET_ROOT 'packages') $Id
+            $src  = if (Test-Path $src1) { $src1 } elseif (Test-Path $src2) { $src2 } else { $null }
+            if (-not $src) { return $false }
+
+            $srcVer = Join-Path $src $Version
+            if (-not (Test-Path $srcVer)) { return $false }
+
+            $dstId = Join-Path $env:NUGET_PACKAGES ($Id.ToLower())
+            $dstVer = Join-Path $dstId $Version
+
+            if (-not (Test-Path $dstVer)) {
+              New-Item -ItemType Directory -Force -Path $dstId | Out-Null
+              robocopy $srcVer $dstVer /E /NFL /NDL /NJH /NJS /XO /XN /XC | Out-Null
+              $rc = $LASTEXITCODE; if ($rc -ge 8) { throw "robocopy failed with exit $rc" }
+              Write-Host "Primed $Id@$Version -> $dstVer"
             }
-
-            $verDir = Join-Path $idDir $Version
-            if (-not (Test-Path $verDir)) { return $false }
-
-            # NuGet "install markers" proving the package was fully restored
-            $sha = Get-ChildItem -Path $verDir -Filter '*.nupkg.sha512' -ErrorAction SilentlyContinue | Select-Object -First 1
-            $met = Get-ChildItem -Path $verDir -Filter '*.nupkg.metadata' -ErrorAction SilentlyContinue | Select-Object -First 1
-            return ($sha -ne $null -and $met -ne $null)
+            return $true
           }
 
           $missing = New-Object System.Collections.Generic.List[string]
@@ -280,27 +277,33 @@ jobs:
             $id  = [string]$p.Name
             $ver = [string]$p.Value
             if ([string]::IsNullOrWhiteSpace($id) -or [string]::IsNullOrWhiteSpace($ver)) { continue }
-            if (-not (Test-PackagePresent -Id $id -Version $ver)) {
-              $missing.Add("$id@$ver")
-            }
+            $primed = Copy-PkgIfExists -Id $id -Version $ver
+
+            # After priming, see if the package is present in JOB cache (NuGet install markers)
+            $idDir  = Join-Path $env:NUGET_PACKAGES ($id.ToLower())
+            $verDir = Join-Path $idDir $ver
+            $sha = Get-ChildItem -Path $verDir -Filter '*.nupkg.sha512' -ErrorAction SilentlyContinue | Select-Object -First 1
+            $met = Get-ChildItem -Path $verDir -Filter '*.nupkg.metadata' -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not ($sha -and $met)) { $missing.Add("$id@$ver") }
           }
 
           if ($missing.Count -gt 0) {
-            Write-Host "Missing packages in global cache ($env:NUGET_PACKAGES): $($missing -join ', ')"
-            'needs_restore=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "needs_restore=true"             | Out-File -FilePath $env:GITHUB_OUTPUT -Append
             "missing=$($missing -join ', ')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            Write-Host "Missing in JOB cache: $($missing -join ', ')"
           } else {
-            Write-Host "All top-level dependencies present in $env:NUGET_PACKAGES."
-            'needs_restore=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "needs_restore=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            Write-Host "All deps present in JOB cache."
           }
+
 
 
       - name: restore
         if: steps.depcheck.outputs.needs_restore == 'true'
         shell: powershell
         env:
-          NUGET_PACKAGES:        ${{ env.NUGET_PACKAGES }}
-          NUGET_HTTP_CACHE_PATH: ${{ env.NUGET_HTTP_CACHE_PATH }}
+          NUGET_PACKAGES:        ${{ env.NUGET_PACKAGES }}        # JOB cache
+          NUGET_HTTP_CACHE_PATH: ${{ env.NUGET_HTTP_CACHE_PATH }} # JOB cache
         run: |
           uipcli package restore '${{ github.workspace }}' `
             --restoreFolder '${{ env.NUGET_PACKAGES }}' `
@@ -311,11 +314,20 @@ jobs:
             --libraryOrchestratorApplicationScope '${{ env.scope }}' `
             --disableBuiltInNugetFeeds `
             --libraryIdentityUrl '${{ env.BASE_URL }}/identity_' `
-            -y `
-            --traceLevel "Verbose"
+            -y --traceLevel "Verbose"
             
 
-
+      - name: Backfill machine cache
+        if: steps.depcheck.outputs.needs_restore == 'true'
+        shell: powershell
+        env:
+          MACHINE_NUGET_ROOT: ${{ steps.cache-roots.outputs.MACHINE_NUGET_ROOT }}
+        run: |
+          $src = Join-Path $env:NUGET_PACKAGES '*'
+          $dst = Join-Path $env:MACHINE_NUGET_ROOT 'packages'
+          robocopy $src $dst /E /NFL /NDL /NJH /NJS /XO /XN /XC | Out-Null
+          $rc = $LASTEXITCODE; if ($rc -ge 8) { throw "robocopy failed with exit $rc" }
+          Write-Host "Backfilled machine cache from JOB cache."
 
       - name: Create Results DIR
         shell: powershell
@@ -325,8 +337,6 @@ jobs:
       - name: Confirm NuGet folders
         shell: powershell
         run: |
-          Write-Host "NUGET_PACKAGES=$env:NUGET_PACKAGES"
-          Write-Host "NUGET_HTTP_CACHE_PATH=$env:NUGET_HTTP_CACHE_PATH"
           dotnet nuget locals all --list
 
 
