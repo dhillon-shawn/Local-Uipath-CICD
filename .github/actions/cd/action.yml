@@ -10,6 +10,7 @@ inputs:
   or_url: { required: true, description: "" }
   token: { required: true, description: "" }
   target_env: { required: true, description: "" }
+  entry_point: { required: true, description: "" }
 
 runs:
   using: composite
@@ -84,14 +85,14 @@ runs:
           -H "X-UIPATH-FolderPath: ${{ inputs.full_folder_name }}" \
           --data @- \
           "${{ inputs.or_url }}/odata/Releases(${{ env.id_found }})" <<'JSON'
-              {
-                "Name": "${{ inputs.pid }}",
-                "ProcessKey": "${{ inputs.pid }}",
-                "ProcessVersion": "${{ inputs.version }}",
-                "EntryPointPath": "${{ inputs.entry_point }}",
-                "Description": "https://github.com/${{ github.repository_owner }}/${{ github.repository }}"
-              }
-          JSON
+        {
+          "Name": "${{ inputs.pid }}",
+          "ProcessKey": "${{ inputs.pid }}",
+          "ProcessVersion": "${{ inputs.version }}",
+          "EntryPointPath": "${{ inputs.entry_point }}",
+          "Description": "https://github.com/${{ github.repository_owner }}/${{ github.repository }}"
+        }
+        JSON
         )
         curl_rc=$?
         set -e
@@ -118,7 +119,7 @@ runs:
           "Name": "${{ inputs.pid }}",
           "ProcessKey": "${{ inputs.pid }}",
           "ProcessVersion": "${{ inputs.version }}",
-          "EntryPoint": "${{ env.ENTRY_POINT }}",
+          "EntryPoint": "${{ inputs.entry_point }}",
           "Description": "Repo https://github.com/${{ github.repository_owner }}/${{ github.repository }}"
         }
         JSON

@@ -279,11 +279,12 @@ jobs:
             $dstVer = Join-Path $dstId $Version
             if (-not (Test-Path $dstId)) { New-Item -ItemType Directory -Force -Path $dstId | Out-Null }
 
-            # robocopy dir->dir (no wildcard). Treat 0–7 as success.
+            # robocopy dir->dir; treat 0–7 as success
             robocopy "$srcVer" "$dstVer" /E /NFL /NDL /NJH /NJS /XO /XN /XC | Out-Null
             $rc = $LASTEXITCODE
             if ($rc -ge 8) { throw "robocopy failed with exit $rc while priming $Id@$Version" }
             Write-Host "robocopy exit $rc (OK) : primed $Id@$Version -> $dstVer"
+            $global:LASTEXITCODE = 0
             return $true
           }
 
@@ -313,7 +314,6 @@ jobs:
 
 
 
-
       - name: restore
         if: steps.depcheck.outputs.needs_restore == 'true'
         shell: powershell
@@ -339,16 +339,15 @@ jobs:
         env:
           MACHINE_NUGET_ROOT: ${{ steps.cache-roots.outputs.MACHINE_NUGET_ROOT }}
         run: |
-          $src = $env:NUGET_PACKAGES                              # JOB cache root (directory)
-          $dst = Join-Path $env:MACHINE_NUGET_ROOT 'packages'     # MACHINE cache root
-
+          $src = $env:NUGET_PACKAGES
+          $dst = Join-Path $env:MACHINE_NUGET_ROOT 'packages'
           if (-not (Test-Path $dst)) { New-Item -ItemType Directory -Force -Path $dst | Out-Null }
 
-          # robocopy dir->dir; /E recurse; /XO/XN/XC avoid unnecessary overwrites
           robocopy "$src" "$dst" /E /NFL /NDL /NJH /NJS /XO /XN /XC | Out-Null
           $rc = $LASTEXITCODE
           if ($rc -ge 8) { throw "robocopy failed with exit $rc during backfill" }
           Write-Host "robocopy exit $rc (OK) : backfilled machine cache."
+          $global:LASTEXITCODE = 0
 
 
       - name: Create Results DIR
@@ -514,6 +513,7 @@ jobs:
           pid:          ${{ needs.setup.outputs.pid }}
           or_url:       ${{ env.OR_URL }}
           token:        $TOKEN
+          entry_point: ${{needs.setup.outputs.entry_point}}
 
 
 
