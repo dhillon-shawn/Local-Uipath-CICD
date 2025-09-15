@@ -30,7 +30,7 @@ runs:
         echo "Package Path: $PACKAGE_PATH"
         echo "Publishing Package to Tenant Feed "
 
-        response=$(curl --fail --location \
+        response=$(curl  --location \
           --header "Authorization: Bearer ${{ inputs.token }}" \
           --form "file=@$PACKAGE_PATH" \
           "${{ inputs.or_url }}/odata/Processes/UiPath.Server.Configuration.OData.UploadPackage()"
@@ -57,6 +57,7 @@ runs:
           echo "Release Id NOT found"
           echo "CREATE=true" >> "$GITHUB_ENV"
         fi
+        
 
     - name: Upgrade Release
       shell: bash

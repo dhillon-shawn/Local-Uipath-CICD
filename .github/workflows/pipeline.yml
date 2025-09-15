@@ -228,8 +228,11 @@ jobs:
 
       - name: pack
         shell: powershell
+        env:
+          NUGET_PACKAGES:        ${{ github.workspace }}\.nuget-cache
+          NUGET_HTTP_CACHE_PATH: ${{ github.workspace }}\.nuget-http
         run: |
-            uipcli package pack '${{ github.workspace }}/project.json' `
+            uipcli package pack '${{ github.workspace }}' `
               --output './output' `
               --outputType '${{ needs.setup.outputs.ptype }}' `
               -v '${{ needs.resolve-dependencies.outputs.version }}' `
