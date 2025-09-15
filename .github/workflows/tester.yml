@@ -45,39 +45,16 @@ jobs:
                  
                 echo "Status Code: $status"
                 echo "::group::Response body"
-                jq -r . "$body" || cat "$body"
+                if command -v jq >/dev/null; then jq -r . "$body" || cat "$body"; else cat "$body"; fi
                 echo "::endgroup::"
 
                 if [[ $curl_rc -ne 0 || "$status" -ge 400 ]]; then
                   exit 1
                 fi
-                
-                ls
-                
-          - name: folders
-            run: |
-                body="$(mktemp)"
-                
-                status=$(curl -L -sS \
-                --connect-timeout 10 --max-time 120 \
-                --output "$body" --write-out '%{http_code}' \
-                --header "Authorization: Bearer $TOKEN" \
-                "${{env.OR_URL}}/odata/Folders"
-                ) || curl_rc=$?
-                 
-                echo "Status Code: $status"
-                echo "::group::Response body"
-                jq -r . "$body" || cat "$body"
-                echo "::endgroup::"
-
-                if [[ $curl_rc -ne 0 || "$status" -ge 400 ]]; then
-                  exit 1
-                fi
-                
                 ls
                 rm -f "$body"
                 ls
-
+                
           - name: folders
             run: |
                 body="$(mktemp)"
@@ -91,12 +68,16 @@ jobs:
                  
                 echo "Status Code: $status"
                 echo "::group::Response body"
-                jq -r . "$body" || cat "$body"
+                if command -v jq >/dev/null; then jq -r . "$body" || cat "$body"; else cat "$body"; fi
                 echo "::endgroup::"
 
-                if [[ $curl_rc -ne 0 || "$status" -ge 400]]; then
+                if [[ $curl_rc -ne 0 || "$status" -ge 400 ]]; then
                   exit 1
                 fi
-                
-                
                 ls
+                rm -f "$body"
+                ls
+                
+
+
+
