@@ -35,7 +35,7 @@ jobs:
           - name: folders
             run: |
                 body="$(mktemp)"
-                
+                trap 'rm -f "$body"' EXIT
                 status=$(curl -L -sS \
                 --connect-timeout 10 --max-time 120 \
                 --output "$body" --write-out '%{http_code}' \
@@ -51,18 +51,24 @@ jobs:
                 if [[ $curl_rc -ne 0 || "$status" -ge 400 ]]; then
                   exit 1
                 fi
+  
                 ls
-                rm -f "$body"
-                ls
-                
                 
                 
           - name: folders
             run: |
-
+                ls
                 response=$(curl -L -sS \
                 --connect-timeout 10 --max-time 120 \
-
+                --header "Authorization: Bearer $TOKEN" \
+                "${{env.OR_URL}}/odata/Folder"
+                ) 
+                echo "REPONSE $reponse"
+                
+          - name: folders
+            run: |
+                response=$(curl -L -sS \
+                --connect-timeout 10 --max-time 120 \
                 --header "Authorization: Bearer $TOKEN" \
                 "${{env.OR_URL}}/odata/Folder"
                 ) || curl_rc=$?
