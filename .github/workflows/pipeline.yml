@@ -164,23 +164,79 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: '${{ runner.temp }}/.dotnet'
 
+      - name: Create Results DIR
+        run: New-Item -Path "./results" -ItemType Directory
+
       - name: analyze
+        if: inputs.target_env == 'dev'
         shell: powershell
         run: |
-          uipcli package analyze '.\project.json' `
-            --resultPath '.\results\analyze.json' `
-            --orchestratorUrl 'https://cloud.uipath.com/' `
-            --orchestratorTenant 'Default' `
-            -A 'dev_sandbox' -I '${{env.APP_ID}}' -S '${{env.APP_SECRET}}' `
+          uipcli package analyze '${{ github.workspace }}/project.json' `
+            --resultPath './results/analyze.json' `
+            --orchestratorUrl '${{ env.BASE_URL }}/' `
+            --orchestratorTenant '${{ env.TENANT}}' `
+            -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
             --orchestratorApplicationScope '${{env.scope}}' `
             --traceLevel Verbose --disableBuiltInNugetFeeds
 
 
-    #  - name: Run CLI Task Analyze
-    #    run: uipcli package analyze "${{ github.workspace }}/project.json" --resultPath "./results/analyze.json" --orchestratorUrl "${{ env.BASE_URL}}/" --orchestratorTenant "${{ env.TENANT }}" -A "${{env.ORG}}" -I "${{ env.APP_ID }}" -S "${{env.APP_SECRET}}" --orchestratorApplicationScope "${{env.scope}}"  --traceLevel Verbose --disableBuiltInNugetFeeds --orchestratorFolder "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
+      - name: pack
+        shell: powershell
+        run: |
+            uipcli package pack '${{ github.workspace }}/project.json' --output './output' `
+              --outputType '${{ needs.setup.outputs.ptype }}' `
+              --repositoryUrl 'https://github.com/${{ github.repository_owner }}/${{ github.repository }}' `
+              --repositoryBranch 'non-prod' --repositoryCommit 'commit msg' `
+              --repositoryType 'git' --projectUrl 'project/url.com' `
+              --releaseNotes '${{ needs.setup.outputs.notes }}' --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
+              --libraryOrchestratorTenant '${{ env.TENANT }}' -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
+              --libraryOrchestratorApplicationScope '${{ env.scope }}' 
+              --traceLevel Verbose --disableBuiltInNugetFeeds 
+              
+              
+            uipcli package pack '${{ github.workspace }}/project.json' `
+              --output './output' `
+              --outputType '${{ needs.setup.outputs.ptype }}' `
+              --splitOutput `
+              -v '${{ needs.resolve-dependencies.outputs.version }}' `
+              --repositoryUrl 'https://github.com/${{ github.repository }}' `
+              --repositoryBranch '${{ github.ref_name }}' `
+              --repositoryCommit '${{ github.sha }}' `
+              --repositoryType 'git' `
+              --projectUrl 'https://project/url.com' `
+              --releaseNotes '${{ needs.setup.outputs.notes }}' `
+              --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
+              --libraryOrchestratorTenant '${{ env.TENANT }}' `
+              -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
+              --libraryOrchestratorApplicationScope '${{ env.scope }}' `
+              --disableBuiltInNugetFeeds `
+              --traceLevel 'Verbose'
+          
+      - name: test
+        if: (inputs.target_env == 'test') && (${{ needs.setup.outputs.publishable }} == 'true')  && (needs.setup.outputs.ptype == 'Process')
+        shell: powershell
+        run: |
+          uipcli test run '${{ env.BASE_URL }}/' '${{ env.TENANT }}' `
+            -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
+            --applicationScope '${{ env.scope }}' `
+            -o '${{ needs.resolve-dependencies.outputs.base_folder_name }}' `
+            -P '${{ github.workspace }}/project.json' `
+            --out 'junit' `
+            --result_path './results/TestResults.xml' `
+            --timeout '7200' `
+            --retryCount '0' `
+            --attachRobotLogs `
+            --disableBuiltInNugetFeeds `
+            --traceLevel 'Verbose'
+            
+            
+      - name: Upload artifact
+        if: ((${{ needs.setup.outputs.publishable }} == 'true')  && inputs.target_env == 'test') || inputs.target_env == 'dev'
+        uses: actions/upload-artifact@v4
+        with:
+          name: results
+          path: ./results/*
 
-      - name: Run CLI Task package
-        run: uipcli package pack ${{ github.workspace }}/project.json --o "./output" -v ${{ needs.resolve-dependencies.outputs.version }} --outputType "${{ needs.setup.outputs.ptype }}" --releaseNotes "${{ needs.setup.outputs.notes }}"  --projectUrl "url" --repositoryCommit "commit" --libraryOrchestratorUrl "${{ env.BASE_URL}}/" --libraryOrchestratorTenant "${{ env.TENANT }}" -A "${{env.ORG}}" -I ${{ env.APP_ID }} -S "${{env.APP_SECRET}}" --libraryOrchestratorApplicationScope  "${{env.scope}}"   --identityUrl "${{env.BASE_URL}}/identity"   --traceLevel "Verbose" --disableBuiltInNugetFeeds
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
