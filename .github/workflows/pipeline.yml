@@ -189,23 +189,27 @@ jobs:
         shell: powershell
         env:
           NUGET_PACKAGES: ${{ github.workspace }}\.nuget-cache
+          PROJECT_DIR: ${{ github.workspace }}
         run: |
-          uipcli package restore '${{ github.workspace }}\project.json' `
+          uipcli package restore '${{ env.PROJECT_DIR }}' `
             --restoreFolder '${{ github.workspace }}\.nuget-cache' `
             --nugetConfigFilePath '${{ github.workspace }}\nuget.config' `
             --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
             --libraryOrchestratorTenant '${{ env.TENANT }}' `
             -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
             --libraryOrchestratorApplicationScope '${{ env.scope }}' `
+            --libraryOrchestratorFolder '${{ env.FOLDER }}' `
             --disableBuiltInNugetFeeds `
-            --traceLevel 'Verbose' -y
+            -y `
+            --traceLevel 'Verbose'
+
             
             
       - name: analyze
         if: inputs.target_env == 'dev'
         shell: powershell
         run: |
-          uipcli package analyze '${{ github.workspace }}\project.json' `
+          uipcli package analyze '${{ github.workspace }}/project.json' `
             --resultPath './results/analyze.json' `
             --orchestratorUrl '${{ env.BASE_URL }}/' `
             --orchestratorTenant '${{ env.TENANT}}' `
