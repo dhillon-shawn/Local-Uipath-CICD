@@ -225,16 +225,31 @@ jobs:
 
       - name: stage for pack
         shell: powershell
-        env:
-          PROJECT_DIR: ${{ env.PROJECT_DIR }}
         run: |
+          $ErrorActionPreference = 'Stop'
+
+          # Use PROJECT_DIR if you set it; otherwise auto-find the folder that has project.json
+          $src = $env:PROJECT_DIR
+          if ([string]::IsNullOrWhiteSpace($src)) {
+            $pj = Get-ChildItem -Path '${{ github.workspace }}' -Filter 'project.json' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($pj) { $src = $pj.DirectoryName } else { $src = '${{ github.workspace }}' }
+          }
+          if (-not (Test-Path (Join-Path $src 'project.json'))) {
+            throw "project.json not found in $src"
+          }
+
           $stage = Join-Path $env:RUNNER_TEMP 'uipack-stage'
           if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
           New-Item -ItemType Directory -Path $stage | Out-Null
-          robocopy "${{ github.workspace }}" "$stage" /MIR `
+
+          robocopy "$src" "$stage" /MIR `
             /XD '.git' '.github' '.local' '.settings' 'output' 'results' '.nuget-cache' '.nuget-http' '.nuget' `
             /XF '*.nupkg' 'nuget.config'
-          if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit $LASTEXITCODE" }
+
+          # Normalize robocopy exit code: 0–7 are success
+          $rc = $LASTEXITCODE
+          if ($rc -ge 8) { throw "robocopy failed with exit $rc" } else { Write-Host "robocopy exit $rc (OK)"; exit 0 }
+
           
       - name: pack
         shell: powershell
