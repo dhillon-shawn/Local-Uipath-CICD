@@ -83,7 +83,7 @@ runs:
 
         DATA=$(jq -n --arg ep "${{ env.ENTRY_POINT }}" '{EntryPoint:$ep}')
 
-        response=$(curl -fsS -X PATCH \
+        response=$(curl  -X PATCH \
           -H "Authorization: Bearer ${{ inputs.token }}" \
           -H "X-UIPATH-OrganizationUnitId: ${{ inputs.fid }}" \
           -H "Content-Type: application/json" \

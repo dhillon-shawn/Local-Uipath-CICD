@@ -232,12 +232,37 @@ jobs:
             --orchestratorTenant '${{ env.TENANT}}' `
             -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
             --orchestratorApplicationScope '${{env.scope}}' `
-            --analyzerTraceLevel 'Error' `
-            --traceLevel Verbose --disableBuiltInNugetFeeds -y
+            --analyzerTraceLevel "Error" `
+            --traceLevel Verbose --disableBuiltInNugetFeeds -y `
+            -identityUrl '${{ env.BASE_URL }}/identity_'
             
           New-Item -ItemType Directory -Force -Path '.\results' | Out-Null
           Copy-Item '${{ runner.temp }}\analyze.json' '.\results\analyze.json' -Force
 
+      - name: test
+        if: ${{ inputs.target_env == 'test' && needs.setup.outputs.publishable == 'true' && needs.setup.outputs.ptype == 'Process' }}
+
+        shell: powershell
+        env:
+          NUGET_PACKAGES:        ${{ runner.temp }}\.nuget-cache
+          NUGET_HTTP_CACHE_PATH: ${{ runner.temp }}\.nuget-http
+        run: |
+          uipcli test run '${{ env.BASE_URL }}/' '${{ env.TENANT }}' `
+            -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
+            --identityURL  '${{ env.BASE_URL }}/identity_' `
+            --applicationScope '${{ env.scope }}' `
+            -o '${{ needs.resolve-dependencies.outputs.base_folder_name }}' `
+            -P '${{ github.workspace }}/project.json' `
+            --out 'junit' `
+            --result_path './results/TestResults.xml' `
+            --timeout '7200' `
+            --retryCount '0' `
+            --attachRobotLogs `
+            --disableBuiltInNugetFeeds `
+            --traceLevel 'Verbose' -y
+          
+          
+          
       - name: stage for pack
         shell: powershell
         run: |
@@ -247,7 +272,7 @@ jobs:
           New-Item -ItemType Directory -Path $stage | Out-Null
 
           robocopy "${{ github.workspace }}" "$stage" /MIR `
-            /XD '.git' '.github' '.local' '.settings' 'output' 'results' '.nuget-cache' '.nuget-http' '.nuget' `
+            /XD '.git' '.github' 'output' 'results' '.nuget-cache' '.nuget-http' '.nuget' `
             /XF '*.nupkg' 'nuget.config'
 
 
@@ -286,31 +311,16 @@ jobs:
               --libraryOrchestratorTenant '${{ env.TENANT }}' `
               -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
               --libraryOrchestratorApplicationScope '${{ env.scope }}' `
+              --libraryIdentityUrl '${{ env.BASE_URL }}/identity_' `
               --disableBuiltInNugetFeeds `
-              --traceLevel 'Verbose' -y
+              --traceLevel 'Verbose' -y 
               
             Get-ChildItem "$stageOut" -Filter '*.nupkg' | ForEach-Object {
               Copy-Item $_.FullName $repoOut -Force
               Write-Host "Packaged: $($_.Name) -> $repoOut"
             }
 
-      - name: test
-        if: ${{ inputs.target_env == 'test' && needs.setup.outputs.publishable == 'true' && needs.setup.outputs.ptype == 'Process' }}
 
-        shell: powershell
-        run: |
-          uipcli test run '${{ env.BASE_URL }}/' '${{ env.TENANT }}' `
-            -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
-            --applicationScope '${{ env.scope }}' `
-            -o '${{ needs.resolve-dependencies.outputs.base_folder_name }}' `
-            -P '${{ github.workspace }}/project.json' `
-            --out 'junit' `
-            --result_path './results/TestResults.xml' `
-            --timeout '7200' `
-            --retryCount '0' `
-            --attachRobotLogs `
-            --disableBuiltInNugetFeeds `
-            --traceLevel 'Verbose' -y
             
             
       - name: Upload artifact
