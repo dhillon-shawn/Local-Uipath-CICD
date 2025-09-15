@@ -115,6 +115,12 @@ jobs:
 
           DEFAULT_SRC="origin/${default_branch}"
           DEFAULT_SHA="$(git rev-parse ${DEFAULT_SRC})"
+          
+          if [[ -f "./project.json" ]]; then
+            PID="$(jq -er '.name' ./project.json)"
+            echo "PID=$PID" >> "$GITHUB_ENV"
+            echo "Project ID: $PID"
+          fi
 
           # -------------------------
           # Ensure non-prod exists, rebase onto main, overlay ONLY .github, push

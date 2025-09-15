@@ -13,6 +13,16 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Parse Entry Point
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ -f "./project.json" ]]; then
+          EP=$(jq -er '.entryPoints[0].filePath' ./project.json)
+          echo "ENTRY_POINT=$EP" >> "$GITHUB_ENV"
+          echo "Entry Point: $EP"
+        fi
+        
     - name: Publishing
       shell: bash
       run: |
@@ -26,6 +36,8 @@ runs:
           "${{ inputs.or_url }}/odata/Processes/UiPath.Server.Configuration.OData.UploadPackage()"
         )
         echo "Response: $response"
+        
+        
     - name: Check Release
       shell: bash
       run: |
@@ -60,6 +72,29 @@ runs:
         )
         echo "Response: $response"
 
+
+    - name: Set Entry Point in case it changed
+      shell: bash
+      if: env.CREATE != 'true'
+      run: |
+        set -euo pipefail
+        echo "Setting Entry Point on existing Release"
+        response=$(curl -fsS -X PATCH \
+          -H "Authorization: Bearer ${{ inputs.token }}" \
+          -H "X-UIPATH-OrganizationUnitId: ${{ inputs.fid }}" \
+          -H "Content-Type: application/json" \
+          --data @- \
+          "${{ inputs.or_url }}/odata/Releases(${{ env.id_found }})" <<JSON
+            {
+              "EntryPoint": "${{ env.ENTRY_POINT }}"
+            }
+            JSON
+        )
+        echo "Response: $response"
+
+
+
+
     - name: Create Release
       shell: bash
       if: env.CREATE == 'true'
@@ -75,6 +110,7 @@ runs:
           "Name": "${{ inputs.pid }}",
           "ProcessKey": "${{ inputs.pid }}",
           "ProcessVersion": "${{ inputs.version }}",
+          "EntryPoint": "${{ env.ENTRY_POINT }}",
           "Description": "Repo https://github.com/${{ github.repository_owner }}/${{ github.repository }}"
         }
         JSON

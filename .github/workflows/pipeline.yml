@@ -183,12 +183,18 @@ jobs:
           </configuration>
           '@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
 
+      - name: install nuget.config next to uipcli
+        shell: powershell
+        run: |
+          $uipcli = (Get-Command uipcli).Source
+          Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
 
         
       - name: restore
         shell: powershell
         env:
           NUGET_PACKAGES: ${{ github.workspace }}\.nuget-cache
+          NUGET_HTTP_CACHE_PATH: ${{ github.workspace }}\.nuget-http
         run: |
           uipcli package restore '${{ github.workspace }}' `
             --restoreFolder '${{ github.workspace }}\.nuget-cache' `
@@ -206,13 +212,17 @@ jobs:
       - name: analyze
         if: inputs.target_env == 'dev'
         shell: powershell
+        env:
+          NUGET_PACKAGES:        ${{ github.workspace }}\.nuget-cache
+          NUGET_HTTP_CACHE_PATH: ${{ github.workspace }}\.nuget-http
         run: |
-          uipcli package analyze '${{ github.workspace }}/project.json' `
+          uipcli package analyze '${{ github.workspace }}' `
             --resultPath './results/analyze.json' `
             --orchestratorUrl '${{ env.BASE_URL }}/' `
             --orchestratorTenant '${{ env.TENANT}}' `
             -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
             --orchestratorApplicationScope '${{env.scope}}' `
+            --analyzerTraceLevel 'Error' `
             --traceLevel Verbose --disableBuiltInNugetFeeds -y
 
 
