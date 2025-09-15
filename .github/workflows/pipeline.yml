@@ -11,7 +11,7 @@ on:
         required: true
     secrets: {}
 env:
-  scope: "OR.Folders OR.BackgroundTasks OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Settings.Read OR.Robots.Read OR.Machines OR.Execution OR.Assets OR.Users.Read OR.Jobs OR.Monitoring OR.Robots"
+  scope: "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines.Read OR.Monitoring OR.Robots.Read OR.Settings.Read OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Users.Read"
 
 jobs:
   setup:
@@ -46,7 +46,7 @@ jobs:
           echo "vars_json<<EOF" >> "$GITHUB_OUTPUT"
           echo '${{ toJSON(vars) }}' >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
-          
+
   #    - name: Print vars
   #      run: echo "${{ steps.capture.outputs.vars_json }}"
 
@@ -78,7 +78,6 @@ jobs:
     needs: setup
     outputs:
       version:       ${{ steps.compute.outputs.version }}
-      base_version:  ${{ steps.compute.outputs.base_version }}
       base_folder_name:   ${{ steps.folder.outputs.base_folder_name }}
       fid: ${{ steps.folder.outputs.fid }}
     steps:
@@ -167,7 +166,7 @@ jobs:
 
 
       - name: Run CLI Task Analyze
-        run: uipcli package analyze "${{ github.workspace }}/project.json" --resultPath "./results/analyze.json" --orchestratorUrl "${{ env.BASE_URL}}/" --orchestratorTenant "${{ env.TENANT }}" -A "${{env.ORG}}" -I "${{ env.APP_ID }}" -S "${{env.APP_SECRET}}" --orchestratorApplicationScope "${{env.scope}}"  --traceLevel Verbose --disableBuiltInNugetFeeds
+        run: uipcli package analyze "${{ github.workspace }}/project.json" --resultPath "./results/analyze.json" --orchestratorUrl "${{ env.BASE_URL}}/" --orchestratorTenant "${{ env.TENANT }}" -A "${{env.ORG}}" -I "${{ env.APP_ID }}" -S "${{env.APP_SECRET}}" --orchestratorApplicationScope "${{env.scope}}"  --traceLevel Verbose --disableBuiltInNugetFeeds --orchestratorFolder "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
 
       - name: Run CLI Task package
         run: uipcli package pack ${{ github.workspace }}/project.json --o "./output" -v ${{ needs.resolve-dependencies.outputs.version }} --outputType "${{ needs.setup.outputs.ptype }}" --releaseNotes "${{ needs.setup.outputs.notes }}"  --projectUrl "url" --repositoryCommit "commit" --libraryOrchestratorUrl "${{ env.BASE_URL}}/" --libraryOrchestratorTenant "${{ env.TENANT }}" -A "${{env.ORG}}" -I ${{ env.APP_ID }} -S "${{env.APP_SECRET}}" --libraryOrchestratorApplicationScope  "${{env.scope}}"   --identityUrl "${{env.BASE_URL}}/identity"   --traceLevel "Verbose" --disableBuiltInNugetFeeds
