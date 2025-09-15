@@ -221,45 +221,72 @@ jobs:
       - name: Decide if restore is needed
         id: depcheck
         shell: powershell
+        env:
+          NUGET_PACKAGES:        ${{ env.NUGET_PACKAGES }}
+          NUGET_HTTP_CACHE_PATH: ${{ env.NUGET_HTTP_CACHE_PATH }}
         run: |
+          $ErrorActionPreference = 'Stop'
+
           $proj = Join-Path $env:GITHUB_WORKSPACE 'project.json'
           if (-not (Test-Path $proj)) { throw "project.json not found at $proj" }
 
           $json = Get-Content $proj -Raw | ConvertFrom-Json
 
-          # Gather top-level dependencies (UiPath uses "dependencies": {"Id":"Version",...})
-          $pairs = @()
+          # Gather top-level UiPath dependencies.
+          $depProps = @()
           if ($json.PSObject.Properties.Name -contains 'dependencies' -and $json.dependencies) {
-            $pairs += $json.dependencies.GetEnumerator()
+            $depProps = $json.dependencies.PSObject.Properties
           }
 
-          if ($pairs.Count -eq 0) {
-            Write-Host "No dependencies section found. Skipping restore."
-            "needs_restore=false" >> $env:GITHUB_OUTPUT
+          if (-not $depProps -or $depProps.Count -eq 0) {
+            Write-Host "No 'dependencies' section found in project.json. Skipping restore."
+            'needs_restore=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
             exit 0
           }
 
+          function Test-PackagePresent {
+            param(
+              [Parameter(Mandatory=$true)][string]$Id,
+              [Parameter(Mandatory=$true)][string]$Version
+            )
+            # NuGet global-packages layout: <root>\<id-lower>\<version>\
+            $idLower = $Id.ToLower()
+            $idDir   = Join-Path $env:NUGET_PACKAGES $idLower
+            if (-not (Test-Path $idDir)) {
+              # Rarely NuGet may keep original casing; try that too
+              $idDirOrig = Join-Path $env:NUGET_PACKAGES $Id
+              if (-not (Test-Path $idDirOrig)) { return $false }
+              $idDir = $idDirOrig
+            }
+
+            $verDir = Join-Path $idDir $Version
+            if (-not (Test-Path $verDir)) { return $false }
+
+            # NuGet "install markers" proving the package was fully restored
+            $sha = Get-ChildItem -Path $verDir -Filter '*.nupkg.sha512' -ErrorAction SilentlyContinue | Select-Object -First 1
+            $met = Get-ChildItem -Path $verDir -Filter '*.nupkg.metadata' -ErrorAction SilentlyContinue | Select-Object -First 1
+            return ($sha -ne $null -and $met -ne $null)
+          }
+
           $missing = New-Object System.Collections.Generic.List[string]
-          foreach($p in $pairs){
-            $id  = [string]$p.Key
+          foreach ($p in $depProps) {
+            $id  = [string]$p.Name
             $ver = [string]$p.Value
             if ([string]::IsNullOrWhiteSpace($id) -or [string]::IsNullOrWhiteSpace($ver)) { continue }
-
-            # NuGet’s global packages layout: <root>\<id>\<version>\
-            $pkgDir = Join-Path (Join-Path $env:NUGET_PACKAGES $id) $ver
-            if (-not (Test-Path $pkgDir)) {
+            if (-not (Test-PackagePresent -Id $id -Version $ver)) {
               $missing.Add("$id@$ver")
             }
           }
 
           if ($missing.Count -gt 0) {
-            Write-Host "Missing packages: $($missing -join ', ')"
-            "needs_restore=true"                >> $env:GITHUB_OUTPUT
-            "missing=$($missing -join ', ')"    >> $env:GITHUB_OUTPUT
+            Write-Host "Missing packages in global cache ($env:NUGET_PACKAGES): $($missing -join ', ')"
+            'needs_restore=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "missing=$($missing -join ', ')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           } else {
-            Write-Host "All top-level dependencies found in $env:NUGET_PACKAGES"
-            "needs_restore=false"               >> $env:GITHUB_OUTPUT
+            Write-Host "All top-level dependencies present in $env:NUGET_PACKAGES."
+            'needs_restore=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           }
+
 
       - name: restore
         if: steps.depcheck.outputs.needs_restore == 'true'
@@ -280,14 +307,21 @@ jobs:
             -y `
             --traceLevel "Verbose"
             
-      - name: Show NuGet cache locations
-        shell: powershell
-        run: dotnet nuget locals all --list
+
 
 
       - name: Create Results DIR
         shell: powershell
         run: New-Item -Path "./results" -ItemType Directory -Force | Out-Null
+
+
+      - name: Confirm NuGet folders
+        shell: powershell
+        run: |
+          Write-Host "NUGET_PACKAGES=$env:NUGET_PACKAGES"
+          Write-Host "NUGET_HTTP_CACHE_PATH=$env:NUGET_HTTP_CACHE_PATH"
+          dotnet nuget locals all --list
+
 
       - name: analyze
         if: inputs.target_env == 'dev'
