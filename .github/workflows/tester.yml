@@ -53,6 +53,7 @@ jobs:
 
 
           - name: upgrade release
+            if: false
             shell: bash
             run: |
               echo "ugrading release"
@@ -84,5 +85,42 @@ jobs:
                     
       
 
+          - name: create release
+            if: env.CREATE == 'true'
+            shell: bash
+            run: |
+              echo "creating release"
+              body="$(mktemp)"
+              trap 'rm -f "$body"' EXIT
 
+              curl_rc=0
+              status=$(
+                curl -L -sS \
+                  --connect-timeout 10 --max-time 120 \
+                  --output "$body" \
+                  --write-out '%{http_code}' \
+                  -X POST \
+                  -H "Authorization: Bearer ${{ env.TOKEN }}" \
+                  -H "Content-Type: application/json" \
+                  -H "X-UIPATH-FolderPath: t2" \
+                  --data-binary @- \
+                  "${{ env.OR_URL }}/odata/Releases" <<'JSON'
+              {
+                "Name": "BlankProcess",
+                "ProcessKey": "BlankProcess",
+                "ProcessVersion": "0.3.9",
+                "EntryPoint": "Main.xaml",
+                "Description": "Repo https://github.com/${{ github.repository_owner }}/${{ github.repository }}"
+              }
+              JSON
+              ) || curl_rc=$?
+
+              echo "Status Code: $status"
+              echo "::group::Response body"
+              if command -v jq >/dev/null; then jq -r . "$body" || cat "$body"; else cat "$body"; fi
+              echo "::endgroup::"
+
+              if [[ $curl_rc -ne 0 || ${status:-0} -ge 400 ]]; then
+                exit 1
+              fi
 
