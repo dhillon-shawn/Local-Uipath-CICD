@@ -31,11 +31,9 @@ runs:
           const fs = require('fs/promises');
           const path = require('path');
 
-          const core = global.core; // provided by github-script
 
-          const inPath  = process.env.IN || '';
-          const outPath = process.env.OUT || 'analyzer-report.html';
-          if (!inPath) core.setFailed('IN was empty. Set env IN to a JSON file or directory.');
+          const inPath  = process.env.IN ;
+          const outPath = process.env.OUT ;
 
           // --- helpers ---
           async function exists(p) { try { await fs.access(p); return true; } catch { return false; } }
