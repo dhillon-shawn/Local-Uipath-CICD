@@ -136,7 +136,9 @@ jobs:
           ]
           JSON
           echo "Fixture written to results/analyze.json"
-      
+          
+      - name: Ensure email directory
+        run: mkdir -p ./email
       # Build the pretty HTML (your composite)
       - name: Analysis → HTML
         id: analysis_html
