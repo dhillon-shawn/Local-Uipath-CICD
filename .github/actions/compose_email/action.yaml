@@ -54,7 +54,7 @@ runs:
   using: "composite"
   steps:
     - name: Compose final email (table + body + subject)
-      id: compose
+      id: make
       uses: actions/github-script@v7
       env:
         PUBLISHABLE:        ${{ inputs.publishable }}
@@ -162,6 +162,6 @@ runs:
           fs.mkdirSync(path.dirname(outPath), { recursive: true });
           fs.writeFileSync(outPath, finalHtml, 'utf8');
 
-          core.setOutput('html_path', outPath);
+          core.setOutput('html', outPath);
           core.setOutput('subject', subject);
           core.setOutput('overall', overall);
