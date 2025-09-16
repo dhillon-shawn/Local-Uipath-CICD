@@ -27,11 +27,10 @@ runs:
           --form "file=@$PACKAGE_PATH" \
           "${{ inputs.or_url }}/odata/Processes/UiPath.Server.Configuration.OData.UploadPackage()"
         )
-        echo "Response: $response"
+        echo "Publish Response: $response"
 
 
-    - name: update release
-      if: env.CREATE != 'true'
+    - name: check release
       shell: bash
       run: |
         echo "updating release"
@@ -65,26 +64,44 @@ runs:
           echo "CREATE=true" >> "$GITHUB_ENV"
         fi
 
+        if [[ $curl_rc -ne 0 || ${status:-0} -ge 400 ]]; then
+          exit 1
+        fi
 
+
+
+    - name: upgrade release
+      if: env.CREATE != 'true'
+      shell: bash
+      run: |
+        echo "updating release"
+        body="$(mktemp)"
+        trap 'rm -f "$body"' EXIT
+
+        curl_rc=0
+        status=$(
+          curl -L -sS \
+            --connect-timeout 10 --max-time 120 \
+            --output "$body" \
+            --write-out '%{http_code}' \
+            -H "Authorization: Bearer ${{ inputs.token }}" \
+            -H "Content-Type: application/json" \
+            -H "Content-Length: 0" \
+            -H "X-UIPATH-FolderPath: ${{ inputs.full_folder_name }}" \
+            "${{ inputs.or_url }}/odata/Releases(${{env.id_found}})/UiPath.Server.Configuration.OData.UpdateToLatestPackageVersion"
+        ) || curl_rc=$?
+
+        echo "Status Code: $status"
+        echo "::group::Response body"
+        if command -v jq >/dev/null; then jq -r . "$body" || cat "$body"; else cat "$body"; fi
+        echo "::endgroup::"
 
         if [[ $curl_rc -ne 0 || ${status:-0} -ge 400 ]]; then
           exit 1
         fi
 
 
-    - name: Upgrade Release
-      shell: bash
-      if: env.CREATE != 'true'
-      run: |
-        echo "Upgrading Release "
-        response=$(curl --request POST  --location \
-          --header "Authorization: Bearer ${{ inputs.token }}" \
-          --header "X-UIPATH-OrganizationUnitId: ${{ inputs.fid }}" \
-          --header "Content-Type: application/json" \
-          --header "Content-Length: 0" \
-          "${{ inputs.or_url }}/odata/Releases(${{env.id_found}})/UiPath.Server.Configuration.OData.UpdateToLatestPackageVersion"
-        )
-        echo "Response: $response"
+
 
     - name: update release
       if: env.CREATE != 'true'
@@ -125,18 +142,26 @@ runs:
           exit 1
         fi
 
-
-    - name: Create Release
-      shell: bash
+    - name: create release
       if: env.CREATE == 'true'
+      shell: bash
       run: |
-        echo "Creating Release "
-        response=$(curl -fsS -X POST \
-          -H "Authorization: Bearer ${{ inputs.token }}" \
-          --header "X-UIPATH-OrganizationUnitId: ${{ inputs.fid }}" \
-          -H "Content-Type: application/json" \
-          --data @- \
-          "${{ inputs.or_url }}/odata/Releases" <<'JSON'
+        echo "updating release"
+        body="$(mktemp)"
+        trap 'rm -f "$body"' EXIT
+
+        curl_rc=0
+        status=$(
+          curl -L -sS \
+            --connect-timeout 10 --max-time 120 \
+            --output "$body" \
+            --write-out '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer ${{ inputs.token }}" \
+            -H "Content-Type: application/json" \
+            -H "X-UIPATH-FolderPath: ${{ inputs.full_folder_name }}" \
+            --data-binary @- \
+            "${{ inputs.or_url }}/odata/Releases" <<'JSON'
         {
           "Name": "${{ inputs.pid }}",
           "ProcessKey": "${{ inputs.pid }}",
@@ -145,6 +170,13 @@ runs:
           "Description": "Repo https://github.com/${{ github.repository_owner }}/${{ github.repository }}"
         }
         JSON
-        )
+        ) || curl_rc=$?
 
-        echo "Response: $response"
+        echo "Status Code: $status"
+        echo "::group::Response body"
+        if command -v jq >/dev/null; then jq -r . "$body" || cat "$body"; else cat "$body"; fi
+        echo "::endgroup::"
+
+        if [[ $curl_rc -ne 0 || ${status:-0} -ge 400 ]]; then
+          exit 1
+        fi
