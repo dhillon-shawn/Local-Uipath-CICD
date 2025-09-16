@@ -24,228 +24,202 @@ runs:
       id: analysis_report
       uses: actions/github-script@v7
       env:
-        IN:  ${{ inputs.json_path }}   # file OR directory
-        OUT: ${{ inputs.out_path }}    # e.g., artifacts/analyzer-report.html
+        IN:  ${{ inputs.json_path }}
+        OUT: ${{ inputs.out_path }}
+        SHOW_CODE: "false"
+        TRIM_PREFIX: ${{ github.workspace }}
       with:
         script: |
           const fs = require('fs/promises');
           const path = require('path');
 
+          const inPath  = process.env.IN || '';
+          const outPath = process.env.OUT || 'analyzer-report.html';
+          const showCode = /^true$/i.test(process.env.SHOW_CODE || 'false');
+          const trimPrefix = (process.env.TRIM_PREFIX || '').replace(/\\/g,'/');
 
-          const inPath  = process.env.IN ;
-          const outPath = process.env.OUT ;
+          if (!inPath) { core.setFailed('IN was empty. Set env IN to a JSON file or directory.'); return; }
 
-          // --- helpers ---
-          async function exists(p) { try { await fs.access(p); return true; } catch { return false; } }
-          async function isDir(p) { try { return (await fs.stat(p)).isDirectory(); } catch { return false; } }
+          async function exists(p){ try{ await fs.access(p); return true; } catch { return false; } }
+          async function isDir(p){ try{ return (await fs.stat(p)).isDirectory(); } catch { return false; } }
 
-          async function *walk(dir) {
-            for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
-              const full = path.join(dir, entry.name);
-              if (entry.isDirectory()) yield* walk(full);
-              else if (entry.isFile() && full.toLowerCase().endsWith('.json')) yield full;
+          async function *walk(dir){
+            for (const e of await fs.readdir(dir, { withFileTypes:true })) {
+              const f = path.join(dir, e.name);
+              if (e.isDirectory()) yield* walk(f);
+              else if (e.isFile() && /\.json$/i.test(e.name)) yield f;
             }
           }
 
-          function escapeHtml(s) {
+          function escapeHtml(s){
             return String(s ?? '')
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;')
-              .replace(/"/g, '&quot;')
-              .replace(/'/g, '&#39;');
+              .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+              .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
           }
 
-          function normalizeFilePath(fp) {
+          function normalizeFilePath(fp){
+            let f = String(fp||'').replace(/\\/g,'/');
             const ws = (process.env.GITHUB_WORKSPACE || '').replace(/\\/g,'/').replace(/\/+$/,'');
-            const f  = String(fp || '').replace(/\\/g,'/');
-            return (ws && f.startsWith(ws + '/')) ? f.slice(ws.length + 1) : f;
+            if (ws && f.startsWith(ws + '/')) f = f.slice(ws.length + 1);
+            if (trimPrefix && f.startsWith(trimPrefix)) f = f.slice(trimPrefix.length);
+            return f;
           }
 
-          function toResultsArray(json) {
+          function toResultsArray(json){
             if (Array.isArray(json)) return json;
             if (json && Array.isArray(json.Results)) return json.Results;
             if (json && Array.isArray(json.results)) return json.results;
             return [];
           }
 
+          // Flatten nested objects/arrays to readable text
+          function toText(v){
+            if (v == null) return '';
+            if (typeof v === 'string') return v;
+            if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+            if (Array.isArray(v)) return v.map(toText).filter(Boolean).join('; ');
+            if (typeof v === 'object') {
+              const preferred = ['Message','Text','Value','Description','Recommendation','Reason','Error','error','message'];
+              for (const k of preferred) if (v[k] != null) return toText(v[k]);
+              try { return JSON.stringify(v); } catch { return String(v); }
+            }
+            return String(v);
+          }
+
           const sevMeta = {
-            1: { name: 'Error',   icon: '❌', class: 'sev-error'   },
-            2: { name: 'Warning', icon: '⚠️', class: 'sev-warning' },
-            3: { name: 'Info',    icon: 'ℹ️', class: 'sev-info'    },
-            0: { name: '',        icon: '',   class: ''            },
+            1: { name:'Error',   icon:'❌', class:'sev-error'   },
+            2: { name:'Warning', icon:'⚠️', class:'sev-warning' },
+            3: { name:'Info',    icon:'ℹ️', class:'sev-info'    },
           };
 
-          function renderFileSection(title, rows, counts) {
-            const header = `
+          function renderTable(rows){
+            const cols = [
+              {key:'Severity', label:'Severity'},
+              ...(showCode ? [{key:'ErrorCode', label:'ErrorCode / Link'}] : []),
+              {key:'RuleName', label:'Rule'},
+              {key:'Description', label:'Description'},
+              {key:'Recommendation', label:'Recommendation'},
+              {key:'FilePath', label:'File Path'},
+            ];
+            const head = '<thead><tr>' + cols.map(c=>`<th>${c.label}</th>`).join('') + '</tr></thead>';
+            const body = rows.map(r=>{
+              const sev = sevMeta[r.ErrorSeverity] || {};
+              const tds = [];
+              tds.push(`<td class="sev">${sev.icon||''} ${sev.name||''}</td>`);
+              if (showCode){
+                const code = escapeHtml(r.ErrorCode);
+                const link = r.DocumentationLink ? `<a href="${escapeHtml(r.DocumentationLink)}">${code}</a>` : code;
+                tds.push(`<td>${link}</td>`);
+              }
+              tds.push(`<td>${escapeHtml(r.RuleName)}</td>`);
+              tds.push(`<td class="wrap">${escapeHtml(toText(r.Description))}</td>`);
+              tds.push(`<td class="wrap">${escapeHtml(toText(r.Recommendation))}</td>`);
+              tds.push(`<td class="path">${escapeHtml(normalizeFilePath(r.FilePath))}</td>`);
+              return `<tr class="${sev.class||''}">${tds.join('')}</tr>`;
+            }).join('\n');
+            return `<div class="table-wrap"><table class="grid">${head}<tbody>${body}</tbody></table></div>`;
+          }
+
+          (async () => {
+            if (!(await exists(inPath))) { core.setFailed(`IN path not found: ${inPath}`); return; }
+
+            const files = [];
+            if (await isDir(inPath)) for await (const f of walk(inPath)) files.push(f);
+            else files.push(inPath);
+
+            let overallErr=0, overallWarn=0, overallInfo=0;
+            const sections=[];
+
+            for (const file of files) {
+              let json;
+              try { json = JSON.parse(await fs.readFile(file,'utf8')); }
+              catch (e){ core.warning(`Skipping ${file}: ${e.message}`); continue; }
+
+              const rows = toResultsArray(json).map(x=>({
+                ErrorSeverity: Number(x.ErrorSeverity ?? 0),
+                ErrorCode: String(x.ErrorCode ?? ''),
+                DocumentationLink: String(x.DocumentationLink ?? ''),
+                RuleName: String(x.RuleName ?? ''),
+                Description: x.Description ?? '',
+                Recommendation: x.Recommendation ?? '',
+                FilePath: String(x.FilePath ?? '')
+              }));
+
+              if (rows.length === 0) {
+                sections.push(`<details open><summary><span class="file">${escapeHtml(path.basename(file))}</span>
+                  <span class="chips"><span class="chip error">❌ 0</span><span class="chip warn">⚠️ 0</span><span class="chip info">ℹ️ 0</span></span>
+                </summary><div class="empty">No results.</div></details>`);
+                continue;
+              }
+
+              rows.sort((a,b)=> (a.ErrorSeverity - b.ErrorSeverity) || String(a.FilePath).localeCompare(String(b.FilePath)));
+
+              const counts = {
+                err: rows.filter(r=>r.ErrorSeverity===1).length,
+                warn:rows.filter(r=>r.ErrorSeverity===2).length,
+                info:rows.filter(r=>r.ErrorSeverity===3).length,
+              };
+              overallErr+=counts.err; overallWarn+=counts.warn; overallInfo+=counts.info;
+
+              sections.push(`
               <details open>
-                <summary><span class="file">${escapeHtml(title)}</span>
+                <summary><span class="file">${escapeHtml(path.basename(file))}</span>
                   <span class="chips">
                     <span class="chip error">❌ ${counts.err}</span>
                     <span class="chip warn">⚠️ ${counts.warn}</span>
                     <span class="chip info">ℹ️ ${counts.info}</span>
                   </span>
                 </summary>
-            `;
-            const tableHead = `
-              <table>
-                <thead>
-                  <tr>
-                    <th>Severity</th>
-                    <th>ErrorCode / Link</th>
-                    <th>Rule</th>
-                    <th>Description</th>
-                    <th>Recommendation</th>
-                    <th>File Path</th>
-                  </tr>
-                </thead>
-                <tbody>
-            `;
-            const body = rows.map(r => `
-              <tr class="${sevMeta[r.ErrorSeverity]?.class || ''}">
-                <td class="sev">${sevMeta[r.ErrorSeverity]?.icon || ''} ${sevMeta[r.ErrorSeverity]?.name || ''}</td>
-                <td>${r.DocumentationLink ? `<a href="${escapeHtml(r.DocumentationLink)}">${escapeHtml(r.ErrorCode)}</a>` : escapeHtml(r.ErrorCode)}</td>
-                <td>${escapeHtml(r.RuleName)}</td>
-                <td>${escapeHtml(r.Description)}</td>
-                <td>${escapeHtml(r.Recommendation)}</td>
-                <td class="path">${escapeHtml(normalizeFilePath(r.FilePath))}</td>
-              </tr>
-            `).join('\n');
+                ${renderTable(rows)}
+              </details>`);
+                      }
 
-            return `${header}${tableHead}${body}
-                </tbody>
-              </table>
-              </details>
-            `;
-          }
-
-          // --- load inputs (file or directory) ---
-          (async () => {
-            if (!(await exists(inPath))) {
-              core.setFailed(`IN path not found: ${inPath}`);
-              return;
-            }
-
-            const files = [];
-            if (await isDir(inPath)) {
-              for await (const f of walk(inPath)) {
-                // Prefer analyzer-ish names but include any .json
-                if (/(analy[sz]er|workflow.*result|result)/i.test(f) || f.toLowerCase().endsWith('.json')) {
-                  files.push(f);
-                }
-              }
-            } else {
-              files.push(inPath);
-            }
-
-            if (files.length === 0) {
-              core.warning(`No JSON files found under ${inPath}`);
-            }
-
-            let overallErr = 0, overallWarn = 0, overallInfo = 0;
-            const sections = [];
-
-            for (const file of files) {
-              let json;
-              try {
-                json = JSON.parse(await fs.readFile(file, 'utf8'));
-              } catch (e) {
-                core.warning(`Skipping ${file}: ${e.message}`);
-                continue;
-              }
-
-              const raw = toResultsArray(json).map(x => ({
-                ErrorSeverity: Number(x.ErrorSeverity ?? 0),
-                ErrorCode: String(x.ErrorCode ?? ''),
-                DocumentationLink: String(x.DocumentationLink ?? ''),
-                RuleName: String(x.RuleName ?? ''),
-                Description: String(x.Description ?? ''),
-                Recommendation: String(x.Recommendation ?? ''),
-                FilePath: String(x.FilePath ?? '')
-              }));
-
-              if (raw.length === 0) {
-                sections.push(`<details><summary>${escapeHtml(path.basename(file))}</summary><p>No results.</p></details>`);
-                continue;
-              }
-
-              raw.sort((a,b) =>
-                (a.ErrorSeverity - b.ErrorSeverity) ||
-                String(a.FilePath).localeCompare(String(b.FilePath))
-              );
-
-              const counts = {
-                err: raw.filter(r => r.ErrorSeverity === 1).length,
-                warn: raw.filter(r => r.ErrorSeverity === 2).length,
-                info: raw.filter(r => r.ErrorSeverity === 3).length
-              };
-              overallErr  += counts.err;
-              overallWarn += counts.warn;
-              overallInfo += counts.info;
-
-              sections.push(renderFileSection(path.basename(file), raw, counts));
-            }
-
-            // --- assemble HTML ---
-            const when = new Date().toISOString();
             const css = `
-              :root {
-                --fg:#0f172a; --muted:#475569; --bg:#ffffff;
-                --row:#f8fafc; --bd:#e5e7eb;
-                --err:#fee2e2; --warn:#fff7ed; --info:#eff6ff;
-                --chip:#e2e8f0;
-              }
+              :root { --fg:#0f172a; --muted:#475569; --bg:#ffffff; --bd:#e5e7eb;
+                      --err:#fee2e2; --warn:#fff7ed; --info:#eff6ff; --chip:#e2e8f0; }
               * { box-sizing: border-box; }
-              body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji","Segoe UI Emoji"; margin: 24px; color: var(--fg); background: var(--bg); }
-              h1 { margin: 0 0 4px; }
-              .sub { color: var(--muted); margin: 0 0 16px; }
-              details { border: 1px solid var(--bd); border-radius: 10px; margin: 12px 0; background: #fff; }
-              summary { cursor: pointer; padding: 12px 16px; font-weight: 600; display:flex; align-items:center; gap:12px; }
+              body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+                    margin:24px; color:var(--fg); background:var(--bg); }
+              h1 { margin:0 0 4px; }
+              .sub { color:var(--muted); margin:0 0 16px; }
+              details { border:1px solid var(--bd); border-radius:10px; margin:12px 0; background:#fff; overflow:hidden; }
+              summary { cursor:pointer; padding:12px 16px; font-weight:600; display:flex; align-items:center; gap:12px; }
               .file { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
               .chips { margin-left:auto; display:flex; gap:8px; }
-              .chip { background: var(--chip); border-radius: 999px; padding: 2px 10px; font-size: 12px; }
-              .chip.error { background: #fecaca; }
-              .chip.warn  { background: #fed7aa; }
-              .chip.info  { background: #bfdbfe; }
-              table { width: 100%; border-collapse: collapse; }
-              th, td { border: 1px solid var(--bd); padding: 8px 10px; vertical-align: top; }
-              th { background: var(--row); position: sticky; top: 0; }
-              td.sev { white-space: nowrap; }
+              .chip { background:var(--chip); border-radius:999px; padding:2px 10px; font-size:12px; }
+              .chip.error { background:#fecaca; } .chip.warn { background:#fed7aa; } .chip.info { background:#bfdbfe; }
+              .table-wrap { overflow:auto; max-width:100%; }
+              .grid { width:100%; border-collapse:separate; border-spacing:0; table-layout:fixed; }
+              .grid th, .grid td { border:1px solid var(--bd); padding:8px 10px; vertical-align:top; }
+              .grid th { background:#f8fafc; position:sticky; top:0; z-index:1; }
+              .grid td, .grid th { overflow-wrap:anywhere; word-break:break-word; }
+              td.sev { white-space:nowrap; width:120px; }
               td.path { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
               tr.sev-error   { background: var(--err); }
               tr.sev-warning { background: var(--warn); }
               tr.sev-info    { background: var(--info); }
-              .totals { display:flex; gap:10px; margin: 10px 0 20px; }
-              .pill { border-radius: 999px; padding: 6px 12px; font-weight:600; }
-              .pill.err  { background:#ef44441a; color:#b91c1c; border:1px solid #fecaca; }
-              .pill.warn { background:#f59e0b1a; color:#b45309; border:1px solid #fed7aa; }
-              .pill.info { background:#3b82f61a; color:#1d4ed8; border:1px solid #bfdbfe; }
-              footer { color: var(--muted); margin-top: 24px; font-size: 12px; }
+              .empty { padding:12px 16px; color:var(--muted); }
             `;
+
+            const when = new Date().toISOString();
             const html = `<!doctype html>
-            <html>
-              <head>
-                <meta charset="utf-8" />
-                <title>UiPath Analyzer Report</title>
-                <meta name="viewport" content="width=device-width, initial-scale=1" />
-                <style>${css}</style>
-              </head>
-              <body>
-                <h1>UiPath Analyzer Report</h1>
-                <p class="sub">Generated: ${escapeHtml(when)}</p>
-                <div class="totals">
-                  <span class="pill err">❌ Errors: ${overallErr}</span>
-                  <span class="pill warn">⚠️ Warnings: ${overallWarn}</span>
-                  <span class="pill info">ℹ️ Info: ${overallInfo}</span>
-                </div>
-                ${sections.join('\n')}
-                <footer>Paths are relative to repository root when possible.</footer>
-              </body>
-            </html>`;
+            <html><head><meta charset="utf-8" />
+            <title>UiPath Analyzer Report</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <style>${css}</style></head>
+            <body>
+              <h1>UiPath Analyzer Report</h1>
+              <p class="sub">Generated: ${escapeHtml(when)}</p>
+              <div class="chips">
+                <span class="chip error">❌ Errors: ${overallErr}</span>
+                <span class="chip warn">⚠️ Warnings: ${overallWarn}</span>
+                <span class="chip info">ℹ️ Info: ${overallInfo}</span>
+              </div>
+              ${sections.join('\n')}
+            </body></html>`;
 
-            await fs.mkdir(path.dirname(outPath), { recursive: true });
+            await fs.mkdir(path.dirname(outPath), { recursive:true });
             await fs.writeFile(outPath, html, 'utf8');
-
             core.setOutput('html_path', outPath);
             core.info(`HTML report written to ${outPath}`);
           })();
