@@ -244,6 +244,23 @@ jobs:
           cat ${{ runner.temp }}\analyze.json
           New-Item -ItemType Directory -Force -Path '.\results' | Out-Null
           Copy-Item '${{ runner.temp }}\analyze.json' '.\results\analyze.json' -Force
+          
+          
+      - name: test
+        if: inputs.target_env == 'test'
+        shell: powershell
+        run: |
+          packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe test run `
+            --orchestratorUrl '${{ env.BASE_URL }}/' --orchestratorTenant '${{ env.TENANT }}' `
+            -P '${{ github.workspace }}\project.json' --out "junit" --resultPath '${{ runner.temp }}\TestResults.xml' `
+            -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
+            --orchestratorApplicationScope '${{ env.scope}}' `
+            --traceLevel Verbose --disableBuiltInNugetFeeds -y `
+            --identityUrl '${{ env.BASE_URL }}/identity_'
+                  
+          cat ${{ runner.temp }}\TestResults.xml
+          New-Item -ItemType Directory -Force -Path '.\results' | Out-Null
+          Copy-Item '${{ runner.temp }}\TestResults.xml' '.\results\TestResults.xml' -Force
 
 
       - name: stage for pack

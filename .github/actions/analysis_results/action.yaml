@@ -24,10 +24,10 @@ runs:
       id: analysis_report
       uses: actions/github-script@v7
       env:
-        IN:  ${{ inputs.json_path }}
-        OUT: ${{ inputs.out_path }}
-        SHOW_CODE: "false"
-        TRIM_PREFIX: ${{ github.workspace }}
+        IN:  ${{ inputs.json_path }}          # file OR directory
+        OUT: ${{ inputs.out_path }}           # e.g., artifacts/analyzer-report.html
+        SHOW_CODE: "false"                    # show ErrorCode/Link column? set "true" to display
+        TRIM_PREFIX: ""                       # optional extra prefix to strip from file paths
       with:
         script: |
           const fs = require('fs/promises');
@@ -42,7 +42,6 @@ runs:
 
           async function exists(p){ try{ await fs.access(p); return true; } catch { return false; } }
           async function isDir(p){ try{ return (await fs.stat(p)).isDirectory(); } catch { return false; } }
-
           async function *walk(dir){
             for (const e of await fs.readdir(dir, { withFileTypes:true })) {
               const f = path.join(dir, e.name);
@@ -51,12 +50,49 @@ runs:
             }
           }
 
+          // --- formatting helpers ---
           function escapeHtml(s){
             return String(s ?? '')
               .replace(/&/g,'&amp;').replace(/</g,'&lt;')
               .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
           }
-
+          function mdLite(s, docLink){
+            // escape, then apply minimal markdown & linkification; preserve newlines
+            let t = escapeHtml(String(s ?? ''));
+            // **bold**
+            t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            // `code`
+            t = t.replace(/`([^`]+)`/g, '<code>$1</code>');
+            // URLs
+            t = t.replace(/\bhttps?:\/\/[^\s<]+/gi, (u) => `<a href="${u}">${u}</a>`);
+            // "Learn more." -> doc link if present
+            if (docLink) t = t.replace(/\bLearn more\.?/gi, `<a href="${escapeHtml(docLink)}">Learn more</a>`);
+            // preserve line breaks
+            t = t.replace(/\r?\n/g,'<br>');
+            // collapse stray tabs -> middot
+            t = t.replace(/\t+/g, ' · ');
+            return t;
+          }
+          function renderValue(v, docLink){
+            if (v == null) return '';
+            if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+              return mdLite(v, docLink);
+            }
+            if (Array.isArray(v)) {
+              const items = v.map(x => `<li>${renderValue(x, docLink)}</li>`).join('');
+              return `<ul class="list">${items}</ul>`;
+            }
+            if (typeof v === 'object') {
+              // Try common fields first
+              const keysPref = ['Message','Text','Value','Description','Reason','Error','Details'];
+              for (const k of keysPref) if (v[k] != null) return renderValue(v[k], docLink);
+              // Fallback: key: value list (1 level)
+              const items = Object.entries(v).map(([k,val]) =>
+                `<li><strong>${escapeHtml(k)}:</strong> ${renderValue(val, docLink)}</li>`).join('');
+              return `<ul class="list">${items}</ul>`;
+            }
+            return mdLite(String(v), docLink);
+          }
           function normalizeFilePath(fp){
             let f = String(fp||'').replace(/\\/g,'/');
             const ws = (process.env.GITHUB_WORKSPACE || '').replace(/\\/g,'/').replace(/\/+$/,'');
@@ -64,26 +100,11 @@ runs:
             if (trimPrefix && f.startsWith(trimPrefix)) f = f.slice(trimPrefix.length);
             return f;
           }
-
           function toResultsArray(json){
             if (Array.isArray(json)) return json;
             if (json && Array.isArray(json.Results)) return json.Results;
             if (json && Array.isArray(json.results)) return json.results;
             return [];
-          }
-
-          // Flatten nested objects/arrays to readable text
-          function toText(v){
-            if (v == null) return '';
-            if (typeof v === 'string') return v;
-            if (typeof v === 'number' || typeof v === 'boolean') return String(v);
-            if (Array.isArray(v)) return v.map(toText).filter(Boolean).join('; ');
-            if (typeof v === 'object') {
-              const preferred = ['Message','Text','Value','Description','Recommendation','Reason','Error','error','message'];
-              for (const k of preferred) if (v[k] != null) return toText(v[k]);
-              try { return JSON.stringify(v); } catch { return String(v); }
-            }
-            return String(v);
           }
 
           const sevMeta = {
@@ -93,31 +114,28 @@ runs:
           };
 
           function renderTable(rows){
-            const cols = [
-              {key:'Severity', label:'Severity'},
-              ...(showCode ? [{key:'ErrorCode', label:'ErrorCode / Link'}] : []),
-              {key:'RuleName', label:'Rule'},
-              {key:'Description', label:'Description'},
-              {key:'Recommendation', label:'Recommendation'},
-              {key:'FilePath', label:'File Path'},
+            const columns = [
+              {key:'Severity', label:'Severity', render:(r)=>`${sevMeta[r.ErrorSeverity]?.icon || ''} ${sevMeta[r.ErrorSeverity]?.name || ''}`},
+              ...(showCode ? [{
+                key:'ErrorCode', label:'ErrorCode / Link',
+                render:(r)=> r.DocumentationLink
+                  ? `<a href="${escapeHtml(r.DocumentationLink)}">${escapeHtml(r.ErrorCode)}</a>`
+                  : escapeHtml(r.ErrorCode)
+              }] : []),
+              {key:'RuleName', label:'Rule', render:(r)=> escapeHtml(r.RuleName)},
+              {key:'Description', label:'Description', class:'wrap', render:(r)=> renderValue(r.Description, r.DocumentationLink)},
+              {key:'Recommendation', label:'Recommendation', class:'wrap', render:(r)=> renderValue(r.Recommendation, r.DocumentationLink)},
+              {key:'FilePath', label:'File Path', class:'path', render:(r)=> escapeHtml(normalizeFilePath(r.FilePath))},
             ];
-            const head = '<thead><tr>' + cols.map(c=>`<th>${c.label}</th>`).join('') + '</tr></thead>';
-            const body = rows.map(r=>{
+
+            const thead = `<thead><tr>${columns.map(c=>`<th>${c.label}</th>`).join('')}</tr></thead>`;
+            const tbody = rows.map(r=>{
               const sev = sevMeta[r.ErrorSeverity] || {};
-              const tds = [];
-              tds.push(`<td class="sev">${sev.icon||''} ${sev.name||''}</td>`);
-              if (showCode){
-                const code = escapeHtml(r.ErrorCode);
-                const link = r.DocumentationLink ? `<a href="${escapeHtml(r.DocumentationLink)}">${code}</a>` : code;
-                tds.push(`<td>${link}</td>`);
-              }
-              tds.push(`<td>${escapeHtml(r.RuleName)}</td>`);
-              tds.push(`<td class="wrap">${escapeHtml(toText(r.Description))}</td>`);
-              tds.push(`<td class="wrap">${escapeHtml(toText(r.Recommendation))}</td>`);
-              tds.push(`<td class="path">${escapeHtml(normalizeFilePath(r.FilePath))}</td>`);
-              return `<tr class="${sev.class||''}">${tds.join('')}</tr>`;
+              const tds = columns.map(c=>`<td class="${c.class||''}">${c.render(r)}</td>`).join('');
+              return `<tr class="${sev.class||''}">${tds}</tr>`;
             }).join('\n');
-            return `<div class="table-wrap"><table class="grid">${head}<tbody>${body}</tbody></table></div>`;
+
+            return `<div class="table-wrap"><table class="grid">${thead}<tbody>${tbody}</tbody></table></div>`;
           }
 
           (async () => {
@@ -145,14 +163,12 @@ runs:
                 FilePath: String(x.FilePath ?? '')
               }));
 
-              if (rows.length === 0) {
-                sections.push(`<details open><summary><span class="file">${escapeHtml(path.basename(file))}</span>
-                  <span class="chips"><span class="chip error">❌ 0</span><span class="chip warn">⚠️ 0</span><span class="chip info">ℹ️ 0</span></span>
-                </summary><div class="empty">No results.</div></details>`);
-                continue;
-              }
-
-              rows.sort((a,b)=> (a.ErrorSeverity - b.ErrorSeverity) || String(a.FilePath).localeCompare(String(b.FilePath)));
+              // sort: Error -> Warning -> Info, then by Rule, then File
+              rows.sort((a,b)=>
+                (a.ErrorSeverity - b.ErrorSeverity) ||
+                String(a.RuleName).localeCompare(String(b.RuleName)) ||
+                String(a.FilePath).localeCompare(String(b.FilePath))
+              );
 
               const counts = {
                 err: rows.filter(r=>r.ErrorSeverity===1).length,
@@ -162,17 +178,17 @@ runs:
               overallErr+=counts.err; overallWarn+=counts.warn; overallInfo+=counts.info;
 
               sections.push(`
-              <details open>
-                <summary><span class="file">${escapeHtml(path.basename(file))}</span>
-                  <span class="chips">
-                    <span class="chip error">❌ ${counts.err}</span>
-                    <span class="chip warn">⚠️ ${counts.warn}</span>
-                    <span class="chip info">ℹ️ ${counts.info}</span>
-                  </span>
-                </summary>
-                ${renderTable(rows)}
-              </details>`);
-                      }
+                <details open>
+                  <summary><span class="file">${escapeHtml(path.basename(file))}</span>
+                    <span class="chips">
+                      <span class="chip error">❌ ${counts.err}</span>
+                      <span class="chip warn">⚠️ ${counts.warn}</span>
+                      <span class="chip info">ℹ️ ${counts.info}</span>
+                    </span>
+                  </summary>
+                  ${renderTable(rows)}
+                </details>`);
+                        }
 
             const css = `
               :root { --fg:#0f172a; --muted:#475569; --bg:#ffffff; --bd:#e5e7eb;
@@ -189,7 +205,7 @@ runs:
               .chip { background:var(--chip); border-radius:999px; padding:2px 10px; font-size:12px; }
               .chip.error { background:#fecaca; } .chip.warn { background:#fed7aa; } .chip.info { background:#bfdbfe; }
               .table-wrap { overflow:auto; max-width:100%; }
-              .grid { width:100%; border-collapse:separate; border-spacing:0; table-layout:fixed; }
+              .grid { width:100%; border-collapse:separate; border-spacing:0; table-layout:fixed; border:1px solid var(--bd); }
               .grid th, .grid td { border:1px solid var(--bd); padding:8px 10px; vertical-align:top; }
               .grid th { background:#f8fafc; position:sticky; top:0; z-index:1; }
               .grid td, .grid th { overflow-wrap:anywhere; word-break:break-word; }
@@ -198,7 +214,7 @@ runs:
               tr.sev-error   { background: var(--err); }
               tr.sev-warning { background: var(--warn); }
               tr.sev-info    { background: var(--info); }
-              .empty { padding:12px 16px; color:var(--muted); }
+              .list { margin:0; padding-left:18px; }
             `;
 
             const when = new Date().toISOString();
