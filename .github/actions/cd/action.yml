@@ -33,7 +33,7 @@ runs:
     - name: check release
       shell: bash
       run: |
-        echo "updating release"
+        echo "checking release"
         body="$(mktemp)"
         trap 'rm -f "$body"' EXIT
 
@@ -51,10 +51,14 @@ runs:
 
         echo "Status Code: $status"
         echo "::group::Response body"
-        if command -v jq >/dev/null; then jq -r . "$body" || cat "$body"; else cat "$body"; fi
+        if [[ -s "$body" ]] && command -v jq >/dev/null && jq -e . "$body" >/dev/null 2>&1; then
+          jq -r . "$body"
+        else
+          cat "$body"
+        fi
         echo "::endgroup::"
 
-        id_found=$(echo "$body" | jq -r '.value[0].Id // empty')
+        id_found="$(jq -r '.value[0].Id // empty' "$body" 2>/dev/null || true)"
         echo "id_found=$id_found" >> "$GITHUB_ENV"
         if [ -n "$id_found" ]; then
           echo "Release Id found"
@@ -74,7 +78,7 @@ runs:
       if: env.CREATE != 'true'
       shell: bash
       run: |
-        echo "updating release"
+        echo "ugrading release"
         body="$(mktemp)"
         trap 'rm -f "$body"' EXIT
 
@@ -146,7 +150,7 @@ runs:
       if: env.CREATE == 'true'
       shell: bash
       run: |
-        echo "updating release"
+        echo "creating release"
         body="$(mktemp)"
         trap 'rm -f "$body"' EXIT
 
