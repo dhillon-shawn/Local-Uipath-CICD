@@ -179,16 +179,16 @@ jobs:
         run: |
           dotnet nuget locals all --list
 
-      - name: Configure per-job NuGet caches
+      - name: Configure NuGet cache (default user cache)
         shell: powershell
         run: |
-          $jobPkgs = Join-Path $env:RUNNER_TEMP '.nuget-cache'
-          $jobHttp = Join-Path $env:RUNNER_TEMP '.nuget-http'
-          New-Item -ItemType Directory -Force -Path $jobPkgs,$jobHttp | Out-Null
-          "NUGET_PACKAGES=$jobPkgs"          >> $env:GITHUB_ENV
-          "NUGET_HTTP_CACHE_PATH=$jobHttp"   >> $env:GITHUB_ENV
-          Write-Host "NUGET_PACKAGES=$jobPkgs"
-          Write-Host "NUGET_HTTP_CACHE_PATH=$jobHttp"
+          $globalPkgs = Join-Path $env:USERPROFILE '.nuget\packages'
+          $httpCache  = Join-Path $env:LOCALAPPDATA 'NuGet\v3-cache'
+          New-Item -ItemType Directory -Force -Path $globalPkgs,$httpCache | Out-Null
+          "NUGET_PACKAGES=$globalPkgs"          >> $env:GITHUB_ENV
+          "NUGET_HTTP_CACHE_PATH=$httpCache"    >> $env:GITHUB_ENV
+          Write-Host "NUGET_PACKAGES=$globalPkgs"
+          Write-Host "NUGET_HTTP_CACHE_PATH=$httpCache"
 
       - name: set nuget.config
         shell: powershell
@@ -196,16 +196,15 @@ jobs:
           @'
           <?xml version="1.0" encoding="utf-8"?>
           <configuration>
+            <config>
+              <!-- Belt & suspenders: force same global folder -->
+              <add key="globalPackagesFolder" value="%USERPROFILE%\.nuget\packages" />
+            </config>
             <packageSources>
               <clear />
               <add key="UiPath-Marketplace" value="https://gallery.uipath.com/api/v3/index.json" />
               <add key="Official"           value="https://pkgs.dev.azure.com/uipath/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json" />
             </packageSources>
-
-            <fallbackPackageFolders>
-              <add key="DefaultUser" value="%USERPROFILE%\.nuget\packages" />
-              <add key="ProgramData" value="%ProgramData%\uipath\nuget\packages" />
-            </fallbackPackageFolders>
           </configuration>
           '@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
 
@@ -214,10 +213,7 @@ jobs:
 
       - name: Confirm NuGet folders
         shell: powershell
-        run: |
-          Write-Host "NUGET_PACKAGES=$env:NUGET_PACKAGES"
-          Write-Host "NUGET_HTTP_CACHE_PATH=$env:NUGET_HTTP_CACHE_PATH"
-          dotnet nuget locals all --list
+        run: dotnet nuget locals all --list
 
       - name: restore
         shell: powershell
