@@ -144,7 +144,7 @@ jobs:
   CLI:
     runs-on: windows-latest
     needs: [setup, resolve-dependencies]
-    if: ${{ inputs.target_env != 'prod '}}
+    if: ${{ inputs.target_env != 'prod' }}
     steps:
 
       - name: auth
@@ -420,14 +420,14 @@ jobs:
 
       - name: Download artifact
         uses: actions/download-artifact@v4
-        if: ${{ inputs.target_env != 'prod '}}
+        if: ${{ inputs.target_env != 'prod'}}
         with:
           name: output
           path: ./output
 
       - name: Download test pointer
         uses: dawidd6/action-download-artifact@v7
-        if: ${{ inputs.target_env == 'prod '}}
+        if: ${{ inputs.target_env == 'prod'}}
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           pr: ${{ github.event.pull_request.number }}
@@ -437,7 +437,7 @@ jobs:
           if_no_artifact_found: fail
 
       - name: Read test run
-        if: ${{ inputs.target_env == 'prod '}}
+        if: ${{ inputs.target_env == 'prod'}}
         id: ptr
         shell: bash
         run: |
@@ -449,7 +449,7 @@ jobs:
       # 3) Download *that exact* artifact (name: output) from the recorded run
       - name: Download staged artifact from recorded run
         uses: dawidd6/action-download-artifact@v7
-        if: ${{ inputs.target_env == 'prod '}}
+        if: ${{ inputs.target_env == 'prod'}}
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           run_id: ${{ steps.ptr.outputs.run_id }}
