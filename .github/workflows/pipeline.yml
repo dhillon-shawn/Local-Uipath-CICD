@@ -185,18 +185,6 @@ jobs:
         run: |
           nuget.exe install UiPath.CLI.Windows -Version 25.4.9337.28376 -OutputDirectory packages -Source https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json
 
-          
-      - name: Check UiPath CLI
-        shell: powershell
-        run: |
-          $cmd = Get-Command packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe -ErrorAction SilentlyContinue
-          if ($cmd) {
-            "has_uipcli=true"  >> $env:GITHUB_OUTPUT
-            Write-Host "Found uipcli in $((Split-Path $cmd.Source -Parent))"
-          } else {
-            "has_uipcli=false" >> $env:GITHUB_OUTPUT
-            Write-Host "uipcli not found on PATH"
-          }
       - name: Commands
         shell: cmd
         run: packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe --help
@@ -205,28 +193,36 @@ jobs:
         shell: powershell
         run: |
           dotnet nuget locals all --list
-
+          
+      - name: Configure per-job NuGet caches
+        shell: powershell
+        run: |
+          $jobPkgs = Join-Path $env:RUNNER_TEMP '.nuget-cache'
+          $jobHttp = Join-Path $env:RUNNER_TEMP '.nuget-http'
+          New-Item -ItemType Directory -Force -Path $jobPkgs,$jobHttp | Out-Null
+          "NUGET_PACKAGES=$jobPkgs"        >> $env:GITHUB_ENV
+          "NUGET_HTTP_CACHE_PATH=$jobHttp" >> $env:GITHUB_ENV
+          Write-Host "NUGET_PACKAGES=$jobPkgs"
+          Write-Host "NUGET_HTTP_CACHE_PATH=$jobHttp"
 
       - name: set nuget.config
         shell: powershell
         run: |
+          $globalPkgs = $env:NUGET_PACKAGES  # resolve to absolute path now
           @"
           <?xml version="1.0" encoding="utf-8"?>
           <configuration>
             <config>
-              <add key="globalPackagesFolder" value="%NUGET_PACKAGES%" />
+              <!-- Force NuGet to use the per-job cache as *the* global packages folder -->
+              <add key="globalPackagesFolder" value="$globalPkgs" />
             </config>
-
             <packageSources>
               <clear />
               <add key="UiPath-Marketplace" value="https://gallery.uipath.com/api/v3/index.json" />
               <add key="Official"           value="https://pkgs.dev.azure.com/uipath/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json" />
             </packageSources>
-
-            <fallbackPackageFolders>
-              <add key="DefaultUser" value="%USERPROFILE%\.nuget\packages" />
-              <add key="ProgramData" value="%ProgramData%\uipath\nuget\packages" />
-            </fallbackPackageFolders>
+            <!-- NOTE: No fallbackPackageFolders and no local sources here.
+                      This prevents NU1301 from non-existent local paths. -->
           </configuration>
           "@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
 
@@ -243,7 +239,8 @@ jobs:
           NUGET_PACKAGES:        ${{ runner.temp }}\.nuget-cache
           NUGET_HTTP_CACHE_PATH: ${{ runner.temp }}\.nuget-http
         run: |
-          New-Item -ItemType Directory -Force -Path '${{ runner.temp }}\.nuget-cache','${{ runner.temp }}\.nuget-http' | Out-Null
+          New-Item -ItemType Directory -Force -Path $env:NUGET_PACKAGES,$env:NUGET_HTTP_CACHE_PATH | Out-Null
+
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package restore '${{ github.workspace }}' `
             --restoreFolder '${{ env.NUGET_PACKAGES }}' `
             --nugetConfigFilePath '${{ github.workspace }}\nuget.config' `
@@ -254,7 +251,7 @@ jobs:
             --disableBuiltInNugetFeeds `
             --libraryIdentityUrl '${{ env.BASE_URL }}/identity_' `
             -y --traceLevel "Verbose"
-            
+
 
       - name: Persist packages to default user cache
         shell: powershell
