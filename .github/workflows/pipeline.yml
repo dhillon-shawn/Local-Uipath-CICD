@@ -206,14 +206,8 @@ jobs:
 
       - name: restore
         shell: powershell
-        env:
-          NUGET_PACKAGES:        ${{ runner.temp }}\.nuget-cache
-          NUGET_HTTP_CACHE_PATH: ${{ runner.temp }}\.nuget-http
         run: |
-          New-Item -ItemType Directory -Force -Path $env:NUGET_PACKAGES,$env:NUGET_HTTP_CACHE_PATH | Out-Null
-
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package restore '${{ github.workspace }}' `
-            --restoreFolder '${{ env.NUGET_PACKAGES }}' `
             --nugetConfigFilePath '${{ github.workspace }}\nuget.config' `
             --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
             --libraryOrchestratorTenant '${{ env.TENANT }}' `
@@ -231,9 +225,6 @@ jobs:
       - name: analyze
         if: inputs.target_env == 'dev'
         shell: powershell
-        env:
-          NUGET_PACKAGES:        ${{ runner.temp }}\.nuget-cache
-          NUGET_HTTP_CACHE_PATH: ${{ runner.temp }}\.nuget-http
         run: |
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package analyze '${{ github.workspace }}\project.json' `
             --resultPath '${{ runner.temp }}\analyze.json' `
@@ -257,7 +248,7 @@ jobs:
           New-Item -ItemType Directory -Path $stage | Out-Null
 
           robocopy "${{ github.workspace }}" "$stage" /MIR `
-            /XD '.git' '.github' 'output' 'results' '.nuget-cache' '.nuget-http' '.nuget' `
+            /XD '.git' '.github' 'output' 'results' '.nuget-cache' '.nuget-http' '.nuget' 'packages' 'nuget' `
             /XF '*.nupkg' 'nuget.config'
 
           $rc = $LASTEXITCODE
@@ -265,9 +256,6 @@ jobs:
 
       - name: pack
         shell: powershell
-        env:
-          NUGET_PACKAGES:        ${{ env.NUGET_PACKAGES }}
-          NUGET_HTTP_CACHE_PATH: ${{ env.NUGET_HTTP_CACHE_PATH }}
         run: |
           $ErrorActionPreference = 'Stop'
           $stage = Join-Path $env:RUNNER_TEMP 'uipack-stage'

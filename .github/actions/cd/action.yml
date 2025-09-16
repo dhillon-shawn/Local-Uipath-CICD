@@ -73,7 +73,7 @@ runs:
 
         curl_rc=0
         status=$(
-          curl -L -sS \
+          curl -X PATCH -L -sS \
             --connect-timeout 10 --max-time 120 \
             --output "$body" --write-out '%{http_code}' \
             -H "Authorization: Bearer ${{inputs.token}}" \
