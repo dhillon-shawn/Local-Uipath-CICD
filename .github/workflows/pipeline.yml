@@ -370,6 +370,21 @@ jobs:
               path: ./output/
               if-no-files-found: error
 
+      - name: Record test pointer
+        if: inputs.target_env == 'test'
+        run: |
+          echo "run_id=${GITHUB_RUN_ID}" > test_pointer.env
+          echo "sha=${GITHUB_SHA}" >> test_pointer.env
+          echo "artifact=output" >> test_pointer.env
+
+      - name: Upload test pointer
+        if: inputs.target_env == 'test'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-pointer-pr-${{ github.event.pull_request.number }}
+          path: test_pointer.env
+          retention-days: 30
+
 
   #    - name: Restore, CI (analyze/test cases), Pack, Upload artifacts
   #      id: CLI
@@ -466,20 +481,7 @@ jobs:
           token:        $TOKEN
           entry_point: ${{needs.setup.outputs.entry_point}}
 
-      - name: Record test pointer
-        if: inputs.target_env == 'test'
-        run: |
-          echo "run_id=${GITHUB_RUN_ID}" > test_pointer.env
-          echo "sha=${GITHUB_SHA}" >> test_pointer.env
-          echo "artifact=output" >> test_pointer.env
 
-      - name: Upload test pointer
-        if: inputs.target_env == 'test'
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-pointer-pr-${{ github.event.pull_request.number }}
-          path: test_pointer.env
-          retention-days: 30
 
   FORMAT:
     runs-on: ubuntu-latest
