@@ -82,7 +82,7 @@ runs:
             -H "Content-Type: application/json" \
             -H "X-UIPATH-FolderPath: ${{ inputs.full_folder_name }}" \
             --data-binary @- \
-            "${{ inputs.or_url }}/odata/Releases" <<'JSON'
+            "${{ inputs.or_url }}/odata/Releases(${{ env.id_found}})" <<'JSON'
         {
           "Name": "${{ inputs.pid }}",
           "ProcessKey": "${{ inputs.pid }}",
