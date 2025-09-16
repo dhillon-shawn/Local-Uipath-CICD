@@ -264,9 +264,10 @@ jobs:
           
           
       - name: test
-        if: inputs.target_env == 'test'
+        if: inputs.target_env == 'test' && ${{needs.setup.outputs.publishable == 'true'}}
         shell: powershell
         run: |
+          New-Item -Path "${{ runner.temp }}\TestResults.xml" -ItemType File
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe test run `
             '${{ env.BASE_URL }}/' '${{ env.TENANT }}' `
             -P '${{ github.workspace }}\project.json' --out "junit" --r '${{ runner.temp }}\TestResults.xml' `
