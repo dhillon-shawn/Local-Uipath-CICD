@@ -195,9 +195,7 @@ jobs:
         run: |
           nuget.exe install UiPath.CLI.Windows -Version 25.4.9337.28376 -OutputDirectory packages -Source https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json
           
-
-
-      - name: Write nuget.config 
+      - name: Write nuget.config
         shell: powershell
         run: |
           @'
@@ -213,64 +211,46 @@ jobs:
 
           $uipcli = (Get-Command "packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe").Source
           Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
-
-        
-      - name: restore
-        shell: powershell
-        if: false
-        env:
-          NUGET_PACKAGES:        C:\nuget-global\packages
-          NUGET_HTTP_CACHE_PATH: C:\nuget-global\http
-        run: |
-          packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package restore '${{ github.workspace }}' `
-            --restoreFolder "$env:NUGET_PACKAGES" `
-            --nugetConfigFilePath '${{ github.workspace }}\nuget.config' `
-            --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
-            --libraryOrchestratorTenant '${{ env.TENANT }}' `
-            -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
-            --libraryOrchestratorApplicationScope '${{ env.scope }}' `
-            --disableBuiltInNugetFeeds `
-            --libraryIdentityUrl '${{ env.BASE_URL }}/identity_' `
-            -y --traceLevel "Verbose"
-      - name: Create Results DIR
-        shell: powershell
-        run: New-Item -Path "./results" -ItemType Directory -Force | Out-Null
-
-      - name: analyze
-        if: inputs.target_env == 'dev'
-        shell: powershell
-        run: |
-          packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package analyze '${{ github.workspace }}\project.json' `
-            --resultPath '${{ runner.temp }}\analyze.json' `
-            --orchestratorUrl '${{ env.BASE_URL }}/' `
-            --orchestratorTenant '${{ env.TENANT }}' `
-            -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
-            --orchestratorApplicationScope '${{ env.scope}}' `
-            --analyzerTraceLevel "Error" `
-            --traceLevel Verbose --disableBuiltInNugetFeeds -y `
-            --identityUrl '${{ env.BASE_URL }}/identity_'
-                  
-          New-Item -ItemType Directory -Force -Path '.\results' | Out-Null
-          Copy-Item '${{ runner.temp }}\analyze.json' '.\results\analyze.json' -Force
           
           
-      - name: analyze
-        if: inputs.target_env == 'dev'
-        shell: powershell
-        run: |
-          packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package analyze '${{ github.workspace }}\project.json' `
-            --resultPath '${{ runner.temp }}\analyze.json' `
-            --orchestratorUrl '${{ env.BASE_URL }}/' `
-            --orchestratorTenant '${{ env.TENANT }}' `
-            -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
-            --orchestratorApplicationScope '${{ env.scope}}' `
-            --analyzerTraceLevel "Error" `
-            --traceLevel Verbose --disableBuiltInNugetFeeds -y `
-            --identityUrl '${{ env.BASE_URL }}/identity_'
-                  
-          New-Item -ItemType Directory -Force -Path '.\results' | Out-Null
-          Copy-Item '${{ runner.temp }}\analyze.json' '.\results\analyze.json' -Force
+      - name: Get CLI v2
+        run: Invoke-WebRequest "https://github.com/UiPath/uipathcli/releases/latest/download/uipathcli-windows-amd64.zip" -OutFile "uipathcli.zip" ; Expand-Archive -Force -Path "uipathcli.zip" -DestinationPath "."
 
+              # On web: {BASE_URL}/{org name}/{tenant name}/orchestrator_/....
+      - name: Setup CLI
+        run: |
+                ./uipath config set --key organization --value "${{ env.ORG }}" --profile target
+                ./uipath config set --key tenant --value "${{ env.TENANT }}" --profile target
+                ./uipath config set --key "auth.scopes" --value "${{ env.scopes }}" --profile target
+                ./uipath config set --key "uri" --value "${{ env.BASE_URL }}" --profile target
+
+      - name: Display UiPath config
+        run: cat "$env:USERPROFILE\.uipath\config"
+      - name: CI
+        id: CI
+        if: ${{ (inputs.target_env == 'test' || inputs.target == 'dev')}} && needs.setup.outputs.ptype == 'Process'
+        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/ci@main
+        with:
+          folder_name:  ${{ needs.resolve-dependencies.outputs.base_folder_name }}
+          target_env:   ${{ inputs.target_env }}
+          publishable:  ${{ needs.setup.outputs.publishable }}
+          org: ${{ env.ORG }}
+          tenant: ${{ env.TENANT }}
+          scopes:  ${{ env.scope }}
+          or_url: ${{ env.OR_URL }}
+          app_id:       ${{ env.APP_ID }}
+          app_secret:   ${{ env.APP_SECRET }}
+
+      - name: Create Output DIR
+        shell: powershell
+        run: New-Item -Path "./output" -ItemType Directory
+
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+              name: output
+              path: ./output/
 
       - name: stage for pack
         shell: powershell
@@ -287,50 +267,19 @@ jobs:
           $rc = $LASTEXITCODE
           if ($rc -ge 8) { throw "robocopy failed with exit $rc" } else { Write-Host "robocopy exit $rc (OK)"; exit 0 }
 
-      - name: pack
+
+
+      - name: package
         shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $stage = Join-Path $env:RUNNER_TEMP 'uipack-stage'
-          $proj  = Join-Path $stage 'project.json'
-          if (-not (Test-Path $proj)) { throw "Staged project.json not found at $proj" }
-                  
-          $stageOut = Join-Path $stage 'output'
-          $repoOut  = Join-Path $env:GITHUB_WORKSPACE 'output'
-          New-Item -ItemType Directory -Force -Path $stageOut | Out-Null
-          New-Item -ItemType Directory -Force -Path $repoOut  | Out-Null
+        env:
+                UIPATH_CLIENT_ID:  ${{ env.APP_ID}}
+                UIPATH_CLIENT_SECRET:  ${{ env.APP_SECRET }}
+                UIPATH_ACCOUNT_NAME: ${{ env.ORG }}
+                UIPATH_TENANT_NAME: ${{ env.TENANT }}
+                UIPATH_ORCHESTRATOR_URL: ${{ env.BASE_URL }}
+                UIPATH_SCOPES: "${{ env.SCOPES }}"
+        run: ./uipath studio package pack --destination "./output" --source "${{ github.workspace }}/project.json"   --output-type "${{ needs.setup.outputs.ptype }}" --release-notes "${{ needs.setup.outputs.notes }}" -package-version ${{ needs.resolve-dependencies.outputs.version }}  --debug --profile target
 
-          packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package pack "$proj" `
-            --output "$stageOut" `
-            --outputType '${{ needs.setup.outputs.ptype }}' `
-            -v '${{ needs.resolve-dependencies.outputs.version }}' `
-            --repositoryUrl 'https://github.com/${{ github.repository }}' `
-            --repositoryBranch '${{ github.ref_name }}' `
-            --repositoryCommit '${{ github.sha }}' `
-            --repositoryType 'git' `
-            --projectUrl 'https://project/url.com' `
-            --releaseNotes '${{ needs.setup.outputs.notes }}' `
-            --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
-            --libraryOrchestratorTenant '${{ env.TENANT }}' `
-            -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
-            --libraryOrchestratorApplicationScope '${{ env.scope }}' `
-            --libraryIdentityUrl '${{ env.BASE_URL }}/identity_' `
-            --disableBuiltInNugetFeeds `
-            --traceLevel 'Verbose' -y 
-                    
-          Get-ChildItem "$stageOut" -Filter '*.nupkg' | ForEach-Object {
-            Copy-Item $_.FullName $repoOut -Force
-            Write-Host "Packaged: $($_.Name) -> $repoOut"
-          }
-            
-
-
-      - name: Upload artifact
-        if: ((${{ needs.setup.outputs.publishable }} == 'true')  && inputs.target_env == 'test') || inputs.target_env == 'dev'
-        uses: actions/upload-artifact@v4
-        with:
-          name: results
-          path: ./results/*
 
 
       - name: Upload artifact
