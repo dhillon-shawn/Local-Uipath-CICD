@@ -305,6 +305,7 @@ jobs:
         with:
           name: results
           path: ./results/*
+        continue-on-error: true
 
 
       - name: Upload artifact
@@ -410,7 +411,7 @@ jobs:
           xml_path: ./results/TestResults.xml
           out_path: ./email/TestResults.html
 
-      # Render analysis only for dev when file exists
+
       - name: Analysis → HTML
         id: analysis_html
         if: ${{ inputs.target_env == 'dev' && hashFiles('results/analyze.json') != '' }}
