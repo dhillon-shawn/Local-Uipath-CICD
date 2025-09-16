@@ -158,7 +158,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path 'C:\actions-toolcache','C:\actions-temp' | Out-Null
 
 
-      - name: Setup .NET SDK 8 (cached)
+      - name: Setup .NET SDK 8
         uses: actions/setup-dotnet@v4
         env:
           RUNNER_TOOL_CACHE: C:\actions-toolcache
@@ -237,7 +237,7 @@ jobs:
             -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
             --orchestratorApplicationScope '${{ env.scope}}' `
             --analyzerTraceLevel "Warning" `
-            --ignoredRules "ST-NMG-001,ST-NMG-002,ST-NMG-009,ST-NMG-011,ST-NMG-016,ST-NMG-008,ST-USG-032,ST-USG-034,ST-USG-027"
+            --ignoredRules "ST-NMG-001,ST-NMG-002,ST-NMG-009,ST-NMG-011,ST-NMG-016,ST-NMG-008,ST-USG-032,ST-USG-034,ST-USG-027" `
             --traceLevel Verbose --disableBuiltInNugetFeeds -y `
             --identityUrl '${{ env.BASE_URL }}/identity_'
                   
