@@ -20,7 +20,7 @@ runs:
       shell: bash
       run: mkdir -p "$(dirname "${{ inputs.out_path }}")"
 
-    - name: Analysis → HTML (simple + proper Read more links)
+    - name: Analysis → HTML (simple, correct Learn more links)
       id: analysis_html
       uses: actions/github-script@v7
       env:
@@ -42,83 +42,69 @@ runs:
             .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
             .replace(/'/g,'&#39;');
 
-          // Tokenize [label](url) before escaping
+          // Turn [label](url) into tokens we restore after escaping
           function tokenizeMarkdownLinks(src) {
-            const links = [];
-            const txt = String(src || '').replace(/\[([^\]]+)\]\(\s*(https?:\/\/[^\s)]+)\s*\)/gi,
-              (_m, label, url) => `__MLINK_${links.push({label, url}) - 1}__`
+            const anchors = [];
+            const text = String(src || '').replace(/\[([^\]]+)\]\(\s*(https?:\/\/[^\s)]+)\s*\)/gi,
+              (_m, label, url) => {
+                const id = anchors.push({ label, url }) - 1;
+                return `__A${id}__`;
+              }
             );
-            return { txt, links };
+            return { text, anchors };
           }
 
-          // Prepare doc-link placement (so we don't show raw URLs or duplicate links)
-          function prepareDocTokens(src, docLink) {
-            const tokens = [];
-            let t = String(src || '');
-
-            if (!docLink) return { t, tokens };
-
-            const hasMdLink = /\[[^\]]+\]\(\s*https?:\/\/[^\s)]+\s*\)/i.test(t);
-            if (hasMdLink) return { t, tokens }; // already has a link (likely "Learn more") → leave as-is
-
-            if (t.includes(docLink)) {
-              // Replace the raw doc URL with a placeholder to become "Read more"
-              t = t.split(docLink).join('__DOCURL__');
-              tokens.push({ key: '__DOCURL__', html: `<a href="${esc(docLink)}" style="color:#1d4ed8;text-decoration:none;">Read more</a>` });
-              return { t, tokens };
-            }
-
-            if (/(learn|read)\s+more\.?/i.test(t)) {
-              // Replace the text "Learn more." with the link
-              t = t.replace(/(learn|read)\s+more\.?/ig, '__READMORE__');
-              tokens.push({ key: '__READMORE__', html: `<a href="${esc(docLink)}" style="color:#1d4ed8;text-decoration:none;">Read more</a>` });
-              return { t, tokens };
-            }
-
-            // Otherwise append a Read more link at the end
-            tokens.push({ key: '__APPEND__', html: ` — <a href="${esc(docLink)}" style="color:#1d4ed8;text-decoration:none;">Read more</a>` });
-            return { t, tokens };
-          }
-
-          // Convert a text field to HTML with proper links and bullets
+          // Render text with:
+          //  - existing markdown links preserved
+          //  - "Learn more" converted to doc link if provided
+          //  - raw URLs linked
+          //  - no extra "Read more" added
           function renderText(src, docLink) {
-            // 1) doc-link placeholders on the ORIGINAL text
-            const { t: withDocPlaceholders, tokens } = prepareDocTokens(src, docLink);
+            let original = String(src || '');
 
-            // 2) tokenize markdown links on that text
-            const { txt, links } = tokenizeMarkdownLinks(withDocPlaceholders);
+            // Tokenize markdown links first
+            const { text: t0, anchors } = tokenizeMarkdownLinks(original);
+            let t = t0;
 
-            // 3) escape everything
-            let out = esc(txt);
+            // If a DocumentationLink is provided:
+            if (docLink) {
+              const dl = String(docLink);
 
-            // 4) restore markdown links as anchors
-            out = out.replace(/__MLINK_(\d+)__/g, (_m, i) => {
-              const { label, url } = links[Number(i)];
-              return `<a href="${esc(url)}" style="color:#1d4ed8;text-decoration:none;">${esc(label)}</a>`;
+              // Remove raw occurrences of the doc URL to avoid showing it in-text
+              const escRe = dl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              t = t.replace(new RegExp(escRe, 'g'), '');
+
+              // Replace any plain "Learn more" text with a link to the doc
+              // (case-insensitive, optional period)
+              t = t.replace(/(?:^|\s|\()learn\s+more\.?(?=\s|$|\))/gi, (m) => {
+                const id = anchors.push({ label: 'Learn more', url: dl }) - 1;
+                return m.replace(/learn\s+more\.?/i, `__A${id}__`);
+              });
+            }
+
+            // Linkify remaining bare URLs (that aren’t already markdown-linked)
+            t = t.replace(/\bhttps?:\/\/[^\s<>"')]+/gi, (u) => {
+              const id = anchors.push({ label: u, url: u }) - 1;
+              return `__A${id}__`;
             });
 
-            // 5) bold/code
-            out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                    .replace(/`([^`]+)`/g, '<code style="background:#f4f4f5;border:1px solid #e4e4e7;border-radius:4px;padding:1px 4px;">$1</code>');
+            // Escape the rest
+            let out = esc(t);
 
-            // 6) bare URLs → anchors (skip ones already restored)
-            out = out.replace(/\bhttps?:\/\/[^\s<]+/gi, u => `<a href="${u}" style="color:#1d4ed8;text-decoration:none;">${u}</a>`);
-
-            // 7) replace doc-link placeholders with clean "Read more"
-            for (const tok of tokens.filter(t => t.key !== '__APPEND__')) {
-              const escKey = esc(tok.key);
-              out = out.split(escKey).join(tok.html);
-            }
-            if (tokens.find(t => t.key === '__APPEND__')) {
-              out += tokens.find(t => t.key === '__APPEND__').html;
-            }
-
-            // 8) bullets & newlines
+            // Basic formatting
             out = out
+              .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+              .replace(/`([^`]+)`/g, '<code style="background:#f4f4f5;border:1px solid #e4e4e7;border-radius:4px;padding:1px 4px;">$1</code>')
               .replace(/\r?\n\*\* /g, '<br>&nbsp;&nbsp;• ')
               .replace(/\r?\n\* /g, '<br>• ')
               .replace(/\r?\n/g, '<br>');
 
+            // Restore anchor tokens as <a>
+            for (let i = 0; i < anchors.length; i++) {
+              const a = anchors[i];
+              const html = `<a href="${esc(a.url)}" style="color:#1d4ed8;text-decoration:none;">${esc(a.label)}</a>`;
+              out = out.split(`__A${i}__`).join(html);
+            }
             return out;
           }
 
@@ -157,20 +143,21 @@ runs:
             groups.get(row.file).push(row);
           }
 
+        
           const css = {
             card: 'border:1px solid #e5e7eb;border-radius:12px;margin:12px 0;background:#ffffff;',
             head: 'display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #e5e7eb;background:#f9fafb;',
             file: 'font-family:Consolas,Menlo,Monaco,ui-monospace,monospace;font-weight:600;color:#111827;',
-            chips:'display:flex;gap:8px;',
-            chip:(bg,fg)=>`border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600;background:${bg};color:${fg};`,
+            chips: 'display:flex;gap:8px;',
+            chip: (bg,fg)=>`border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600;background:${bg};color:${fg};`,
             wrap: 'overflow:auto;max-width:100%;',
             table:'border-collapse:separate;border-spacing:0;width:100%;table-layout:fixed;border:1px solid #e5e7eb;',
             th:   'background:#f8fafc;border-bottom:1px solid #e5e7eb;font-weight:700;text-align:left;padding:8px 10px;',
             td:   'border-top:1px solid #e5e7eb;padding:8px 10px;vertical-align:top;word-break:break-word;',
-            tdSev:'white-space:nowrap;width:120px;',
+            tdSev: 'white-space:nowrap;width:120px;',
             h1:   'margin:0 0 6px 0;font-size:20px;color:#0f172a;',
             sub:  'margin:0 0 12px 0;color:#475569;',
-            totals:'display:flex;gap:10px;margin:8px 0 16px 0;',
+            totals: 'display:flex;gap:10px;margin:8px 0 16px 0;',
             pill: (bg,fg,bd)=>`border-radius:999px;padding:6px 12px;font-weight:700;border:1px solid ${bd};background:${bg};color:${fg};`,
           };
 
@@ -227,4 +214,3 @@ runs:
           fs.mkdirSync(path.dirname(outPath), { recursive: true });
           fs.writeFileSync(outPath, outHtml, 'utf8');
           core.setOutput('html_path', outPath);
-
