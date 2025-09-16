@@ -240,8 +240,8 @@ jobs:
       - name: restore
         shell: powershell
         env:
-          NUGET_PACKAGES:        ${{ env.NUGET_PACKAGES }}
-          NUGET_HTTP_CACHE_PATH: ${{ env.NUGET_HTTP_CACHE_PATH }}
+          NUGET_PACKAGES:        ${{ runner.temp }}\.nuget-cache
+          NUGET_HTTP_CACHE_PATH: ${{ runner.temp }}\.nuget-http
         run: |
           New-Item -ItemType Directory -Force -Path '${{ runner.temp }}\.nuget-cache','${{ runner.temp }}\.nuget-http' | Out-Null
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package restore '${{ github.workspace }}' `
@@ -279,8 +279,8 @@ jobs:
         if: inputs.target_env == 'dev'
         shell: powershell
         env:
-          NUGET_PACKAGES:        ${{ env.NUGET_PACKAGES }}
-          NUGET_HTTP_CACHE_PATH: ${{ env.NUGET_HTTP_CACHE_PATH }}
+          NUGET_PACKAGES:        ${{ runner.temp }}\.nuget-cache
+          NUGET_HTTP_CACHE_PATH: ${{ runner.temp }}\.nuget-http
         run: |
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package analyze '${{ github.workspace }}\project.json' `
             --resultPath '${{ runner.temp }}\analyze.json' `
