@@ -177,34 +177,36 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: '${{ runner.temp }}/.dotnet'
 
+      - name: Confirm NuGet folders
+        shell: powershell
+        run: |
+          dotnet nuget locals all --list
+
       - name: Configure NuGet default caches
         shell: powershell
         run: |
           $globalPkgs = Join-Path $env:USERPROFILE '.nuget\packages'
           $httpCache  = Join-Path $env:LOCALAPPDATA 'NuGet\v3-cache'
           New-Item -ItemType Directory -Force -Path $globalPkgs,$httpCache | Out-Null
-          "NUGET_PACKAGES=$globalPkgs"    >> $env:GITHUB_ENV
-          "NUGET_HTTP_CACHE_PATH=$httpCache" >> $env:GITHUB_ENV
-          Write-Host "Set NUGET_PACKAGES=$globalPkgs"
-          Write-Host "Set NUGET_HTTP_CACHE_PATH=$httpCache"
+          "NUGET_PACKAGES=$globalPkgs"          >> $env:GITHUB_ENV
+          "NUGET_HTTP_CACHE_PATH=$httpCache"    >> $env:GITHUB_ENV
+          Write-Host "NUGET_PACKAGES=$globalPkgs"
+          Write-Host "NUGET_HTTP_CACHE_PATH=$httpCache"
 
-      - name: set nuget.config
+      - name: Write nuget.config and place next to uipcli
         shell: powershell
         run: |
           @'
           <?xml version="1.0" encoding="utf-8"?>
           <configuration>
-            <!-- Feeds -->
+            <config>
+              <add key="globalPackagesFolder" value="%USERPROFILE%\.nuget\packages" />
+            </config>
             <packageSources>
               <clear />
               <add key="UiPath-Marketplace" value="https://gallery.uipath.com/api/v3/index.json" />
               <add key="Official"           value="https://pkgs.dev.azure.com/uipath/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json" />
             </packageSources>
-            <!-- Optional: keep in sync with MACHINE_NUGET_ROOT below
-                NuGet honors NUGET_PACKAGES env first; this is a fallback -->
-            <config>
-              <add key="globalPackagesFolder" value="%ProgramData%\uipath\nuget\packages" />
-            </config>
           </configuration>
           '@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
 
@@ -214,82 +216,11 @@ jobs:
       - name: Confirm NuGet folders
         shell: powershell
         run: |
-          dotnet nuget locals all --list
-          
-      - name: Confirm NuGet folders
-        shell: powershell
-        run: |
           Write-Host "NUGET_PACKAGES=$env:NUGET_PACKAGES"
           Write-Host "NUGET_HTTP_CACHE_PATH=$env:NUGET_HTTP_CACHE_PATH"
           dotnet nuget locals all --list
 
-      - name: Decide if restore is needed
-        id: depcheck
-        shell: powershell
-        env:
-          NUGET_PACKAGES:        ${{ env.NUGET_PACKAGES }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $proj = Join-Path $env:GITHUB_WORKSPACE 'project.json'
-          if (-not (Test-Path $proj)) { throw "project.json not found at $proj" }
-
-          $json = Get-Content $proj -Raw | ConvertFrom-Json
-
-          # Collect UiPath dependencies
-          $depProps = @()
-          if ($json.PSObject.Properties.Name -contains 'dependencies' -and $json.dependencies) {
-            $depProps = $json.dependencies.PSObject.Properties
-          }
-
-          if (-not $depProps -or $depProps.Count -eq 0) {
-            Write-Host "No 'dependencies' found; skipping restore."
-            'needs_restore=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-            exit 0
-          }
-
-          function Normalize-VersionSpec {
-            param([string]$Spec)
-            $s = $Spec.Trim()
-            if ($s -match '^\[(?<v>[^\],\s]+)\]$') { return $Matches['v'] }  # [25.8.0] -> 25.8.0
-            if ($s -match ',') { return $null }                              # ranges -> force restore
-            return $s                                                        # 25.8.0
-          }
-
-          function Test-PackagePresent {
-            param([string]$Id,[string]$Version)
-            $idLower = $Id.ToLower()
-            $dir1 = Join-Path $env:NUGET_PACKAGES $idLower
-            $dir2 = Join-Path $env:NUGET_PACKAGES $Id
-            $idDir = if (Test-Path $dir1) { $dir1 } elseif (Test-Path $dir2) { $dir2 } else { $null }
-            if (-not $idDir) { return $false }
-            $verDir = Join-Path $idDir $Version
-            return (Test-Path $verDir)
-          }
-
-          $missing = New-Object System.Collections.Generic.List[string]
-          foreach ($p in $depProps) {
-            $id  = [string]$p.Name
-            $spec = [string]$p.Value
-            if ([string]::IsNullOrWhiteSpace($id) -or [string]::IsNullOrWhiteSpace($spec)) { continue }
-
-            $ver = Normalize-VersionSpec $spec
-            if (-not $ver) { $missing.Add("$id@$spec"); continue }  # version range -> restore required
-
-            if (-not (Test-PackagePresent -Id $id -Version $ver)) {
-              $missing.Add("$id@$spec")
-            }
-          }
-
-          if ($missing.Count -gt 0) {
-            "needs_restore=true"             | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-            "missing=$($missing -join ', ')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-            Write-Host "Missing in default cache ($env:NUGET_PACKAGES): $($missing -join ', ')"
-          } else {
-            "needs_restore=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-            Write-Host "All deps present in default cache: $env:NUGET_PACKAGES"
-          }
       - name: restore
-        if: steps.depcheck.outputs.needs_restore == 'true'
         shell: powershell
         env:
           NUGET_PACKAGES:        ${{ env.NUGET_PACKAGES }}        # JOB cache
@@ -307,83 +238,10 @@ jobs:
             -y --traceLevel "Verbose"
             
 
-
-
       - name: Create Results DIR
         shell: powershell
         run: New-Item -Path "./results" -ItemType Directory -Force | Out-Null
 
-
-      - name: Confirm NuGet folders
-        shell: powershell
-        run: |
-          dotnet nuget locals all --list
-
-       
-      - name: Decide if restore is needed
-        shell: powershell
-        env:
-          NUGET_PACKAGES:        ${{ env.NUGET_PACKAGES }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $proj = Join-Path $env:GITHUB_WORKSPACE 'project.json'
-          if (-not (Test-Path $proj)) { throw "project.json not found at $proj" }
-
-          $json = Get-Content $proj -Raw | ConvertFrom-Json
-
-          # Collect UiPath dependencies
-          $depProps = @()
-          if ($json.PSObject.Properties.Name -contains 'dependencies' -and $json.dependencies) {
-            $depProps = $json.dependencies.PSObject.Properties
-          }
-
-          if (-not $depProps -or $depProps.Count -eq 0) {
-            Write-Host "No 'dependencies' found; skipping restore."
-            'needs_restore=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-            exit 0
-          }
-
-          function Normalize-VersionSpec {
-            param([string]$Spec)
-            $s = $Spec.Trim()
-            if ($s -match '^\[(?<v>[^\],\s]+)\]$') { return $Matches['v'] }  # [25.8.0] -> 25.8.0
-            if ($s -match ',') { return $null }                              # ranges -> force restore
-            return $s                                                        # 25.8.0
-          }
-
-          function Test-PackagePresent {
-            param([string]$Id,[string]$Version)
-            $idLower = $Id.ToLower()
-            $dir1 = Join-Path $env:NUGET_PACKAGES $idLower
-            $dir2 = Join-Path $env:NUGET_PACKAGES $Id
-            $idDir = if (Test-Path $dir1) { $dir1 } elseif (Test-Path $dir2) { $dir2 } else { $null }
-            if (-not $idDir) { return $false }
-            $verDir = Join-Path $idDir $Version
-            return (Test-Path $verDir)
-          }
-
-          $missing = New-Object System.Collections.Generic.List[string]
-          foreach ($p in $depProps) {
-            $id  = [string]$p.Name
-            $spec = [string]$p.Value
-            if ([string]::IsNullOrWhiteSpace($id) -or [string]::IsNullOrWhiteSpace($spec)) { continue }
-
-            $ver = Normalize-VersionSpec $spec
-            if (-not $ver) { $missing.Add("$id@$spec"); continue }  # version range -> restore required
-
-            if (-not (Test-PackagePresent -Id $id -Version $ver)) {
-              $missing.Add("$id@$spec")
-            }
-          }
-
-          if ($missing.Count -gt 0) {
-            "needs_restore=true"             | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-            "missing=$($missing -join ', ')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-            Write-Host "Missing in default cache ($env:NUGET_PACKAGES): $($missing -join ', ')"
-          } else {
-            "needs_restore=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-            Write-Host "All deps present in default cache: $env:NUGET_PACKAGES"
-          }
 
 
       - name: analyze
