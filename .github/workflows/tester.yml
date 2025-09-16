@@ -22,7 +22,7 @@ jobs:
           - name: get dev
             uses: ./.github/actions/auth
             with:
-                target_env: "dev"
+                target_env: "test"
                 role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
                 aws_region: "us-west-2"
                 secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
@@ -86,7 +86,6 @@ jobs:
       
 
           - name: create release
-            if: env.CREATE == 'true'
             shell: bash
             run: |
               echo "creating release"
