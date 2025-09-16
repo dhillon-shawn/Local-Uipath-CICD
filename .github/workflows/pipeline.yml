@@ -182,31 +182,35 @@ jobs:
         run: |
           dotnet nuget locals all --list
 
-      - name: Configure NuGet default caches
+      - name: Configure per-job NuGet caches
         shell: powershell
         run: |
-          $globalPkgs = Join-Path $env:USERPROFILE '.nuget\packages'
-          $httpCache  = Join-Path $env:LOCALAPPDATA 'NuGet\v3-cache'
-          New-Item -ItemType Directory -Force -Path $globalPkgs,$httpCache | Out-Null
-          "NUGET_PACKAGES=$globalPkgs"          >> $env:GITHUB_ENV
-          "NUGET_HTTP_CACHE_PATH=$httpCache"    >> $env:GITHUB_ENV
-          Write-Host "NUGET_PACKAGES=$globalPkgs"
-          Write-Host "NUGET_HTTP_CACHE_PATH=$httpCache"
+          $jobPkgs = Join-Path $env:RUNNER_TEMP '.nuget-cache'
+          $jobHttp = Join-Path $env:RUNNER_TEMP '.nuget-http'
+          New-Item -ItemType Directory -Force -Path $jobPkgs,$jobHttp | Out-Null
+          "NUGET_PACKAGES=$jobPkgs"          >> $env:GITHUB_ENV
+          "NUGET_HTTP_CACHE_PATH=$jobHttp"   >> $env:GITHUB_ENV
+          Write-Host "NUGET_PACKAGES=$jobPkgs"
+          Write-Host "NUGET_HTTP_CACHE_PATH=$jobHttp"
 
-      - name: Write nuget.config and place next to uipcli
+      - name: set nuget.config
         shell: powershell
         run: |
           @'
           <?xml version="1.0" encoding="utf-8"?>
           <configuration>
-            <config>
-              <add key="globalPackagesFolder" value="%USERPROFILE%\.nuget\packages" />
-            </config>
             <packageSources>
               <clear />
               <add key="UiPath-Marketplace" value="https://gallery.uipath.com/api/v3/index.json" />
               <add key="Official"           value="https://pkgs.dev.azure.com/uipath/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json" />
             </packageSources>
+
+            <!-- If a package/version already exists here, NuGet will use it (no download) -->
+            <fallbackPackageFolders>
+              <add key="DefaultUser" value="%USERPROFILE%\.nuget\packages" />
+              <!-- Optional (keep if you maintain a machine-wide cache): -->
+              <add key="ProgramData" value="%ProgramData%\uipath\nuget\packages" />
+            </fallbackPackageFolders>
           </configuration>
           '@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
 
@@ -223,8 +227,8 @@ jobs:
       - name: restore
         shell: powershell
         env:
-          NUGET_PACKAGES:        ${{ env.NUGET_PACKAGES }}        # JOB cache
-          NUGET_HTTP_CACHE_PATH: ${{ env.NUGET_HTTP_CACHE_PATH }} # JOB cache
+          NUGET_PACKAGES:        ${{ env.NUGET_PACKAGES }}
+          NUGET_HTTP_CACHE_PATH: ${{ env.NUGET_HTTP_CACHE_PATH }} 
         run: |
           uipcli package restore '${{ github.workspace }}' `
             --restoreFolder '${{ env.NUGET_PACKAGES }}' `
@@ -238,6 +242,19 @@ jobs:
             -y --traceLevel "Verbose"
             
 
+      - name: Persist packages to default user cache
+        shell: powershell
+        run: |
+          $src = $env:NUGET_PACKAGES                         
+          $dst = Join-Path $env:USERPROFILE '.nuget\packages' 
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+
+          robocopy "$src" "$dst" /E /NFL /NDL /NJH /NJS /XO /XN /XC | Out-Null
+          $rc = $LASTEXITCODE
+          if ($rc -ge 8) { throw "robocopy failed with exit $rc" } else { Write-Host "robocopy exit $rc (OK)"; exit 0 }
+          
+
+            
       - name: Create Results DIR
         shell: powershell
         run: New-Item -Path "./results" -ItemType Directory -Force | Out-Null
