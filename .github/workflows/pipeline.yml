@@ -555,6 +555,6 @@ jobs:
           subject:  ${{ needs.format.outputs.final_subject }}
           to:       ${{ needs.setup.outputs.email }}
           from:     "UiPath CI/CD <uipath-cicd@noreply.com>"
-          html_body: ${{ needs.format.outputs.final_html }}
+          html_body: file://${{ needs.format.outputs.final_html }}
           convert_markdown: false
           attachments: ${{ needs.format.outputs.attach_path }}
