@@ -188,31 +188,53 @@ jobs:
         run: |
           nuget.exe install UiPath.CLI.Windows -Version 25.4.9337.28376 -OutputDirectory packages -Source https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json
           
-      - name: set nuget.config
-        shell: powershell
-        run: |
-          @'
-          <?xml version="1.0" encoding="utf-8"?>
-          <configuration>
-            <packageSources>
-              <clear />
-              <add key="UiPath-Marketplace" value="https://gallery.uipath.com/api/v3/index.json" />
-              <add key="Official"           value="https://pkgs.dev.azure.com/uipath/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json" />
-            </packageSources>
-          </configuration>
-          '@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
-
-          $uipcli = (Get-Command packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe).Source
-          Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
-
-      - name: Ensure scoped NuGet cache folders exist
+      - name: Ensure persistent NuGet cache folders
         shell: powershell
         env:
           NUGET_PACKAGES:        C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\packages
           NUGET_HTTP_CACHE_PATH: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\http
+          LOCAL_FEED:            C:\uipath-cache\feeds\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}
         run: |
-          New-Item -ItemType Directory -Force -Path $env:NUGET_PACKAGES,$env:NUGET_HTTP_CACHE_PATH | Out-Null
- 
+          New-Item -ItemType Directory -Force -Path $env:NUGET_PACKAGES,$env:NUGET_HTTP_CACHE_PATH,$env:LOCAL_FEED | Out-Null
+
+      - name: (optional) Seed local feed from restore folder
+        shell: powershell
+        env:
+          NUGET_PACKAGES: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\packages
+          LOCAL_FEED:     C:\uipath-cache\feeds\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}
+        run: |
+          if (-not (Test-Path ".\nuget.exe")) {
+            Invoke-WebRequest -Uri "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" -OutFile "nuget.exe"
+          }
+          # Mirror any .nupkg found under NUGET_PACKAGES into a flat local feed
+          .\nuget.exe init "$env:NUGET_PACKAGES" "$env:LOCAL_FEED" -Expand | Out-Null
+
+      - name: Write nuget.config (Local feed first, then official sources)
+        shell: powershell
+        env:
+          LOCAL_FEED: C:\uipath-cache\feeds\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}
+        run: |
+          @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <clear />
+              <!-- Local mirror (fast path) -->
+              <add key="LocalFeed"         value="${{ env.LOCAL_FEED }}" />
+              <!-- Official/online as fallback -->
+              <add key="UiPath-Marketplace" value="https://gallery.uipath.com/api/v3/index.json" />
+              <add key="Official"           value="https://pkgs.dev.azure.com/uipath/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json" />
+            </packageSources>
+            <config>
+              <add key="signatureValidationMode" value="accept" />
+            </config>
+          </configuration>
+          "@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
+
+          $uipcli = (Get-Command "packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe").Source
+          Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
+
+
       - name: Confirm NuGet folders
         shell: powershell
         env:
@@ -222,7 +244,7 @@ jobs:
           Write-Host "NUGET_PACKAGES=$env:NUGET_PACKAGES"
           Write-Host "NUGET_HTTP_CACHE_PATH=$env:NUGET_HTTP_CACHE_PATH"
           dotnet nuget locals all --list
-
+          
       - name: restore
         shell: powershell
         env:
@@ -230,7 +252,7 @@ jobs:
           NUGET_HTTP_CACHE_PATH: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\http
         run: |
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package restore '${{ github.workspace }}' `
-            --restoreFolder '${{ env.NUGET_PACKAGES }}' `
+            --restoreFolder "$env:NUGET_PACKAGES" `
             --nugetConfigFilePath '${{ github.workspace }}\nuget.config' `
             --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
             --libraryOrchestratorTenant '${{ env.TENANT }}' `
@@ -240,7 +262,34 @@ jobs:
             --libraryIdentityUrl '${{ env.BASE_URL }}/identity_' `
             -y --traceLevel "Verbose"
 
+      - name: (optional) Update local feed after restore
+        if: ${{ success() }}
+        shell: powershell
+        env:
+          NUGET_PACKAGES: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\packages
+          LOCAL_FEED:     C:\uipath-cache\feeds\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}
+        run: |
+          if (-not (Test-Path ".\nuget.exe")) {
+            Invoke-WebRequest -Uri "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" -OutFile "nuget.exe"
+          }
+          .\nuget.exe init "$env:NUGET_PACKAGES" "$env:LOCAL_FEED" -Expand | Out-Null
 
+      - name: restore
+        shell: powershell
+        env:
+          NUGET_PACKAGES:        C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\packages
+          NUGET_HTTP_CACHE_PATH: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\http
+        run: |
+          packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package restore '${{ github.workspace }}' `
+            --restoreFolder "$env:NUGET_PACKAGES" `
+            --nugetConfigFilePath '${{ github.workspace }}\nuget.config' `
+            --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
+            --libraryOrchestratorTenant '${{ env.TENANT }}' `
+            -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
+            --libraryOrchestratorApplicationScope '${{ env.scope }}' `
+            --disableBuiltInNugetFeeds `
+            --libraryIdentityUrl '${{ env.BASE_URL }}/identity_' `
+            -y --traceLevel "Verbose"
       - name: Create Results DIR
         shell: powershell
         run: New-Item -Path "./results" -ItemType Directory -Force | Out-Null
