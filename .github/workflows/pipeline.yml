@@ -374,9 +374,9 @@ jobs:
         if: inputs.target_env == 'test'
         uses: actions/upload-artifact@v4
         with:
-          name: test-pointer-pr-${{ github.event.pull_request.number }}
+          name: test-pointer-latest
           path: test_pointer.env
-          retention-days: 30
+          retention-days: 14
 
 
   #    - name: Restore, CI (analyze/test cases), Pack, Upload artifacts
@@ -426,14 +426,29 @@ jobs:
           name: output
           path: ./output
 
-      - name: Download test pointer
-        uses: dawidd6/action-download-artifact@v7
+      - name: Find merged PR for this push
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const res = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner, repo, commit_sha: context.sha
+            });
+            const pr = res.data.find(p => p.merged_at) || res.data[0];
+            if (!pr) core.setFailed('No PR associated with this push');
+            core.setOutput('head_sha', pr.head.sha);
+
+
+      - name: Download staged output for this PR commit
+        uses: dawidd6/action-download-artifact@v11
         if: ${{ inputs.target_env == 'prod'}}
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          pr: ${{ github.event.pull_request.number }}
-          name: test-pointer-pr-${{ github.event.pull_request.number }}
-          path: ./pointer
+          workflow: CICD.yml
+          commit: ${{ steps.pr.outputs.head_sha }}
+          name: output
+          path: ./output
           workflow_conclusion: success
           if_no_artifact_found: fail
 
