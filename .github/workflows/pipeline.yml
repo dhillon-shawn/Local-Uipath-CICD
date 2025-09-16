@@ -268,10 +268,11 @@ jobs:
         shell: powershell
         run: |
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe test run `
-            --orchestratorUrl '${{ env.BASE_URL }}/' --orchestratorTenant '${{ env.TENANT }}' `
-            -P '${{ github.workspace }}\project.json' --out "junit" --resultPath '${{ runner.temp }}\TestResults.xml' `
+            '${{ env.BASE_URL }}/' '${{ env.TENANT }}' `
+            -P '${{ github.workspace }}\project.json' --out "junit" --r '${{ runner.temp }}\TestResults.xml' `
             -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
-            --orchestratorApplicationScope '${{ env.scope}}' `
+            --applicationScope '${{ env.scope}}' `
+            -o '${{ needs.resolve-dependencies.outputs.base_folder_name }}' `
             --traceLevel Verbose --disableBuiltInNugetFeeds -y `
             --identityUrl '${{ env.BASE_URL }}/identity_'
                   
