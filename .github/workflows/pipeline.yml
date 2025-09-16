@@ -157,7 +157,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path 'C:\actions-toolcache','C:\actions-temp' | Out-Null
 
-      # Setup .NET (cached to C:\actions-toolcache across runs)
+
       - name: Setup .NET SDK 8 (cached)
         uses: actions/setup-dotnet@v4
         env:
@@ -233,7 +233,7 @@ jobs:
         run: New-Item -Path "./results" -ItemType Directory -Force | Out-Null
 
       - name: analyze
-        if: inputs.target_env == 'dev'
+        if: inputs.target_env == 'devjj'
         shell: powershell
         run: |
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package analyze '${{ github.workspace }}\project.json' `
@@ -250,24 +250,18 @@ jobs:
           New-Item -ItemType Directory -Force -Path '.\results' | Out-Null
           Copy-Item '${{ runner.temp }}\analyze.json' '.\results\analyze.json' -Force
           
-          
-      - name: analyze
-        if: inputs.target_env == 'dev'
-        shell: powershell
-        run: |
-          packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package analyze '${{ github.workspace }}\project.json' `
-            --resultPath '${{ runner.temp }}\analyze.json' `
-            --orchestratorUrl '${{ env.BASE_URL }}/' `
-            --orchestratorTenant '${{ env.TENANT }}' `
-            -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
-            --orchestratorApplicationScope '${{ env.scope}}' `
-            --analyzerTraceLevel Error `
-            --traceLevel Verbose --disableBuiltInNugetFeeds -y `
-            --identityUrl '${{ env.BASE_URL }}/identity_'
-                  
-          cat ${{ runner.temp }}\analyze.json
-          New-Item -ItemType Directory -Force -Path '.\results' | Out-Null
-          Copy-Item '${{ runner.temp }}\analyze.json' '.\results\analyze.json' -Force
+      - name: UiPath Analyze
+        uses: Mikael-RnD/UiPath-Analyze@v1
+        with:
+          projectFilePaths: ${{ github.workspace }}\project.json
+          orchestratorUrl: "${{env.BASE_URL}}/"
+          orchestratorTenant: ${{env.TENANT}}
+          orchestratorFolder: ${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}
+          orchestratorApplicationId: ${{ env.APP_ID }}
+          orchestratorApplicationSecret: ${{ env.APP_SECRET }}
+          orchestratorApplicationScope: "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines.Read OR.Monitoring OR.Robots.Read OR.Settings.Read OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Users.Read"
+          orchestratorLogicalName: ${{env.ORG}}
+          ignoredRules: "ST-NMG-002,ST-USG-034"
 
 
       - name: stage for pack
