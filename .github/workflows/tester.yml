@@ -1,0 +1,111 @@
+name: TEST
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+
+permissions:
+    write-all
+
+env:
+  scope: "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines.Read OR.Monitoring OR.Robots.Read OR.Settings.Read OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Users.Read"
+
+jobs:
+    Test:
+        runs-on: ubuntu-latest
+        steps:
+
+          - uses: actions/checkout@v4
+
+
+          - name: get dev
+            uses: ./.github/actions/auth
+            with:
+                target_env: "dev"
+                role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
+                aws_region: "us-west-2"
+                secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
+                scopes: ${{env.scope}}
+
+
+
+          - name: release
+            run: |
+                body="$(mktemp)"
+                status=$(curl -L -sS \
+                --connect-timeout 10 --max-time 120 \
+                --output "$body" --write-out '%{http_code}' \
+                --header "Authorization: Bearer $TOKEN" \
+                --header "X-UIPATH-FolderPath: t2" \
+                "${{env.OR_URL}}/odata/Releases"
+                ) || curl_rc=$?
+                 
+                echo "Status Code: $status"
+                echo "::group::Response body"
+                jq -r . "$body" || cat "$body"
+                echo "::endgroup::"
+
+                if [[ $curl_rc -ne 0 || "$status" -ge 400 ]]; then
+                  exit 1
+                fi
+
+          - name: release
+            shell: bash
+            run: |
+              body="$(mktemp)"
+              trap 'rm -f "$body"' EXIT  
+
+              curl_rc=0
+              status=$(
+                curl -L -sS \
+                  --connect-timeout 10 --max-time 120 \
+                  --output "$body" --write-out '%{http_code}' \
+                  -H "Authorization: Bearer $TOKEN" \
+                  "${{ env.OR_URL }}/odata/Releases"
+              ) || curl_rc=$?
+
+              echo "Status Code: $status"
+              echo "::group::Response body"
+              if command -v jq >/dev/null; then jq -r . "$body" || cat "$body"; else cat "$body"; fi
+              echo "::endgroup::"
+
+              # Fail on transport errors or any HTTP >= 400.
+              # Use a numeric-safe default only for the comparison.
+              if [[ $curl_rc -ne 0 || ${status:-0} -ge 400 ]]; then
+                exit 1
+              fi
+
+          - name: upgrade release
+            shell: bash
+            run: |
+              echo "ugrading release"
+              body="$(mktemp)"
+              trap 'rm -f "$body"' EXIT
+
+              curl_rc=0
+              status=$(
+                curl -L -sS \
+                  --connect-timeout 10 --max-time 120 \
+                  --output "$body" \
+                  --write-out '%{http_code}' \
+                  -H "Authorization: Bearer ${{ env.token }}" \
+                  -H "Content-Type: application/json" \
+                  -H "Content-Length: 0" \
+                  -H "X-UIPATH-FolderPath: t2" \
+                  "${{ env.OR_URL }}/odata/Releases(1609373)/UiPath.Server.Configuration.OData.UpdateToLatestPackageVersion"
+              ) || curl_rc=$?
+
+              echo "Status Code: $status"
+              echo "::group::Response body"
+              if command -v jq >/dev/null; then jq -r . "$body" || cat "$body"; else cat "$body"; fi
+              echo "::endgroup::"
+
+              if [[ $curl_rc -ne 0 || ${status:-0} -ge 400 ]]; then
+                exit 1
+              fi
+                    
+      
+
+
+
