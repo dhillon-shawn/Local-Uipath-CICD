@@ -250,10 +250,18 @@ jobs:
           New-Item -ItemType Directory -Force -Path '.\results' | Out-Null
           Copy-Item '${{ runner.temp }}\analyze.json' '.\results\analyze.json' -Force
           
+          
+      - name: Super-Linter
+        uses: super-linter/super-linter@v6
+        env:
+          VALIDATE_ALL_CODEBASE: true
+          DEFAULT_BRANCH: main
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: UiPath Analyze
         uses: Mikael-RnD/UiPath-Analyze@v1
         with:
-          projectFilePaths: ${{ github.workspace }}\project.json
+          projectFilePaths: ./project.json
           orchestratorUrl: "${{env.BASE_URL}}/"
           orchestratorTenant: ${{env.TENANT}}
           orchestratorFolder: ${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}
