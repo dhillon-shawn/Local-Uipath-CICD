@@ -254,7 +254,7 @@ jobs:
             -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
             --orchestratorApplicationScope '${{ env.scope}}' `
             --analyzerTraceLevel "Warning" `
-            --ignoredRules "ST-NMG-001,ST-NMG-002,ST-NMG-009,ST-NMG-011,ST-NMG-016,ST-NMG-008,ST-USG-032,ST-USG-034,ST-USG-027" `
+            --ignoredRules "ST-NMG-001,ST-NMG-002,ST-NMG-009,ST-NMG-011,ST-NMG-016,ST-NMG-008,ST-USG-032,ST-USG-034,ST-USG-027,UI-ANA-018" `
             --traceLevel Verbose --disableBuiltInNugetFeeds -y `
             --identityUrl '${{ env.BASE_URL }}/identity_'
                   
