@@ -171,7 +171,7 @@ runs:
           "Name": "${{ inputs.pid }}",
           "ProcessKey": "${{ inputs.pid }}",
           "ProcessVersion": "${{ inputs.version }}",
-          "EntryPoint": "${{ inputs.entry_point }}",
+          "EntryPointPath": "${{ inputs.entry_point }}",
           "Description": "Repo https://github.com/${{ github.repository_owner }}/${{ github.repository }}"
         }
         JSON
