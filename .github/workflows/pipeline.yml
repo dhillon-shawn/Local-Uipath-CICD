@@ -195,53 +195,26 @@ jobs:
         run: |
           nuget.exe install UiPath.CLI.Windows -Version 25.4.9337.28376 -OutputDirectory packages -Source https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json
           
-      - name: Ensure shared NuGet dirs (global across repos)
+
+
+      - name: Write nuget.config 
         shell: powershell
-        env:
-          # One location used by all repos for max reuse/speed
-          SHARED_NUGET_PACKAGES: C:\nuget-global\packages
-          SHARED_NUGET_HTTP:     C:\nuget-global\http
         run: |
-          New-Item -ItemType Directory -Force -Path $env:SHARED_NUGET_PACKAGES,$env:SHARED_NUGET_HTTP | Out-Null
-
-
-
-      - name: Write nuget.config (Local feed first, then official sources)
-        shell: powershell
-        env:
-          LOCAL_FEED: C:\uipath-cache\feeds\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}
-        run: |
-          @"
+          @'
           <?xml version="1.0" encoding="utf-8"?>
           <configuration>
             <packageSources>
               <clear />
-              <!-- Local mirror (fast path) -->
-              <add key="LocalFeed"         value="${{ env.LOCAL_FEED }}" />
-              <!-- Official/online as fallback -->
               <add key="UiPath-Marketplace" value="https://gallery.uipath.com/api/v3/index.json" />
               <add key="Official"           value="https://pkgs.dev.azure.com/uipath/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json" />
             </packageSources>
-            <config>
-              <add key="signatureValidationMode" value="accept" />
-            </config>
           </configuration>
-          "@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
+          '@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
 
           $uipcli = (Get-Command "packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe").Source
           Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
 
-          
-      - name: Confirm tool & NuGet paths
-        shell: powershell
-        env:
-          SHARED_NUGET_PACKAGES: C:\nuget-global\packages
-          SHARED_NUGET_HTTP:     C:\nuget-global\http
-        run: |
-          dotnet --info
-          Write-Host "NUGET_PACKAGES=$env:SHARED_NUGET_PACKAGES"
-          Write-Host "NUGET_HTTP_CACHE_PATH=$env:SHARED_NUGET_HTTP"
-          dotnet nuget locals all --list
+        
       - name: restore
         shell: powershell
         if: false
@@ -266,9 +239,6 @@ jobs:
       - name: analyze
         if: inputs.target_env == 'dev'
         shell: powershell
-        env:
-          NUGET_PACKAGES:        C:\nuget-global\packages
-          NUGET_HTTP_CACHE_PATH: C:\nuget-global\http
         run: |
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package analyze '${{ github.workspace }}\project.json' `
             --resultPath '${{ runner.temp }}\analyze.json' `
@@ -287,9 +257,6 @@ jobs:
       - name: analyze
         if: inputs.target_env == 'dev'
         shell: powershell
-        env:
-          NUGET_PACKAGES:        C:\nuget-global\packages
-          NUGET_HTTP_CACHE_PATH: C:\nuget-global\http
         run: |
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package analyze '${{ github.workspace }}\project.json' `
             --resultPath '${{ runner.temp }}\analyze.json' `
