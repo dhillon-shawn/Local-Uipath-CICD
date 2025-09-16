@@ -397,6 +397,14 @@ jobs:
   DEPLOY:
     runs-on: ubuntu-latest
     needs: [setup, resolve-dependencies, CLI   ]
+    if: >-
+      ${{
+        always() &&
+        (
+          (inputs.target_env != 'prod' && needs.CLI.result == 'success') ||
+          (inputs.target_env == 'prod'  && needs.CLI.result == 'skipped')
+        )
+      }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.setup.outputs.deployment_matrix) }}
@@ -525,7 +533,7 @@ jobs:
         with:
           publishable:        ${{ needs.setup.outputs.publishable }}
           target_env:         ${{ inputs.target_env }}
-          test_html_path:     ${{ steps.test_html.outputs.html_path }}
+          test_html:     ${{ steps.test_html.outputs.html }}
           analysis_html_path: ${{ steps.analysis_html.outputs.html_path }}
           source_ref:  ${{ inputs.source_ref }}
           version:     ${{ needs.resolve-dependencies.outputs.version }}

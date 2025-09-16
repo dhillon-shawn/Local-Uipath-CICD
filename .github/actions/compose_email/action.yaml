@@ -7,7 +7,7 @@ inputs:
   target_env:
     description: "Target environment: 'test' or 'dev'."
     required: false
-  test_html_path:
+  test_html:
     description: "Path to TestResults.html if rendered (formatter output)."
     required: false
     default: "./email/TestResults.html"
@@ -59,7 +59,7 @@ runs:
       env:
         PUBLISHABLE:        ${{ inputs.publishable }}
         TARGET_ENV:         ${{ inputs.target_env }}
-        TEST_PATH_IN:       ${{ inputs.test_html_path }}
+        TEST_PATH_IN:       ${{ inputs.test_html }}
         ANALYSIS_PATH_IN:   ${{ inputs.analysis_html_path }}
         SOURCE_REF:         ${{ inputs.source_ref }}
         VERSION:            ${{ inputs.version }}
