@@ -50,31 +50,7 @@ jobs:
                   exit 1
                 fi
 
-          - name: release
-            shell: bash
-            run: |
-              body="$(mktemp)"
-              trap 'rm -f "$body"' EXIT  
 
-              curl_rc=0
-              status=$(
-                curl -L -sS \
-                  --connect-timeout 10 --max-time 120 \
-                  --output "$body" --write-out '%{http_code}' \
-                  -H "Authorization: Bearer $TOKEN" \
-                  "${{ env.OR_URL }}/odata/Releases"
-              ) || curl_rc=$?
-
-              echo "Status Code: $status"
-              echo "::group::Response body"
-              if command -v jq >/dev/null; then jq -r . "$body" || cat "$body"; else cat "$body"; fi
-              echo "::endgroup::"
-
-              # Fail on transport errors or any HTTP >= 400.
-              # Use a numeric-safe default only for the comparison.
-              if [[ $curl_rc -ne 0 || ${status:-0} -ge 400 ]]; then
-                exit 1
-              fi
 
           - name: upgrade release
             shell: bash
@@ -88,6 +64,7 @@ jobs:
                 curl -L -sS \
                   --connect-timeout 10 --max-time 120 \
                   --output "$body" \
+                  -X POST \
                   --write-out '%{http_code}' \
                   -H "Authorization: Bearer ${{ env.token }}" \
                   -H "Content-Type: application/json" \
