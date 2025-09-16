@@ -205,26 +205,21 @@ jobs:
           Write-Host "NUGET_PACKAGES=$jobPkgs"
           Write-Host "NUGET_HTTP_CACHE_PATH=$jobHttp"
 
+
+
       - name: set nuget.config
         shell: powershell
         run: |
-          $globalPkgs = $env:NUGET_PACKAGES  # resolve to absolute path now
-          @"
+          @'
           <?xml version="1.0" encoding="utf-8"?>
           <configuration>
-            <config>
-              <!-- Force NuGet to use the per-job cache as *the* global packages folder -->
-              <add key="globalPackagesFolder" value="$globalPkgs" />
-            </config>
             <packageSources>
               <clear />
               <add key="UiPath-Marketplace" value="https://gallery.uipath.com/api/v3/index.json" />
               <add key="Official"           value="https://pkgs.dev.azure.com/uipath/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json" />
             </packageSources>
-            <!-- NOTE: No fallbackPackageFolders and no local sources here.
-                      This prevents NU1301 from non-existent local paths. -->
           </configuration>
-          "@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
+          '@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
 
           $uipcli = (Get-Command packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe).Source
           Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
@@ -252,25 +247,10 @@ jobs:
             --libraryIdentityUrl '${{ env.BASE_URL }}/identity_' `
             -y --traceLevel "Verbose"
 
-
-      - name: Persist packages to default user cache
-        shell: powershell
-        run: |
-          $src = $env:NUGET_PACKAGES                         
-          $dst = Join-Path $env:USERPROFILE '.nuget\packages' 
-          New-Item -ItemType Directory -Force -Path $dst | Out-Null
-
-          robocopy "$src" "$dst" /E /NFL /NDL /NJH /NJS /XO /XN /XC | Out-Null
-          $rc = $LASTEXITCODE
-          if ($rc -ge 8) { throw "robocopy failed with exit $rc" } else { Write-Host "robocopy exit $rc (OK)"; exit 0 }
-          
-
             
       - name: Create Results DIR
         shell: powershell
         run: New-Item -Path "./results" -ItemType Directory -Force | Out-Null
-
-
 
       - name: analyze
         if: inputs.target_env == 'dev'
@@ -323,7 +303,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $stageOut | Out-Null
           New-Item -ItemType Directory -Force -Path $repoOut  | Out-Null
 
-          uipcli package pack "$proj" `
+          packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package pack "$proj" `
             --output "$stageOut" `
             --outputType '${{ needs.setup.outputs.ptype }}' `
             -v '${{ needs.resolve-dependencies.outputs.version }}' `
