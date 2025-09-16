@@ -274,7 +274,7 @@ jobs:
           
           
       - name: test
-        if: inputs.target_env == 'test' && ${{needs.setup.outputs.publishable == 'true'}}
+        if: ${{ inputs.target_env == 'test' && needs.setup.outputs.publishable == 'true' }}
         shell: powershell
         run: |
           New-Item -Path "${{ runner.temp }}\TestResults.xml" -ItemType File
@@ -300,7 +300,7 @@ jobs:
                 aws_region: "us-west-2"
                 secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
                 scopes: ${{ env.scope }}
-                
+
       - name: stage for pack
         shell: powershell
         run: |
