@@ -20,3 +20,236 @@ runs:
       shell: bash
       run: mkdir -p "$(dirname "${{ inputs.out_path }}")"
 
+    - name: Convert Analyzer JSON to email-friendly HTML
+      id: analysis_report
+      uses: actions/github-script@v7
+      env:
+        IN:  ${{ inputs.json_path }}        # file OR directory
+        OUT: ${{ inputs.out_path }}         # e.g., email/analysis-report.html
+        SHOW_CODE: "false"                  # set "true" to include ErrorCode/Link column
+        TRIM_PREFIX: ""                     # optional extra prefix to strip from paths (e.g., "D:/a/t2/t2/")
+      with:
+        script: |
+          const fs = require('node:fs');
+          const fsp = require('node:fs/promises');
+          const path = require('node:path');
+
+          const inPath  = process.env.IN || '';
+          const outPath = process.env.OUT || 'email/analysis-report.html';
+          const showCode = /^true$/i.test(process.env.SHOW_CODE || 'false');
+          const trimPrefix = (process.env.TRIM_PREFIX || '').replace(/\\/g,'/');
+
+          if (!inPath) { core.setFailed('IN was empty. Set env IN to a JSON file or directory.'); return; }
+
+          const exists = p => { try { fs.accessSync(p); return true; } catch { return false; } };
+          const isDir  = p => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
+
+          async function *walk(dir){
+            for (const e of await fsp.readdir(dir, { withFileTypes:true })) {
+              const f = path.join(dir, e.name);
+              if (e.isDirectory()) yield* walk(f);
+              else if (e.isFile() && /\.json$/i.test(e.name)) yield f;
+            }
+          }
+
+          // ---- helpers (email-safe) ----
+          const esc = s => String(s ?? '')
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+            .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+
+          function linkifyAndMD(s, docLink){
+            let t = esc(String(s ?? ''));
+            // **bold**
+            t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            // `code`
+            t = t.replace(/`([^`]+)`/g, '<code style="background:#f4f4f5;border:1px solid #e4e4e7;border-radius:4px;padding:1px 4px;">$1</code>');
+            // URLs
+            t = t.replace(/\bhttps?:\/\/[^\s<]+/gi, u => `<a href="${u}" style="color:#1d4ed8;text-decoration:none;">${u}</a>`);
+            // Learn more -> rule doc
+            if (docLink) t = t.replace(/\bLearn more\.?/gi, `<a href="${esc(docLink)}" style="color:#1d4ed8;text-decoration:none;">Learn more</a>`);
+            // Newlines
+            t = t.replace(/\r?\n/g, '<br>');
+            // Tabs to middot
+            t = t.replace(/\t+/g, ' · ');
+            return t;
+          }
+
+          function renderValue(v, docLink){
+            if (v == null) return '';
+            if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return linkifyAndMD(v, docLink);
+            if (Array.isArray(v)){
+              return '<ul style="margin:0;padding-left:18px;">' +
+                v.map(x => `<li>${renderValue(x, docLink)}</li>`).join('') + '</ul>';
+            }
+            if (typeof v === 'object'){
+              const pref = ['Message','Text','Value','Description','Recommendation','Reason','Error','Details'];
+              for (const k of pref) if (v[k] != null) return renderValue(v[k], docLink);
+              return '<ul style="margin:0;padding-left:18px;">' +
+                Object.entries(v).map(([k,val]) => `<li><strong>${esc(k)}:</strong> ${renderValue(val, docLink)}</li>`).join('') +
+                '</ul>';
+            }
+            return linkifyAndMD(String(v), docLink);
+          }
+
+          function normPath(fp){
+            let f = String(fp||'').replace(/\\/g,'/');
+            const ws = (process.env.GITHUB_WORKSPACE || '').replace(/\\/g,'/').replace(/\/+$/,'');
+            if (ws && f.startsWith(ws + '/')) f = f.slice(ws.length + 1);
+            if (trimPrefix && f.startsWith(trimPrefix)) f = f.slice(trimPrefix.length);
+            return f;
+          }
+
+          function toResultsArray(json){
+            if (Array.isArray(json)) return json;
+            if (json && Array.isArray(json.Results)) return json.Results;
+            if (json && Array.isArray(json.results)) return json.results;
+            return [];
+          }
+
+          const sevMeta = {
+            1: { name:'Error',   icon:'❌', bg:'#fde2e2' },
+            2: { name:'Warning', icon:'⚠️', bg:'#fff4e5' },
+            3: { name:'Info',    icon:'ℹ️', bg:'#e7f3ff' },
+          };
+
+          // ---- gather files ----
+          if (!exists(inPath)) { core.setFailed(`IN path not found: ${inPath}`); return; }
+
+          const files = [];
+          if (isDir(inPath)) {
+            for await (const f of walk(inPath)) files.push(f);
+          } else {
+            files.push(inPath);
+          }
+          if (files.length === 0) core.warning(`No JSON files found under ${inPath}`);
+
+          // ---- build rows and group by FilePath ----
+          let totalErr=0, totalWarn=0, totalInfo=0;
+          const groups = new Map(); // key: normalized FilePath -> array of rows
+
+          for (const file of files) {
+            let json;
+            try { json = JSON.parse(fs.readFileSync(file,'utf8')); }
+            catch(e){ core.warning(`Skipping ${file}: ${e.message}`); continue; }
+
+            const rows = toResultsArray(json).map(x => ({
+              s: Number(x.ErrorSeverity ?? 0),
+              code: String(x.ErrorCode ?? ''),
+              link: String(x.DocumentationLink ?? ''),
+              rule: String(x.RuleName ?? ''),
+              desc: x.Description ?? '',
+              rec:  x.Recommendation ?? '',
+              file: normPath(String(x.FilePath ?? '')),
+              src:  path.basename(file),
+            }));
+
+            for (const r of rows) {
+              if (r.s === 1) totalErr++; else if (r.s === 2) totalWarn++; else if (r.s === 3) totalInfo++;
+              const key = r.file || r.src; // fall back to source json name
+              if (!groups.has(key)) groups.set(key, []);
+              groups.get(key).push(r);
+            }
+          }
+
+          // sort each group and render
+          const cardStyle = 'border:1px solid #e5e7eb;border-radius:12px;margin:12px 0;background:#ffffff;';
+          const headStyle = 'display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #e5e7eb;background:linear-gradient(180deg,#f9fafb,#f3f4f6);';
+          const fileStyle = 'font-family:Consolas,Menlo,Monaco,ui-monospace,monospace;font-weight:600;color:#111827;';
+          const chipsStyle = 'display:flex;gap:8px;';
+          const chipBase = 'border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600;';
+          const chipErr  = `${chipBase}background:#fecaca;color:#7f1d1d;`;
+          const chipWarn = `${chipBase}background:#fed7aa;color:#7c2d12;`;
+          const chipInfo = `${chipBase}background:#bfdbfe;color:#1e3a8a;`;
+          const wrapDiv  = 'overflow:auto;max-width:100%;';
+          const table    = 'border-collapse:separate;border-spacing:0;width:100%;table-layout:fixed;border:1px solid #e5e7eb;';
+          const th       = 'background:#f8fafc;border-bottom:1px solid #e5e7eb;font-weight:700;text-align:left;padding:8px 10px;';
+          const tdBase   = 'border-top:1px solid #e5e7eb;padding:8px 10px;vertical-align:top;word-break:break-word;';
+          const tdSev    = `${tdBase}white-space:nowrap;width:120px;`;
+          const tdPath   = `${tdBase}font-family:Consolas,Menlo,Monaco,ui-monospace,monospace;`;
+          const h1       = 'margin:0 0 6px 0;font-size:20px;color:#0f172a;';
+          const sub      = 'margin:0 0 12px 0;color:#475569;';
+          const totals   = 'display:flex;gap:10px;margin:8px 0 16px 0;';
+          const pillBase = 'border-radius:999px;padding:6px 12px;font-weight:700;border:1px solid;';
+          const pillErr  = `${pillBase}background:#fff1f2;color:#b91c1c;border-color:#fecaca;`;
+          const pillWarn = `${pillBase}background:#fff7ed;color:#b45309;border-color:#fed7aa;`;
+          const pillInfo = `${pillBase}background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe;`;
+          const link     = 'color:#1d4ed8;text-decoration:none;';
+
+          const sections = [];
+          const groupKeys = Array.from(groups.keys()).sort((a,b)=> a.localeCompare(b));
+          for (const key of groupKeys) {
+            const rows = groups.get(key);
+            rows.sort((a,b)=> (a.s - b.s) || a.rule.localeCompare(b.rule));
+
+            const c = {
+              err: rows.filter(r=>r.s===1).length,
+              warn:rows.filter(r=>r.s===2).length,
+              info:rows.filter(r=>r.s===3).length,
+            };
+
+            // header (file name + chips)
+            let card = `<div style="${cardStyle}">
+            <div style="${headStyle}">
+              <div style="${fileStyle}">${esc(key || 'Unknown file')}</div>
+              <div style="${chipsStyle}">
+                <span style="${chipErr}">❌ ${c.err}</span>
+                <span style="${chipWarn}">⚠️ ${c.warn}</span>
+                <span style="${chipInfo}">ℹ️ ${c.info}</span>
+              </div>
+            </div>
+            <div style="padding:10px;">
+              <div style="${wrapDiv}">
+                <table style="${table}">
+                  <thead>
+                    <tr>
+                      <th style="${th}">Severity</th>
+                      ${showCode ? `<th style="${th}">Code / Link</th>` : ''}
+                      <th style="${th}">Rule</th>
+                      <th style="${th}">Description</th>
+                      <th style="${th}">Recommendation</th>
+                    </tr>
+                  </thead>
+                  <tbody>`;
+
+            for (const r of rows) {
+              const sevBg = (sevMeta[r.s] || {}).bg || '#ffffff';
+              const sevTxt = `${(sevMeta[r.s] || {}).icon || ''} ${(sevMeta[r.s] || {}).name || ''}`;
+              const codeCell = showCode
+                ? `<td style="${tdBase}">${r.link ? `<a href="${esc(r.link)}" style="${link}">${esc(r.code)}</a>` : esc(r.code)}</td>` : '';
+              card += `
+              <tr style="background:${sevBg};">
+                <td style="${tdSev}">${sevTxt}</td>
+                ${codeCell}
+                <td style="${tdBase}">${esc(r.rule)}</td>
+                <td style="${tdBase}">${renderValue(r.desc, r.link)}</td>
+                <td style="${tdBase}">${renderValue(r.rec,  r.link)}</td>
+              </tr>`;
+            }
+
+            card += `
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>`;
+                    sections.push(card);
+                  }
+
+          const when = new Date().toISOString();
+          const html = `<!doctype html>
+          <html>
+            <body style="font-family:Arial,Helvetica,sans-serif;margin:20px;color:#0f172a;background:#ffffff;">
+              <h1 style="${h1}">UiPath Analyzer Report</h1>
+              <p style="${sub}">Generated: ${esc(when)}</p>
+              <div style="${totals}">
+                <span style="${pillErr}">❌ Errors: ${totalErr}</span>
+                <span style="${pillWarn}">⚠️ Warnings: ${totalWarn}</span>
+                <span style="${pillInfo}">ℹ️ Info: ${totalInfo}</span>
+              </div>
+              ${sections.join('\n')}
+            </body>
+          </html>`;
+
+          fs.mkdirSync(path.dirname(outPath), { recursive:true });
+          fs.writeFileSync(outPath, html, 'utf8');
+          core.setOutput('html_path', outPath);
