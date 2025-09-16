@@ -129,5 +129,5 @@ runs:
             </body></html>`;
 
           const outPath='./email/final-email.html';
-          fs.mkdirSync(path.dirname(outPath),{recursive:true}); fs.writeFileSync(outPath, html, 'utf8');
+          fs.mkdirSync(path.dirname(outPath),{recursive:true}); fs.writeFileSync(outPath, finalHtml, 'utf8');
           core.setOutput('html', outPath); core.setOutput('subject', subject); core.setOutput('overall', overall);
