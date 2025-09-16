@@ -152,8 +152,6 @@ jobs:
           ref: ${{ inputs.source_ref }}
           persist-credentials: true
 
-
-
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -184,29 +182,7 @@ jobs:
         shell: cmd
         run: |
           nuget.exe install UiPath.CLI.Windows -Version 25.4.9337.28376 -OutputDirectory packages -Source https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json
-
-      - name: Commands
-        shell: cmd
-        run: packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe --help
-
-      - name: Confirm NuGet folders
-        shell: powershell
-        run: |
-          dotnet nuget locals all --list
           
-      - name: Configure per-job NuGet caches
-        shell: powershell
-        run: |
-          $jobPkgs = Join-Path $env:RUNNER_TEMP '.nuget-cache'
-          $jobHttp = Join-Path $env:RUNNER_TEMP '.nuget-http'
-          New-Item -ItemType Directory -Force -Path $jobPkgs,$jobHttp | Out-Null
-          "NUGET_PACKAGES=$jobPkgs"        >> $env:GITHUB_ENV
-          "NUGET_HTTP_CACHE_PATH=$jobHttp" >> $env:GITHUB_ENV
-          Write-Host "NUGET_PACKAGES=$jobPkgs"
-          Write-Host "NUGET_HTTP_CACHE_PATH=$jobHttp"
-
-
-
       - name: set nuget.config
         shell: powershell
         run: |
@@ -326,9 +302,7 @@ jobs:
             Write-Host "Packaged: $($_.Name) -> $repoOut"
           }
             
-      - name: Show NuGet cache locations
-        shell: powershell
-        run: dotnet nuget locals all --list
+
 
       - name: Upload artifact
         if: ((${{ needs.setup.outputs.publishable }} == 'true')  && inputs.target_env == 'test') || inputs.target_env == 'dev'
