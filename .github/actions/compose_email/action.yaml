@@ -143,18 +143,19 @@ runs:
               ${row('Overall:',    overall)}
             </table>`;
 
-
+          const button = `
+            <p style="margin-top:20px;">
+                <a href="${server}/${repo}/actions/runs/${runId}"
+                  style="background-color:#007acc;color:white;padding:10px 15px;text-decoration:none;border-radius:5px;">
+                  View Workflow Details
+                </a>
+            </p>`;
 
           const finalHtml = `<!doctype html><html>
             <body style="font-family:Arial,Helvetica,sans-serif;margin:20px;color:#0f172a;">
               ${statusHtml}
               ${bodyInner}
-              <p style="margin-top:20px;">
-                <a href="${server}/${repo}/actions/runs/${runId}"
-                  style="background-color:#007acc;color:white;padding:10px 15px;text-decoration:none;border-radius:5px;">
-                  View Workflow Details
-                </a>
-              </p>
+              ${button}
             </body></html>`;
 
           const outPath = './email/final-email.html';
