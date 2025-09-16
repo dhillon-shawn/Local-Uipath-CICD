@@ -321,7 +321,6 @@ jobs:
 
        
       - name: Decide if restore is needed
-        id: depcheck
         shell: powershell
         env:
           NUGET_PACKAGES:        ${{ env.NUGET_PACKAGES }}
