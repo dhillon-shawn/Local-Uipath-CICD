@@ -152,12 +152,19 @@ jobs:
           ref: ${{ inputs.source_ref }}
           persist-credentials: true
 
-      - name: Setup .NET
+      - name: Prepare runner toolcache dirs
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path 'C:\actions-toolcache','C:\actions-temp' | Out-Null
+
+      # Setup .NET (cached to C:\actions-toolcache across runs)
+      - name: Setup .NET SDK 8 (cached)
         uses: actions/setup-dotnet@v4
+        env:
+          RUNNER_TOOL_CACHE: C:\actions-toolcache
+          RUNNER_TEMP:       C:\actions-temp
         with:
           dotnet-version: '8.0.x'
-        env:
-          DOTNET_INSTALL_DIR: '${{ runner.temp }}/.dotnet'
 
       - name: Cache UiPath CLI
         uses: actions/cache@v4
@@ -188,26 +195,16 @@ jobs:
         run: |
           nuget.exe install UiPath.CLI.Windows -Version 25.4.9337.28376 -OutputDirectory packages -Source https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json
           
-      - name: Ensure persistent NuGet cache folders
+      - name: Ensure shared NuGet dirs (global across repos)
         shell: powershell
         env:
-          NUGET_PACKAGES:        C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\packages
-          NUGET_HTTP_CACHE_PATH: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\http
-          LOCAL_FEED:            C:\uipath-cache\feeds\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}
+          # One location used by all repos for max reuse/speed
+          SHARED_NUGET_PACKAGES: C:\nuget-global\packages
+          SHARED_NUGET_HTTP:     C:\nuget-global\http
         run: |
-          New-Item -ItemType Directory -Force -Path $env:NUGET_PACKAGES,$env:NUGET_HTTP_CACHE_PATH,$env:LOCAL_FEED | Out-Null
+          New-Item -ItemType Directory -Force -Path $env:SHARED_NUGET_PACKAGES,$env:SHARED_NUGET_HTTP | Out-Null
 
-      - name: (optional) Seed local feed from restore folder
-        shell: powershell
-        env:
-          NUGET_PACKAGES: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\packages
-          LOCAL_FEED:     C:\uipath-cache\feeds\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}
-        run: |
-          if (-not (Test-Path ".\nuget.exe")) {
-            Invoke-WebRequest -Uri "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" -OutFile "nuget.exe"
-          }
-          # Mirror any .nupkg found under NUGET_PACKAGES into a flat local feed
-          .\nuget.exe init "$env:NUGET_PACKAGES" "$env:LOCAL_FEED" -Expand | Out-Null
+
 
       - name: Write nuget.config (Local feed first, then official sources)
         shell: powershell
@@ -234,51 +231,23 @@ jobs:
           $uipcli = (Get-Command "packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe").Source
           Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
 
-
-      - name: Confirm NuGet folders
-        shell: powershell
-        env:
-          NUGET_PACKAGES:        C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\packages
-          NUGET_HTTP_CACHE_PATH: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\http
-        run: |
-          Write-Host "NUGET_PACKAGES=$env:NUGET_PACKAGES"
-          Write-Host "NUGET_HTTP_CACHE_PATH=$env:NUGET_HTTP_CACHE_PATH"
-          dotnet nuget locals all --list
           
+      - name: Confirm tool & NuGet paths
+        shell: powershell
+        env:
+          SHARED_NUGET_PACKAGES: C:\nuget-global\packages
+          SHARED_NUGET_HTTP:     C:\nuget-global\http
+        run: |
+          dotnet --info
+          Write-Host "NUGET_PACKAGES=$env:SHARED_NUGET_PACKAGES"
+          Write-Host "NUGET_HTTP_CACHE_PATH=$env:SHARED_NUGET_HTTP"
+          dotnet nuget locals all --list
       - name: restore
         shell: powershell
+        if: false
         env:
-          NUGET_PACKAGES:        C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\packages
-          NUGET_HTTP_CACHE_PATH: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\http
-        run: |
-          packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package restore '${{ github.workspace }}' `
-            --restoreFolder "$env:NUGET_PACKAGES" `
-            --nugetConfigFilePath '${{ github.workspace }}\nuget.config' `
-            --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
-            --libraryOrchestratorTenant '${{ env.TENANT }}' `
-            -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
-            --libraryOrchestratorApplicationScope '${{ env.scope }}' `
-            --disableBuiltInNugetFeeds `
-            --libraryIdentityUrl '${{ env.BASE_URL }}/identity_' `
-            -y --traceLevel "Verbose"
-
-      - name: (optional) Update local feed after restore
-        if: ${{ success() }}
-        shell: powershell
-        env:
-          NUGET_PACKAGES: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\packages
-          LOCAL_FEED:     C:\uipath-cache\feeds\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}
-        run: |
-          if (-not (Test-Path ".\nuget.exe")) {
-            Invoke-WebRequest -Uri "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" -OutFile "nuget.exe"
-          }
-          .\nuget.exe init "$env:NUGET_PACKAGES" "$env:LOCAL_FEED" -Expand | Out-Null
-
-      - name: restore
-        shell: powershell
-        env:
-          NUGET_PACKAGES:        C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\packages
-          NUGET_HTTP_CACHE_PATH: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\http
+          NUGET_PACKAGES:        C:\nuget-global\packages
+          NUGET_HTTP_CACHE_PATH: C:\nuget-global\http
         run: |
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package restore '${{ github.workspace }}' `
             --restoreFolder "$env:NUGET_PACKAGES" `
@@ -298,9 +267,8 @@ jobs:
         if: inputs.target_env == 'dev'
         shell: powershell
         env:
-          NUGET_PACKAGES:        C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\packages
-          NUGET_HTTP_CACHE_PATH: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\http
-
+          NUGET_PACKAGES:        C:\nuget-global\packages
+          NUGET_HTTP_CACHE_PATH: C:\nuget-global\http
         run: |
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package analyze '${{ github.workspace }}\project.json' `
             --resultPath '${{ runner.temp }}\analyze.json' `
@@ -314,6 +282,28 @@ jobs:
                   
           New-Item -ItemType Directory -Force -Path '.\results' | Out-Null
           Copy-Item '${{ runner.temp }}\analyze.json' '.\results\analyze.json' -Force
+          
+          
+      - name: analyze
+        if: inputs.target_env == 'dev'
+        shell: powershell
+        env:
+          NUGET_PACKAGES:        C:\nuget-global\packages
+          NUGET_HTTP_CACHE_PATH: C:\nuget-global\http
+        run: |
+          packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package analyze '${{ github.workspace }}\project.json' `
+            --resultPath '${{ runner.temp }}\analyze.json' `
+            --orchestratorUrl '${{ env.BASE_URL }}/' `
+            --orchestratorTenant '${{ env.TENANT }}' `
+            -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
+            --orchestratorApplicationScope '${{ env.scope}}' `
+            --analyzerTraceLevel "Error" `
+            --traceLevel Verbose --disableBuiltInNugetFeeds -y `
+            --identityUrl '${{ env.BASE_URL }}/identity_'
+                  
+          New-Item -ItemType Directory -Force -Path '.\results' | Out-Null
+          Copy-Item '${{ runner.temp }}\analyze.json' '.\results\analyze.json' -Force
+
 
       - name: stage for pack
         shell: powershell
@@ -332,9 +322,6 @@ jobs:
 
       - name: pack
         shell: powershell
-        env:
-          NUGET_PACKAGES:        C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\packages
-          NUGET_HTTP_CACHE_PATH: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\http
         run: |
           $ErrorActionPreference = 'Stop'
           $stage = Join-Path $env:RUNNER_TEMP 'uipack-stage'
