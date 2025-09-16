@@ -38,4 +38,6 @@ runs:
               
     - name: html preview
       shell: bash
-      run: echo "$html"
+      run: |
+          echo "$html"
+          cat $html

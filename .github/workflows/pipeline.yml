@@ -441,7 +441,7 @@ jobs:
             core.setOutput('head_sha', pr.head.sha);
 
 
-      - name: Download staged output for this PR commit
+      - name: Download staged output
         uses: dawidd6/action-download-artifact@v11
         if: ${{ inputs.target_env == 'prod'}}
         with:
@@ -453,26 +453,22 @@ jobs:
           workflow_conclusion: success
           if_no_artifact_found: fail
 
-      - name: Read test run
-        if: ${{ inputs.target_env == 'prod'}}
-        id: ptr
+      - name: print
+        run: ls
+
+      - name: Locate artifact dir
+        id: art
         shell: bash
         run: |
-          source ./pointer/test_pointer.env
-          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
-          echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-
-      # 3) Download *that exact* artifact (name: output) from the recorded run
-      - name: Download staged artifact from recorded run
-        uses: dawidd6/action-download-artifact@v7
-        if: ${{ inputs.target_env == 'prod'}}
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          run_id: ${{ steps.ptr.outputs.run_id }}
-          name: ${{ steps.ptr.outputs.artifact }}
-          path: ./output
-          if_no_artifact_found: fail
+          if [ -d "./output/output" ]; then
+            echo "dir=./output/output" >> $GITHUB_OUTPUT
+          else
+            echo "dir=./output" >> $GITHUB_OUTPUT
+          fi
+          
+          
+      - name: print
+        run: ls -la ${{ steps.art.outputs.dir || './output' }}
 
       - name: auth
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
@@ -497,6 +493,7 @@ jobs:
           or_url:       ${{ env.OR_URL }}
           token:        $TOKEN
           entry_point: ${{needs.setup.outputs.entry_point}}
+          
 
 
 
