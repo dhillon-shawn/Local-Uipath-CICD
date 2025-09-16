@@ -209,7 +209,7 @@ jobs:
           </configuration>
           '@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
 
-          $uipcli = (Get-Command uipcli).Source
+          $uipcli = (Get-Command packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe).Source
           Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
 
       - name: Confirm NuGet folders

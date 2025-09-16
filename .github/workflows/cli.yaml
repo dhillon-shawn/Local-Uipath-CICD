@@ -1,0 +1,80 @@
+name: TEST
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+
+permissions:
+    write-all
+
+env:
+  scope: "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines.Read OR.Monitoring OR.Robots.Read OR.Settings.Read OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Users.Read"
+
+jobs:
+    Test:
+        runs-on: windows-latest
+        steps:
+
+        - uses: actions/checkout@v4
+
+
+        - name: get dev
+          uses: ./.github/actions/auth
+          with:
+                target_env: "dev"
+                role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
+                aws_region: "us-west-2"
+                secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
+                scopes: ${{env.scope}}
+
+        - name: Checkout exact source ref (exclude .github)
+          uses: actions/checkout@v4
+
+
+
+        - name: Setup .NET
+          uses: actions/setup-dotnet@v4
+          with:
+            dotnet-version: '8.0.x'
+          env:
+            DOTNET_INSTALL_DIR: '${{ runner.temp }}/.dotnet'
+
+        - name: Setup NuGet CLI
+          shell: cmd
+          run: |
+            curl.exe -o nuget.exe -L https://dist.nuget.org/win-x86-commandline/latest/nuget.exe
+            
+        - name: Install UiPath CLI
+          shell: cmd
+          run: |
+            nuget.exe install UiPath.CLI.Windows -Version 25.4.9337.28376 -OutputDirectory packages -Source https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json
+            
+        - name: set nuget.config
+          shell: powershell
+          run: |
+                @'
+                <?xml version="1.0" encoding="utf-8"?>
+                <configuration>
+                    <packageSources>
+                    <clear />
+                    <add key="UiPath-Marketplace" value="https://gallery.uipath.com/api/v3/index.json" />
+                    <add key="Official"           value="https://pkgs.dev.azure.com/uipath/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json" />
+                    </packageSources>
+
+                    <fallbackPackageFolders>
+                    <add key="DefaultUser" value="%USERPROFILE%\.nuget\packages" />
+                    <add key="ProgramData" value="%ProgramData%\uipath\nuget\packages" />
+                    </fallbackPackageFolders>
+                </configuration>
+                '@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
+
+                $uipcli = (Get-Command packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe).Source
+                Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
+
+        - name: Confirm NuGet folders
+          shell: powershell
+          run: |
+            Write-Host "NUGET_PACKAGES=$env:NUGET_PACKAGES"
+            Write-Host "NUGET_HTTP_CACHE_PATH=$env:NUGET_HTTP_CACHE_PATH"
+            dotnet nuget locals all --list
