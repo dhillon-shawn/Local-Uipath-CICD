@@ -241,8 +241,6 @@ jobs:
           NUGET_PACKAGES:        C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\packages
           NUGET_HTTP_CACHE_PATH: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\http
         run: |
-          New-Item -ItemType Directory -Force -Path $env:NUGET_PACKAGES,$env:NUGET_HTTP_CACHE_PATH | Out-Null
-
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package restore '${{ github.workspace }}' `
             --restoreFolder ""$env:NUGET_PACKAGES"" `
             --nugetConfigFilePath '${{ github.workspace }}\nuget.config' `
