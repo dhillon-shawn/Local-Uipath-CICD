@@ -172,6 +172,7 @@ jobs:
         run: |
           echo "Final path: ${{ steps.compose.outputs.html }}"
           head -n 30 "${{ steps.compose.outputs.html }}" || true
+          echo ${{ steps.compose.outputs.html }}
 
       # Send – IMPORTANT: point html_body to the FILE
       - name: Send Email (SMTP)
