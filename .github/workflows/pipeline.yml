@@ -212,19 +212,7 @@ jobs:
           NUGET_HTTP_CACHE_PATH: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\http
         run: |
           New-Item -ItemType Directory -Force -Path $env:NUGET_PACKAGES,$env:NUGET_HTTP_CACHE_PATH | Out-Null
-
-      - name: Cache NuGet (scoped per repo/branch)
-        uses: actions/cache@v4
-        with:
-          path: |
-            C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\packages
-            C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\http
-          key: uipath-deps-${{ runner.os }}-${{ github.repository }}-${{ github.ref_name }}-${{ hashFiles('project.json', 'nuget.config') }}
-          restore-keys: |
-            uipath-deps-${{ runner.os }}-${{ github.repository }}-${{ github.ref_name }}-
-            uipath-deps-${{ runner.os }}-${{ github.repository }}-
-            uipath-deps-${{ runner.os }}-
-              
+ 
       - name: Confirm NuGet folders
         shell: powershell
         env:
