@@ -172,6 +172,6 @@ runs:
           fs.mkdirSync(path.dirname(outPath), { recursive: true });
           fs.writeFileSync(outPath, finalHtml, 'utf8');
 
-          core.setOutput('html_path', outPath);
+          core.setOutput('html', outPath);
           core.setOutput('subject', subject);
           core.setOutput('overall', overall);
