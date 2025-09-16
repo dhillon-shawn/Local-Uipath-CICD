@@ -152,23 +152,7 @@ jobs:
           ref: ${{ inputs.source_ref }}
           persist-credentials: true
 
-      - name: Check UiPath CLI
-        id: check-uipcli
-        shell: powershell
-        run: |
-          $cmd = Get-Command uipcli -ErrorAction SilentlyContinue
-          if ($cmd) {
-            "has_uipcli=true"  >> $env:GITHUB_OUTPUT
-            "uipcli_dir=$((Split-Path $cmd.Source -Parent))" >> $env:GITHUB_OUTPUT
-            Write-Host "Found uipcli in $((Split-Path $cmd.Source -Parent))"
-          } else {
-            "has_uipcli=false" >> $env:GITHUB_OUTPUT
-            Write-Host "uipcli not found on PATH"
-          }
 
-      - name: uipath-setup
-        if: steps.check-uipcli.outputs.has_uipcli != 'true'
-        uses: Mikael-RnD/setup-uipath@v2
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -176,6 +160,19 @@ jobs:
           dotnet-version: '8.0.x'
         env:
           DOTNET_INSTALL_DIR: '${{ runner.temp }}/.dotnet'
+
+      - name: Setup NuGet CLI
+        shell: cmd
+        run: |
+          curl.exe -o nuget.exe -L https://dist.nuget.org/win-x86-commandline/latest/nuget.exe
+      - name: Install UiPath CLI
+        shell: cmd
+        run: |
+          nuget.exe install UiPath.CLI.Windows -Version 25.4.9337.28376 -OutputDirectory packages -Source https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json
+
+      - name: Commands
+        shell: cmd
+        run: packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe --help
 
       - name: Confirm NuGet folders
         shell: powershell
@@ -205,10 +202,8 @@ jobs:
               <add key="Official"           value="https://pkgs.dev.azure.com/uipath/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json" />
             </packageSources>
 
-            <!-- If a package/version already exists here, NuGet will use it (no download) -->
             <fallbackPackageFolders>
               <add key="DefaultUser" value="%USERPROFILE%\.nuget\packages" />
-              <!-- Optional (keep if you maintain a machine-wide cache): -->
               <add key="ProgramData" value="%ProgramData%\uipath\nuget\packages" />
             </fallbackPackageFolders>
           </configuration>
@@ -228,9 +223,9 @@ jobs:
         shell: powershell
         env:
           NUGET_PACKAGES:        ${{ env.NUGET_PACKAGES }}
-          NUGET_HTTP_CACHE_PATH: ${{ env.NUGET_HTTP_CACHE_PATH }} 
+          NUGET_HTTP_CACHE_PATH: ${{ env.NUGET_HTTP_CACHE_PATH }}
         run: |
-          uipcli package restore '${{ github.workspace }}' `
+          packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package restore '${{ github.workspace }}' `
             --restoreFolder '${{ env.NUGET_PACKAGES }}' `
             --nugetConfigFilePath '${{ github.workspace }}\nuget.config' `
             --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
@@ -268,7 +263,7 @@ jobs:
           NUGET_PACKAGES:        ${{ env.NUGET_PACKAGES }}
           NUGET_HTTP_CACHE_PATH: ${{ env.NUGET_HTTP_CACHE_PATH }}
         run: |
-          uipcli package analyze '${{ github.workspace }}\project.json' `
+          packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package analyze '${{ github.workspace }}\project.json' `
             --resultPath '${{ runner.temp }}\analyze.json' `
             --orchestratorUrl '${{ env.BASE_URL }}/' `
             --orchestratorTenant '${{ env.TENANT }}' `
