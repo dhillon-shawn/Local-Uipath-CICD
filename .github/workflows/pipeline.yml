@@ -184,10 +184,6 @@ jobs:
           </configuration>
           '@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
           
-          $uipcli = (Get-Command "./uipath").Source
-          Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
-          
-          
           
       - name: Setup CLI
         run: |
