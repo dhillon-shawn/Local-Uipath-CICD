@@ -8,7 +8,7 @@ inputs:
   scopes: { required: true, description: "" }
   app_secret: { required: true, description: "" }
   app_id: { required: true, description: "" }
-  or_url: { required: true, description: "" }
+  base_url: { required: true, description: "" }
   target_env: { required: true, description: "" }
   tenant: { required: true, description: "" }
 
@@ -19,7 +19,7 @@ runs:
       shell: powershell
       run: New-Item -Path "./results" -ItemType Directory
 
-    - name: analyze
+    - name: analyze 1
       if: inputs.target_env == 'dev'
       shell: powershell
       env:
@@ -27,11 +27,13 @@ runs:
         UIPATH_CLIENT_SECRET: ${{ inputs.app_secret }}
         UIPATH_ACCOUNT_NAME: ${{ inputs.org }}
         UIPATH_TENANT_NAME: ${{ inputs.tenant }}
-        UIPATH_ORCHESTRATOR_URL: ${{ inputs.or_url }}
+        UIPATH_ORCHESTRATOR_URL: ${{ inputs.base_url }}
         UIPATH_SCOPES: "${{ inputs.scopes }}"
-      run: ./uipath studio package analyze --source "${{ github.workspace }}/project.json" --query "violations[?severity == 'Error' ].[workflowDisplayName, description, recommendation]" --stop-on-rule-violation false  --debug --profile target > ./results/analyze.json
+      run: |
+            echo "anaylis-1"
+            ./uipath studio package analyze --source "${{ github.workspace }}/project.json" --query "violations[?severity == 'Error' ].[workflowDisplayName, description, recommendation]" --stop-on-rule-violation false  --debug --profile target > ./results/analyze.json
 
-    - name: analyze
+    - name: analyze 2
       if: inputs.target_env == 'dev'
       shell: powershell
       env:
@@ -39,9 +41,11 @@ runs:
         UIPATH_CLIENT_SECRET: ${{ inputs.app_secret }}
         UIPATH_ACCOUNT_NAME: ${{ inputs.org }}
         UIPATH_TENANT_NAME: ${{ inputs.tenant }}
-        UIPATH_ORCHESTRATOR_URL: ${{ inputs.or_url }}
+        UIPATH_ORCHESTRATOR_URL: ${{ inputs.base_url }}
         UIPATH_SCOPES: "${{ inputs.scopes }}"
-      run: ./uipath studio package analyze --source "${{ github.workspace }}/project.json" --query "violations[?severity == 'Error' ].[workflowDisplayName, description, recommendation]" --stop-on-rule-violation false  --debug --profile target > ./results/analyze.json
+      run: |
+            echo "analysis-2"
+            ./uipath studio package analyze --source "${{ github.workspace }}/project.json" --query "violations[?severity == 'Error' ].[workflowDisplayName, description, recommendation]" --stop-on-rule-violation false  --debug --profile target > ./results/analyze.json
 
 
 
@@ -54,7 +58,7 @@ runs:
         UIPATH_CLIENT_SECRET: ${{ inputs.app_secret }}
         UIPATH_ACCOUNT_NAME: ${{ inputs.org }}
         UIPATH_TENANT_NAME: ${{ inputs.tenant }}
-        UIPATH_ORCHESTRATOR_URL: ${{ inputs.or_url }}
+        UIPATH_ORCHESTRATOR_URL: ${{ inputs.base_url }}
         UIPATH_SCOPES: "${{ inputs.scopes }}"
       run: |
         $output = ./uipath studio test run --source "${{ github.workspace }}/project.json" --folder "${{ inputs.folder_name }}" --results-output "junit" --debug --profile target
