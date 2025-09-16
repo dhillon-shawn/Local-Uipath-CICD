@@ -76,9 +76,9 @@ runs:
           const env = (process.env.TARGET_ENV || '').toLowerCase();
           const publishable = (process.env.PUBLISHABLE || '').toLowerCase() === 'true';
 
-          // Choose body (with fallback HTML if missing)
           const defaultTest = './email/TestResults.html';
           const defaultAnalysis = './email/analysis-report.html';
+
           const testPathIn = process.env.TEST_PATH_IN || defaultTest;
           const analysisPathIn = process.env.ANALYSIS_PATH_IN || defaultAnalysis;
 
@@ -97,16 +97,29 @@ runs:
           if (!bodyPath) {
             const fallback = env === 'test' ? defaultTest : defaultAnalysis;
             fs.mkdirSync(path.dirname(fallback), { recursive: true });
-            fs.writeFileSync(fallback, `<!DOCTYPE html><html><body>${emptyMsg}</body></html>`);
+            fs.writeFileSync(fallback, `<!doctype html><html><body>${emptyMsg}</body></html>`);
             bodyPath = fallback;
           }
 
-          // Overall from cd_status
+          // Extract only inner <body> from the selected HTML file
+          const extractBody = (html) => {
+            const m = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(html);
+            return (m ? m[1] : html)
+              .replace(/<!doctype[^>]*>/ig, '')
+              .replace(/<html[^>]*>/ig, '')
+              .replace(/<\/html>/ig, '')
+              .replace(/<head[^>]*>[\s\S]*?<\/head>/ig, ''); // drop inner <head>/<style>
+          };
+
+          const bodyHtmlRaw = fs.readFileSync(bodyPath, 'utf8');
+          const bodyInner = extractBody(bodyHtmlRaw);
+
+          // Overall status for header
           const cd = (process.env.CD_STATUS || '').toLowerCase();
           const overall = cd === 'success' ? 'success' : 'failure';
           const ok = overall === 'success';
           const ICON = ok ? '✅' : '❌';
-          const COLOR = ok ? '#28a745' : '#dc3545';
+          const COLOR = ok ? '#2e7d32' : '#c62828';
           const WORD = ok ? 'Successful' : 'Failed';
 
           // Subject
@@ -115,46 +128,50 @@ runs:
           const subject = (env === 'test' ? 'UiPath Test Report' : env === 'dev' ? 'UiPath Analysis Report' : 'UiPath Report')
                           + ` - ${repo} #${run}`;
 
-          // Status table (only your fields + repo/run link)
+          // Status table (inline styles for email)
           const server = process.env.GITHUB_SERVER_URL;
           const runId  = process.env.GITHUB_RUN_ID;
+          const row = (label,val)=> val ? `<tr>
+              <td style="padding:8px;border:1px solid #ddd;"><strong>${label}</strong></td>
+              <td style="padding:8px;border:1px solid #ddd;">${val}</td>
+            </tr>` : '';
 
-          const row = (label,val)=> val ? `<tr><td style="padding:8px;border:1px solid #ddd;"><strong>${label}</strong></td><td style="padding:8px;border:1px solid #ddd;">${val}</td></tr>` : '';
+          const statusHtml = `
+            <h2 style="color:${COLOR};margin:0 0 12px 0;">${ICON} Deployment ${WORD} — ${process.env.TARGET_ENV}</h2>
+            <table style="border-collapse:collapse;width:100%;margin-bottom:16px;">
+              ${row('Repository:', repo)}
+              ${row('Run:',        `${server}/${repo}/actions/runs/${runId}`)}
+              ${row('Target env:', process.env.TARGET_ENV)}
+              ${row('Source ref:', process.env.SOURCE_REF)}
+              ${row('Version:',    process.env.VERSION)}
+              ${row('Folder:',     process.env.FOLDER_NAME)}
+              ${row('Project ID:', process.env.PROJECT_ID)}
+              ${row('Migrate:',    process.env.MIGRATE)}
+              ${row('CD Status:',  process.env.CD_STATUS)}
+              ${row('Overall:',    overall)}
+            </table>`;
 
-          const statusHtml =
-          `<h2 style="color:${COLOR};margin:0 0 12px 0;">${ICON} Deployment ${WORD} — ${process.env.TARGET_ENV}</h2>
-          <table style="border-collapse:collapse;width:100%;margin-bottom:16px;">
-            ${row('Repository:', repo)}
-            ${row('Run:',        `${server}/${repo}/actions/runs/${runId}`)}
-            ${row('Target env:', process.env.TARGET_ENV)}
-            ${row('Source ref:', process.env.SOURCE_REF)}
-            ${row('Version:',    process.env.VERSION)}
-            ${row('Folder:',     process.env.FOLDER_NAME)}
-            ${row('Project ID:', process.env.PROJECT_ID)}
-            ${row('Migrate:',    process.env.MIGRATE)}
-            ${row('CD Status:',  process.env.CD_STATUS)}
-            ${row('Overall:',    overall)}
-          </table>`;
 
-          // Compose final HTML
-          const bodyHtml = fs.readFileSync(bodyPath,'utf8');
-          const finalHtml =
-          `<!DOCTYPE html>
+          const finalHtml = `<!doctype html>
           <html>
-          <body style="font-family:Arial,Helvetica,sans-serif;margin:20px;">
-            ${statusHtml}
-            <hr style="margin:16px 0;border:none;border-top:1px solid #ddd;" />
-            ${bodyHtml}
-            <p style="margin-top:20px;">
-              <a href="${server}/${repo}/actions/runs/${runId}"
-                style="background-color:#007acc;color:white;padding:10px 15px;text-decoration:none;border-radius:5px;">
-                View Workflow Details
-              </a>
-            </p>
-          </body>
+            <body style="font-family:Arial,Helvetica,sans-serif;margin:20px; color:#0f172a;">
+              ${statusHtml}
+              <hr style="margin:16px 0;border:none;border-top:1px solid #ddd;" />
+              ${bodyInner}
+              <p style="margin-top:20px;">
+                <a href="${server}/${repo}/actions/runs/${runId}"
+                  style="background-color:#007acc;color:white;padding:10px 15px;text-decoration:none;border-radius:5px;display:inline-block;">
+                  View Workflow Details
+                </a>
+              </p>
+            </body>
           </html>`;
 
-          core.setOutput('html', finalHtml);
+          // Write it to a file and export path + subject + overall
+          const outPath = './email/final-email.html';
+          fs.mkdirSync(path.dirname(outPath), { recursive: true });
+          fs.writeFileSync(outPath, finalHtml, 'utf8');
+
+          core.setOutput('html_path', outPath);
           core.setOutput('subject', subject);
-          core.setOutput('attach_path', bodyPath);
           core.setOutput('overall', overall);

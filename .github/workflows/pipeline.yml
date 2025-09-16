@@ -152,19 +152,36 @@ jobs:
           ref: ${{ inputs.source_ref }}
           persist-credentials: true
 
-      - name: Prepare runner toolcache dirs
+      - name: Ensure .NET 8 SDK (cached, no admin needed)
         shell: powershell
         run: |
-          New-Item -ItemType Directory -Force -Path 'C:\actions-toolcache','C:\actions-temp' | Out-Null
+          $DotnetRoot = Join-Path $env:USERPROFILE '.dotnet'
+          $SdkGlob    = Join-Path (Join-Path $DotnetRoot 'sdk') '8.0.*'
+          $DotnetExe  = Join-Path $DotnetRoot 'dotnet.exe'
+
+          $has8 = (Test-Path $DotnetExe) -and (Get-ChildItem $SdkGlob -Directory -ErrorAction SilentlyContinue)
+
+          if (-not $has8) {
+            Write-Host "Installing .NET SDK 8.x to $DotnetRoot"
+            $Installer = Join-Path $env:RUNNER_TEMP 'dotnet-install.ps1'
+            Invoke-WebRequest -UseBasicParsing https://dot.net/v1/dotnet-install.ps1 -OutFile $Installer
+            powershell -NoProfile -ExecutionPolicy Bypass -File $Installer -Channel 8.0 -InstallDir $DotnetRoot -Quality GA
+          } else {
+            Write-Host "Reusing existing .NET SDK 8.x in $DotnetRoot"
+          }
+
+          # Make it available to later steps (job-scoped, no system changes)
+          $DotnetRoot | Out-File -FilePath $env:GITHUB_PATH -Append
+          "DOTNET_ROOT=$DotnetRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+          & $DotnetExe --info
 
 
-      - name: Setup .NET SDK 8
-        uses: actions/setup-dotnet@v4
-        env:
-          RUNNER_TOOL_CACHE: C:\actions-toolcache
-          RUNNER_TEMP:       C:\actions-temp
+      - name: Cache UiPath CLI v1
+        uses: actions/cache@v4
         with:
-          dotnet-version: '8.0.x'
+          path: packages
+          key: uipcli-25.4.9337.28376
 
       - name: Check UiPath CLI
         id: check-uipcli
@@ -272,7 +289,7 @@ jobs:
           New-Item -ItemType Directory -Path $stage | Out-Null
 
           robocopy "${{ github.workspace }}" "$stage" /MIR `
-            /XD '.git' '.github' 'output' 'results' '.nuget-cache' '.nuget-http' '.nuget' 'packages' 'nuget' `
+            /XD '.git' '.github' 'output' 'results' '.nuget-cache' '.nuget-http' '.nuget' 'packages' 'nuget.exe' `
             /XF '*.nupkg' 'nuget.config'
 
           $rc = $LASTEXITCODE
