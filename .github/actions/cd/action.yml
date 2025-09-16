@@ -69,37 +69,39 @@ runs:
       run: |
         echo "updating release"
         body="$(mktemp)"
-        trap 'rm -f "$body"' EXIT  
+        trap 'rm -f "$body"' EXIT
 
         curl_rc=0
         status=$(
-          curl -X PATCH -L -sS \
+          curl -L -sS \
             --connect-timeout 10 --max-time 120 \
-            --output "$body" --write-out '%{http_code}' \
-            -H "Authorization: Bearer ${{inputs.token}}" \
+            --output "$body" \
+            --write-out '%{http_code}' \
+            -X PATCH \ 
+            -H "Authorization: Bearer ${{ inputs.token }}" \
             -H "Content-Type: application/json" \
             -H "X-UIPATH-FolderPath: ${{ inputs.full_folder_name }}" \
-            "${{ inputs.or_url }}/odata/Releases"
-            <<'JSON'
-                      {
-                        "Name": "${{ inputs.pid }}",
-                        "ProcessKey": "${{ inputs.pid }}",
-                        "ProcessVersion": "${{ inputs.version }}",
-                        "EntryPointPath": "${{ inputs.entry_point }}",
-                        "Description": "https://github.com/${{ github.repository_owner }}/${{ github.repository }}"
-                      }
-            JSON
-          )|| curl_rc=$?
+            --data-binary @- \
+            "${{ inputs.or_url }}/odata/Releases" <<'JSON'
+              {
+                "Name": "${{ inputs.pid }}",
+                "ProcessKey": "${{ inputs.pid }}",
+                "ProcessVersion": "${{ inputs.version }}",
+                "EntryPointPath": "${{ inputs.entry_point }}",
+                "Description": "https://github.com/${{ github.repository_owner }}/${{ github.repository }}"
+              }
+              JSON
+        ) || curl_rc=$?
 
         echo "Status Code: $status"
         echo "::group::Response body"
         if command -v jq >/dev/null; then jq -r . "$body" || cat "$body"; else cat "$body"; fi
         echo "::endgroup::"
 
-
         if [[ $curl_rc -ne 0 || ${status:-0} -ge 400 ]]; then
           exit 1
         fi
+
 
     - name: Create Release
       shell: bash

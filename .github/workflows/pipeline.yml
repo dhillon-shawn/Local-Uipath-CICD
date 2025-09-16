@@ -134,9 +134,6 @@ jobs:
   CLI:
     runs-on: windows-latest
     needs: [setup, resolve-dependencies]
-    env:
-      NUGET_PACKAGES:        C:\uipath-cache\packages
-      NUGET_HTTP_CACHE_PATH: C:\uipath-cache\http
     steps:
 
       - name: auth
@@ -162,6 +159,11 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: '${{ runner.temp }}/.dotnet'
 
+      - name: Cache UiPath CLI
+        uses: actions/cache@v4
+        with:
+          path: packages
+          key: uipcli-${{ runner.os }}-25.4.9337.28376
       - name: Check UiPath CLI
         id: check-uipcli
         shell: powershell
@@ -203,19 +205,46 @@ jobs:
           $uipcli = (Get-Command packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe).Source
           Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
 
+      - name: Ensure scoped NuGet cache folders exist
+        shell: powershell
+        env:
+          NUGET_PACKAGES:        C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\packages
+          NUGET_HTTP_CACHE_PATH: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\http
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:NUGET_PACKAGES,$env:NUGET_HTTP_CACHE_PATH | Out-Null
+
+      - name: Cache NuGet (scoped per repo/branch)
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\packages
+            C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\http
+          key: uipath-deps-${{ runner.os }}-${{ github.repository }}-${{ github.ref_name }}-${{ hashFiles('project.json', 'nuget.config') }}
+          restore-keys: |
+            uipath-deps-${{ runner.os }}-${{ github.repository }}-${{ github.ref_name }}-
+            uipath-deps-${{ runner.os }}-${{ github.repository }}-
+            uipath-deps-${{ runner.os }}-
+              
       - name: Confirm NuGet folders
         shell: powershell
-        run: dotnet nuget locals all --list
-
-      - name: Ensure persistent folders exist
-        shell: powershell
-        run: New-Item -ItemType Directory -Force -Path $env:NUGET_PACKAGES,$env:NUGET_HTTP_CACHE_PATH | Out-Null
+        env:
+          NUGET_PACKAGES:        C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\packages
+          NUGET_HTTP_CACHE_PATH: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\http
+        run: |
+          Write-Host "NUGET_PACKAGES=$env:NUGET_PACKAGES"
+          Write-Host "NUGET_HTTP_CACHE_PATH=$env:NUGET_HTTP_CACHE_PATH"
+          dotnet nuget locals all --list
 
       - name: restore
         shell: powershell
+        env:
+          NUGET_PACKAGES:        C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\packages
+          NUGET_HTTP_CACHE_PATH: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\http
         run: |
+          New-Item -ItemType Directory -Force -Path $env:NUGET_PACKAGES,$env:NUGET_HTTP_CACHE_PATH | Out-Null
+
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package restore '${{ github.workspace }}' `
-            --restoreFolder            '${{ env.NUGET_PACKAGES}}' `
+            --restoreFolder ""$env:NUGET_PACKAGES"" `
             --nugetConfigFilePath '${{ github.workspace }}\nuget.config' `
             --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
             --libraryOrchestratorTenant '${{ env.TENANT }}' `
@@ -233,6 +262,10 @@ jobs:
       - name: analyze
         if: inputs.target_env == 'dev'
         shell: powershell
+        env:
+          NUGET_PACKAGES:        C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\packages
+          NUGET_HTTP_CACHE_PATH: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\http
+
         run: |
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package analyze '${{ github.workspace }}\project.json' `
             --resultPath '${{ runner.temp }}\analyze.json' `
@@ -264,6 +297,9 @@ jobs:
 
       - name: pack
         shell: powershell
+        env:
+          NUGET_PACKAGES:        C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\packages
+          NUGET_HTTP_CACHE_PATH: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\http
         run: |
           $ErrorActionPreference = 'Stop'
           $stage = Join-Path $env:RUNNER_TEMP 'uipack-stage'
