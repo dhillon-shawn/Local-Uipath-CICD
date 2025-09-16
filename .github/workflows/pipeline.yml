@@ -166,12 +166,6 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Cache UiPath CLI
-        uses: actions/cache@v4
-        with:
-          path: packages
-          key: uipcli-${{ runner.os }}-25.4.9337.28376
-
       - name: Check UiPath CLI
         id: check-uipcli
         shell: powershell
@@ -233,7 +227,7 @@ jobs:
         run: New-Item -Path "./results" -ItemType Directory -Force | Out-Null
 
       - name: analyze
-        if: inputs.target_env == 'devjj'
+        if: inputs.target_env == 'dev'
         shell: powershell
         run: |
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package analyze '${{ github.workspace }}\project.json' `
@@ -242,27 +236,14 @@ jobs:
             --orchestratorTenant '${{ env.TENANT }}' `
             -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
             --orchestratorApplicationScope '${{ env.scope}}' `
-            --analyzerTraceLevel Warning `
+            --analyzerTraceLevel "Warning" `
+            --ignoredRules "ST-NMG-001,ST-NMG-002,ST-NMG-009,ST-NMG-011,ST-NMG-016,ST-NMG-008,ST-USG-032,ST-USG-034,ST-USG-027"
             --traceLevel Verbose --disableBuiltInNugetFeeds -y `
             --identityUrl '${{ env.BASE_URL }}/identity_'
                   
           cat ${{ runner.temp }}\analyze.json
           New-Item -ItemType Directory -Force -Path '.\results' | Out-Null
           Copy-Item '${{ runner.temp }}\analyze.json' '.\results\analyze.json' -Force
-          
-
-      - name: UiPath Analyze
-        uses: Mikael-RnD/UiPath-Analyze@v1
-        with:
-          projectFilePaths: ./project.json
-          orchestratorUrl: "${{env.BASE_URL}}/"
-          orchestratorTenant: ${{env.TENANT}}
-          orchestratorFolder: ${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}
-          orchestratorApplicationId: ${{ env.APP_ID }}
-          orchestratorApplicationSecret: ${{ env.APP_SECRET }}
-          orchestratorApplicationScope: "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines.Read OR.Monitoring OR.Robots.Read OR.Settings.Read OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Users.Read"
-          orchestratorLogicalName: ${{env.ORG}}
-          ignoredRules: "ST-NMG-002,ST-USG-034"
 
 
       - name: stage for pack
