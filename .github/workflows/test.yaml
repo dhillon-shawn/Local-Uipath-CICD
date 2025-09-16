@@ -166,8 +166,8 @@ jobs:
       # Safety check: show where the final HTML lives and preview the first lines
       - name: Debug composed HTML
         run: |
-          echo "Final path: ${{ steps.compose.outputs.html_path }}"
-          head -n 30 "${{ steps.compose.outputs.html_path }}" || true
+          echo "Final path: ${{ needs.compose.outputs.final_html }}"
+          head -n 30 "${{ needs.compose.outputs.final_html }}" || true
 
       # Send – IMPORTANT: point html_body to the FILE
       - name: Send Email (SMTP)
@@ -181,7 +181,7 @@ jobs:
           subject:  ${{ steps.compose.outputs.subject }}
           to:       "dhillon.shawns@gmail.com"
           from:     "UiPath CI/CD <uipath-cicd@noreply.com>"
-          html_body: file://${{ steps.compose.outputs.html_path }}
+          html_body: file://${{ steps.compose.outputs.final_html }}
           convert_markdown: false
 
       # Also upload the HTML so you can inspect without email clients
