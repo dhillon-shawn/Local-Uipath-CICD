@@ -101,7 +101,6 @@ runs:
             bodyPath = fb;
           }
 
-          // Extract inner body to avoid nested HTML
           const extractBody = html => {
             const m = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(html);
             return (m ? m[1] : html);

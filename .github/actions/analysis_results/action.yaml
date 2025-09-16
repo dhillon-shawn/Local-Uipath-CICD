@@ -20,14 +20,12 @@ runs:
       shell: bash
       run: mkdir -p "$(dirname "${{ inputs.out_path }}")"
 
-    - name: Analysis → HTML (email-safe)
+    - name: Analysis → HTML (simple + proper Read more links)
       id: analysis_html
       uses: actions/github-script@v7
       env:
-        IN:  ${{ inputs.json_path }}           # e.g. ./results/analyze.json
-        OUT: ${{ inputs.out_path }}            # e.g. ./email/analysis-report.html
-        SHOW_CODE: "false"                     # set "true" to include the code/link column
-        TRIM_PREFIX: ""                        # optional extra prefix to strip from file paths
+        IN:  ${{ inputs.json_path }}          # e.g. ./results/analyze.json
+        OUT: ${{ inputs.out_path }}           # e.g. ./email/analysis-report.html
       with:
         script: |
           const fs = require('fs');
@@ -35,56 +33,87 @@ runs:
 
           const inPath  = process.env.IN || '';
           const outPath = process.env.OUT || 'email/analysis-report.html';
-          const showCode = /^true$/i.test(process.env.SHOW_CODE || 'false');
-          const trimPrefix = (process.env.TRIM_PREFIX || '').replace(/\\/g,'/');
-
           if (!inPath) { core.setFailed('IN was empty.'); return; }
           if (!fs.existsSync(inPath)) { core.setFailed(`IN not found: ${inPath}`); return; }
 
+          // ---------- helpers ----------
           const esc = s => String(s ?? '')
             .replace(/&/g,'&amp;').replace(/</g,'&lt;')
             .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
             .replace(/'/g,'&#39;');
 
-          // Tokenize markdown links BEFORE escaping (e.g., [Learn more.](https://...))
+          // Tokenize [label](url) before escaping
           function tokenizeMarkdownLinks(src) {
             const links = [];
-            const text = String(src || '').replace(/\[([^\]]+)\]\(\s*(https?:\/\/[^\s)]+)\s*\)/gi,
-              (_m, label, url) => {
-                const id = links.push({ label, url }) - 1;
-                return `__LINK_${id}__`;
-              }
+            const txt = String(src || '').replace(/\[([^\]]+)\]\(\s*(https?:\/\/[^\s)]+)\s*\)/gi,
+              (_m, label, url) => `__MLINK_${links.push({label, url}) - 1}__`
             );
-            return { text, links };
+            return { txt, links };
           }
 
-          // Convert the string to HTML with working links and simple formatting
+          // Prepare doc-link placement (so we don't show raw URLs or duplicate links)
+          function prepareDocTokens(src, docLink) {
+            const tokens = [];
+            let t = String(src || '');
+
+            if (!docLink) return { t, tokens };
+
+            const hasMdLink = /\[[^\]]+\]\(\s*https?:\/\/[^\s)]+\s*\)/i.test(t);
+            if (hasMdLink) return { t, tokens }; // already has a link (likely "Learn more") → leave as-is
+
+            if (t.includes(docLink)) {
+              // Replace the raw doc URL with a placeholder to become "Read more"
+              t = t.split(docLink).join('__DOCURL__');
+              tokens.push({ key: '__DOCURL__', html: `<a href="${esc(docLink)}" style="color:#1d4ed8;text-decoration:none;">Read more</a>` });
+              return { t, tokens };
+            }
+
+            if (/(learn|read)\s+more\.?/i.test(t)) {
+              // Replace the text "Learn more." with the link
+              t = t.replace(/(learn|read)\s+more\.?/ig, '__READMORE__');
+              tokens.push({ key: '__READMORE__', html: `<a href="${esc(docLink)}" style="color:#1d4ed8;text-decoration:none;">Read more</a>` });
+              return { t, tokens };
+            }
+
+            // Otherwise append a Read more link at the end
+            tokens.push({ key: '__APPEND__', html: ` — <a href="${esc(docLink)}" style="color:#1d4ed8;text-decoration:none;">Read more</a>` });
+            return { t, tokens };
+          }
+
+          // Convert a text field to HTML with proper links and bullets
           function renderText(src, docLink) {
-            // 1) tokenize explicit markdown links
-            const { text, links } = tokenizeMarkdownLinks(src);
+            // 1) doc-link placeholders on the ORIGINAL text
+            const { t: withDocPlaceholders, tokens } = prepareDocTokens(src, docLink);
 
-            // 2) escape everything
-            let out = esc(text);
+            // 2) tokenize markdown links on that text
+            const { txt, links } = tokenizeMarkdownLinks(withDocPlaceholders);
 
-            // 3) restore markdown links as anchors
-            out = out.replace(/__LINK_(\d+)__/g, (_m, i) => {
+            // 3) escape everything
+            let out = esc(txt);
+
+            // 4) restore markdown links as anchors
+            out = out.replace(/__MLINK_(\d+)__/g, (_m, i) => {
               const { label, url } = links[Number(i)];
               return `<a href="${esc(url)}" style="color:#1d4ed8;text-decoration:none;">${esc(label)}</a>`;
             });
 
-            // 4) bold/code
+            // 5) bold/code
             out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
                     .replace(/`([^`]+)`/g, '<code style="background:#f4f4f5;border:1px solid #e4e4e7;border-radius:4px;padding:1px 4px;">$1</code>');
 
-            // 5) raw URLs → links (don’t touch ones already linked)
+            // 6) bare URLs → anchors (skip ones already restored)
             out = out.replace(/\bhttps?:\/\/[^\s<]+/gi, u => `<a href="${u}" style="color:#1d4ed8;text-decoration:none;">${u}</a>`);
 
-            // 6) If the source had “Learn more.” but NO markdown link, attach docLink
-            if (!/\[[^\]]+\]\(/.test(src) && docLink) {
-              out = out.replace(/\bLearn more\.?/gi, `<a href="${esc(docLink)}" style="color:#1d4ed8;text-decoration:none;">Learn more</a>`);
+            // 7) replace doc-link placeholders with clean "Read more"
+            for (const tok of tokens.filter(t => t.key !== '__APPEND__')) {
+              const escKey = esc(tok.key);
+              out = out.split(escKey).join(tok.html);
+            }
+            if (tokens.find(t => t.key === '__APPEND__')) {
+              out += tokens.find(t => t.key === '__APPEND__').html;
             }
 
-            // 7) bullets & newlines (simple email-safe formatting)
+            // 8) bullets & newlines
             out = out
               .replace(/\r?\n\*\* /g, '<br>&nbsp;&nbsp;• ')
               .replace(/\r?\n\* /g, '<br>• ')
@@ -97,92 +126,85 @@ runs:
             let f = String(fp || '').replace(/\\/g,'/');
             const ws = (process.env.GITHUB_WORKSPACE || '').replace(/\\/g,'/').replace(/\/+$/,'');
             if (ws && f.startsWith(ws + '/')) f = f.slice(ws.length + 1);
-            if (trimPrefix && f.startsWith(trimPrefix)) f = f.slice(trimPrefix.length);
-            return f;
+            return f || '(project)';
           }
 
-          const json = JSON.parse(fs.readFileSync(inPath, 'utf8'));
-          const results = Array.isArray(json) ? json : (json.Results || json.results || []);
+          // ---------- build ----------
+          const data = JSON.parse(fs.readFileSync(inPath, 'utf8'));
+          const list = Array.isArray(data) ? data : (data.Results || data.results || []);
 
-          const rows = results.map(x => ({
-            sev: Number(x.ErrorSeverity ?? 0),
-            code: String(x.ErrorCode ?? ''),
-            link: String(x.DocumentationLink ?? ''),
-            rule: String(x.RuleName ?? ''),
-            desc: x.Description ?? '',
-            rec:  x.Recommendation ?? '',
-            file: normPath(String(x.FilePath ?? '')),
-          }));
-
-          // group by file (fall back to “(project)”)
-          const groups = new Map();
-          for (const r of rows) {
-            const key = r.file || '(project)';
-            if (!groups.has(key)) groups.set(key, []);
-            groups.get(key).push(r);
-          }
-
-          let totalErr=0,totalWarn=0,totalInfo=0;
           const sevMeta = {
             1: { name:'Error',   icon:'❌', bg:'#fde2e2' },
             2: { name:'Warning', icon:'⚠️', bg:'#fff4e5' },
             3: { name:'Info',    icon:'ℹ️', bg:'#e7f3ff' },
           };
 
-          // Inline CSS tokens
-          const card='border:1px solid #e5e7eb;border-radius:12px;margin:12px 0;background:#ffffff;';
-          const head='display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #e5e7eb;background:#f9fafb;';
-          const fileCss='font-family:Consolas,Menlo,Monaco,ui-monospace,monospace;font-weight:600;color:#111827;';
-          const chips='display:flex;gap:8px;';
-          const chip=(bg,fg)=>`border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600;background:${bg};color:${fg};`;
-          const wrap='overflow:auto;max-width:100%;';
-          const table='border-collapse:separate;border-spacing:0;width:100%;table-layout:fixed;border:1px solid #e5e7eb;';
-          const th='background:#f8fafc;border-bottom:1px solid #e5e7eb;font-weight:700;text-align:left;padding:8px 10px;';
-          const td='border-top:1px solid #e5e7eb;padding:8px 10px;vertical-align:top;word-break:break-word;';
-          const tdSev='white-space:nowrap;width:120px;';
-          const h1='margin:0 0 6px 0;font-size:20px;color:#0f172a;';
-          const sub='margin:0 0 12px 0;color:#475569;';
-          const totals='display:flex;gap:10px;margin:8px 0 16px 0;';
-          const pill=(bg,fg,bd)=>`border-radius:999px;padding:6px 12px;font-weight:700;border:1px solid ${bd};background:${bg};color:${fg};`;
+          // group by file
+          const groups = new Map();
+          let totalErr=0,totalWarn=0,totalInfo=0;
+
+          for (const x of list) {
+            const row = {
+              sev: Number(x.ErrorSeverity ?? 0),
+              rule: String(x.RuleName ?? ''),
+              desc: x.Description ?? '',
+              rec:  x.Recommendation ?? '',
+              link: String(x.DocumentationLink ?? ''),
+              file: normPath(x.FilePath),
+            };
+            if (row.sev === 1) totalErr++; else if (row.sev === 2) totalWarn++; else if (row.sev === 3) totalInfo++;
+            if (!groups.has(row.file)) groups.set(row.file, []);
+            groups.get(row.file).push(row);
+          }
+
+          const css = {
+            card: 'border:1px solid #e5e7eb;border-radius:12px;margin:12px 0;background:#ffffff;',
+            head: 'display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #e5e7eb;background:#f9fafb;',
+            file: 'font-family:Consolas,Menlo,Monaco,ui-monospace,monospace;font-weight:600;color:#111827;',
+            chips:'display:flex;gap:8px;',
+            chip:(bg,fg)=>`border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600;background:${bg};color:${fg};`,
+            wrap: 'overflow:auto;max-width:100%;',
+            table:'border-collapse:separate;border-spacing:0;width:100%;table-layout:fixed;border:1px solid #e5e7eb;',
+            th:   'background:#f8fafc;border-bottom:1px solid #e5e7eb;font-weight:700;text-align:left;padding:8px 10px;',
+            td:   'border-top:1px solid #e5e7eb;padding:8px 10px;vertical-align:top;word-break:break-word;',
+            tdSev:'white-space:nowrap;width:120px;',
+            h1:   'margin:0 0 6px 0;font-size:20px;color:#0f172a;',
+            sub:  'margin:0 0 12px 0;color:#475569;',
+            totals:'display:flex;gap:10px;margin:8px 0 16px 0;',
+            pill: (bg,fg,bd)=>`border-radius:999px;padding:6px 12px;font-weight:700;border:1px solid ${bd};background:${bg};color:${fg};`,
+          };
 
           const sections = [];
           for (const [fileKey, items] of Array.from(groups.entries()).sort((a,b)=>a[0].localeCompare(b[0]))) {
             items.sort((a,b)=>(a.sev-b.sev)||a.rule.localeCompare(b.rule));
-            const c = {
-              err: items.filter(i=>i.sev===1).length,
-              warn:items.filter(i=>i.sev===2).length,
-              info:items.filter(i=>i.sev===3).length,
-            };
-            totalErr+=c.err; totalWarn+=c.warn; totalInfo+=c.info;
+            const c = { err: items.filter(i=>i.sev===1).length, warn: items.filter(i=>i.sev===2).length, info: items.filter(i=>i.sev===3).length };
 
-            let html = `<div style="${card}">
-                <div style="${head}">
-                  <div style="${fileCss}">${esc(fileKey)}</div>
-                  <div style="${chips}">
-                    <span style="${chip('#fecaca','#7f1d1d')}">❌ ${c.err}</span>
-                    <span style="${chip('#fed7aa','#7c2d12')}">⚠️ ${c.warn}</span>
-                    <span style="${chip('#bfdbfe','#1e3a8a')}">ℹ️ ${c.info}</span>
-                  </div>
-                </div>
-                <div style="padding:10px;">
-                  <div style="${wrap}">
-                    <table style="${table}">
-                      <thead><tr>
-                        <th style="${th}">Severity</th>
-                        ${showCode?`<th style="${th}">Code / Link</th>`:''}
-                        <th style="${th}">Rule</th>
-                        <th style="${th}">Description</th>
-                        <th style="${th}">Recommendation</th>
-                      </tr></thead><tbody>`;
+            let html = `<div style="${css.card}">
+            <div style="${css.head}">
+              <div style="${css.file}">${esc(fileKey)}</div>
+              <div style="${css.chips}">
+                <span style="${css.chip('#fecaca','#7f1d1d')}">❌ ${c.err}</span>
+                <span style="${css.chip('#fed7aa','#7c2d12')}">⚠️ ${c.warn}</span>
+                <span style="${css.chip('#bfdbfe','#1e3a8a')}">ℹ️ ${c.info}</span>
+              </div>
+            </div>
+            <div style="padding:10px;">
+              <div style="${css.wrap}">
+                <table style="${css.table}">
+                  <thead><tr>
+                    <th style="${css.th}">Severity</th>
+                    <th style="${css.th}">Rule</th>
+                    <th style="${css.th}">Description</th>
+                    <th style="${css.th}">Recommendation</th>
+                  </tr></thead><tbody>`;
 
             for (const r of items) {
               const sev = sevMeta[r.sev] || { name:'', icon:'', bg:'#fff' };
               html += `<tr style="background:${sev.bg};">
-                <td style="${td}${tdSev}">${sev.icon} ${sev.name}</td>
-                ${showCode ? `<td style="${td}">${r.link ? `<a href="${esc(r.link)}" style="color:#1d4ed8;text-decoration:none;">${esc(r.code)}</a>` : esc(r.code)}</td>` : ''}
-                <td style="${td}">${esc(r.rule)}</td>
-                <td style="${td}">${renderText(r.desc, r.link)}</td>
-                <td style="${td}">${renderText(r.rec,  r.link)}</td>
+                <td style="${css.td}${css.tdSev}">${sev.icon} ${sev.name}</td>
+                <td style="${css.td}">${esc(r.rule)}</td>
+                <td style="${css.td}">${renderText(r.desc, r.link)}</td>
+                <td style="${css.td}">${renderText(r.rec,  r.link)}</td>
               </tr>`;
             }
 
@@ -192,12 +214,12 @@ runs:
 
           const when = new Date().toISOString();
           const outHtml = `<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;margin:20px;color:#0f172a;background:#ffffff;">
-            <h1 style="${h1}">UiPath Analyzer Report</h1>
-            <p style="${sub}">Generated: ${esc(when)}</p>
-            <div style="${totals}">
-              <span style="${pill('#fff1f2','#b91c1c','#fecaca')}">❌ Errors: ${totalErr}</span>
-              <span style="${pill('#fff7ed','#b45309','#fed7aa')}">⚠️ Warnings: ${totalWarn}</span>
-              <span style="${pill('#eff6ff','#1d4ed8','#bfdbfe')}">ℹ️ Info: ${totalInfo}</span>
+            <h1 style="${css.h1}">UiPath Analyzer Report</h1>
+            <p style="${css.sub}">Generated: ${esc(when)}</p>
+            <div style="${css.totals}">
+              <span style="${css.pill('#fff1f2','#b91c1c','#fecaca')}">❌ Errors: ${totalErr}</span>
+              <span style="${css.pill('#fff7ed','#b45309','#fed7aa')}">⚠️ Warnings: ${totalWarn}</span>
+              <span style="${css.pill('#eff6ff','#1d4ed8','#bfdbfe')}">ℹ️ Info: ${totalInfo}</span>
             </div>
             ${sections.join('\n')}
           </body></html>`;
