@@ -77,20 +77,20 @@ runs:
             --connect-timeout 10 --max-time 120 \
             --output "$body" \
             --write-out '%{http_code}' \
-            -X PATCH \ 
+            -X PATCH \
             -H "Authorization: Bearer ${{ inputs.token }}" \
             -H "Content-Type: application/json" \
             -H "X-UIPATH-FolderPath: ${{ inputs.full_folder_name }}" \
             --data-binary @- \
             "${{ inputs.or_url }}/odata/Releases" <<'JSON'
-              {
-                "Name": "${{ inputs.pid }}",
-                "ProcessKey": "${{ inputs.pid }}",
-                "ProcessVersion": "${{ inputs.version }}",
-                "EntryPointPath": "${{ inputs.entry_point }}",
-                "Description": "https://github.com/${{ github.repository_owner }}/${{ github.repository }}"
-              }
-              JSON
+        {
+          "Name": "${{ inputs.pid }}",
+          "ProcessKey": "${{ inputs.pid }}",
+          "ProcessVersion": "${{ inputs.version }}",
+          "EntryPointPath": "${{ inputs.entry_point }}",
+          "Description": "https://github.com/${{ github.repository_owner }}/${{ github.repository }}"
+        }
+        JSON
         ) || curl_rc=$?
 
         echo "Status Code: $status"
