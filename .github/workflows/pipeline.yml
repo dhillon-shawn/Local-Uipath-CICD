@@ -134,6 +134,9 @@ jobs:
   CLI:
     runs-on: windows-latest
     needs: [setup, resolve-dependencies]
+    env:
+      NUGET_PACKAGES:        C:\uipath-cache\packages
+      NUGET_HTTP_CACHE_PATH: C:\uipath-cache\http
     steps:
 
       - name: auth
@@ -204,10 +207,15 @@ jobs:
         shell: powershell
         run: dotnet nuget locals all --list
 
+      - name: Ensure persistent folders exist
+        shell: powershell
+        run: New-Item -ItemType Directory -Force -Path $env:NUGET_PACKAGES,$env:NUGET_HTTP_CACHE_PATH | Out-Null
+
       - name: restore
         shell: powershell
         run: |
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package restore '${{ github.workspace }}' `
+            --restoreFolder            '${{ env.NUGET_PACKAGES}}' `
             --nugetConfigFilePath '${{ github.workspace }}\nuget.config' `
             --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
             --libraryOrchestratorTenant '${{ env.TENANT }}' `
