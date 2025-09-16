@@ -242,7 +242,7 @@ jobs:
           NUGET_HTTP_CACHE_PATH: C:\uipath-cache\${{ github.repository_owner }}\${{ github.event.repository.name }}\${{ github.ref_name }}\http
         run: |
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package restore '${{ github.workspace }}' `
-            --restoreFolder ""$env:NUGET_PACKAGES"" `
+            --restoreFolder '${{ env.NUGET_PACKAGES }}' `
             --nugetConfigFilePath '${{ github.workspace }}\nuget.config' `
             --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
             --libraryOrchestratorTenant '${{ env.TENANT }}' `
@@ -252,7 +252,7 @@ jobs:
             --libraryIdentityUrl '${{ env.BASE_URL }}/identity_' `
             -y --traceLevel "Verbose"
 
-            
+
       - name: Create Results DIR
         shell: powershell
         run: New-Item -Path "./results" -ItemType Directory -Force | Out-Null
