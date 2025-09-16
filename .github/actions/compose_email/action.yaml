@@ -148,7 +148,6 @@ runs:
           const finalHtml = `<!doctype html><html>
             <body style="font-family:Arial,Helvetica,sans-serif;margin:20px;color:#0f172a;">
               ${statusHtml}
-              <hr style="margin:16px 0;border:none;border-top:1px solid #ddd;" />
               ${bodyInner}
               <p style="margin-top:20px;">
                 <a href="${server}/${repo}/actions/runs/${runId}"
@@ -156,7 +155,6 @@ runs:
                   View Workflow Details
                 </a>
               </p>
-              
             </body></html>`;
 
           const outPath = './email/final-email.html';
