@@ -140,7 +140,7 @@ jobs:
       # Build the pretty HTML (your composite)
       - name: Analysis → HTML
         id: analysis_html
-        uses: ./.github/actions/analysis_results@main
+        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/analysis_results@main
         with:
           json_path: ./results/analyze.json
           out_path:  ./email/analysis-report.html
@@ -148,7 +148,7 @@ jobs:
       # Compose final email HTML (your composite) – must output html_path + subject
       - name: Compose final email (table + body + subject)
         id: compose
-        uses: ./.github/actions/compose_email@main
+        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/compose_email@main
         with:
           publishable:        false
           target_env:         "dev"
