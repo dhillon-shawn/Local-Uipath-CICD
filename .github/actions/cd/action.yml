@@ -15,7 +15,6 @@ inputs:
 runs:
   using: composite
   steps:
-
     - name: Publishing
       shell: bash
       run: |
@@ -29,8 +28,7 @@ runs:
           "${{ inputs.or_url }}/odata/Processes/UiPath.Server.Configuration.OData.UploadPackage()"
         )
         echo "Response: $response"
-        
-        
+
     - name: Check Release
       shell: bash
       run: |
@@ -50,7 +48,6 @@ runs:
           echo "Release Id NOT found"
           echo "CREATE=true" >> "$GITHUB_ENV"
         fi
-        
 
     - name: Upgrade Release
       shell: bash
@@ -66,43 +63,43 @@ runs:
         )
         echo "Response: $response"
 
-
-
-
-    - name: Update Release
-      shell: bash
+    - name: update release
       if: env.CREATE != 'true'
+      shell: bash
       run: |
-        set -euo pipefail
-        echo "Updating Release"
-        
-        code="$(mktemp)"
+        echo "updating release"
+        body="$(mktemp)"
+        trap 'rm -f "$body"' EXIT  
 
-        response=$(curl --request PATCH -L  \ 
-          -sS --connect-timeout 10 --max-time 120 -w '%{http_code}' >"$code" \
-          -H "Authorization: Bearer ${{ inputs.token }}" \
-          -H "Content-Type: application/json" \
-          -H "X-UIPATH-FolderPath: ${{ inputs.full_folder_name }}" \
-          --data @- \
-          "${{ inputs.or_url }}/odata/Releases(${{ env.id_found }})" <<'JSON'
-        {
-          "Name": "${{ inputs.pid }}",
-          "ProcessKey": "${{ inputs.pid }}",
-          "ProcessVersion": "${{ inputs.version }}",
-          "EntryPointPath": "${{ inputs.entry_point }}",
-          "Description": "https://github.com/${{ github.repository_owner }}/${{ github.repository }}"
-        }
-        JSON
-        )
-        curl_rc=$?
-        set -e
-        echo "Status Code: $code"
-        echo "Response: $reponse"
-        if [[ $curl_rc -ne 0 || "$code" -ge 400 ]]; then
+        curl_rc=0
+        status=$(
+          curl -L -sS \
+            --connect-timeout 10 --max-time 120 \
+            --output "$body" --write-out '%{http_code}' \
+            -H "Authorization: Bearer ${{inputs.token}}" \
+            -H "Content-Type: application/json" \
+            -H "X-UIPATH-FolderPath: ${{ inputs.full_folder_name }}" \
+            "${{ inputs.or_url }}/odata/Releases"
+            <<'JSON'
+                      {
+                        "Name": "${{ inputs.pid }}",
+                        "ProcessKey": "${{ inputs.pid }}",
+                        "ProcessVersion": "${{ inputs.version }}",
+                        "EntryPointPath": "${{ inputs.entry_point }}",
+                        "Description": "https://github.com/${{ github.repository_owner }}/${{ github.repository }}"
+                      }
+            JSON
+          )|| curl_rc=$?
+
+        echo "Status Code: $status"
+        echo "::group::Response body"
+        if command -v jq >/dev/null; then jq -r . "$body" || cat "$body"; else cat "$body"; fi
+        echo "::endgroup::"
+
+
+        if [[ $curl_rc -ne 0 || ${status:-0} -ge 400 ]]; then
           exit 1
         fi
-
-
 
     - name: Create Release
       shell: bash

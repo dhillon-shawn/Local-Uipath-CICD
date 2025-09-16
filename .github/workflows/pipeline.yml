@@ -152,6 +152,9 @@ jobs:
           ref: ${{ inputs.source_ref }}
           persist-credentials: true
 
+      - name: Get CLI v2
+        run: Invoke-WebRequest "https://github.com/UiPath/uipathcli/releases/latest/download/uipathcli-windows-amd64.zip" -OutFile "uipathcli.zip" ; Expand-Archive -Force -Path "uipathcli.zip" -DestinationPath "."
+
       - name: Check UiPath CLI
         id: check-uipcli
         shell: powershell
@@ -170,18 +173,6 @@ jobs:
         if: steps.check-uipcli.outputs.has_uipcli != 'true'
         uses: Mikael-RnD/setup-uipath@v2
 
-      - name: Check UiPath CLI
-        shell: powershell
-        run: |
-          $cmd = Get-Command uipcli -ErrorAction SilentlyContinue
-          if ($cmd) {
-            "has_uipcli=true"  >> $env:GITHUB_OUTPUT
-            "uipcli_dir=$((Split-Path $cmd.Source -Parent))" >> $env:GITHUB_OUTPUT
-            Write-Host "Found uipcli in $((Split-Path $cmd.Source -Parent))"
-          } else {
-            "has_uipcli=false" >> $env:GITHUB_OUTPUT
-            Write-Host "uipcli not found on PATH"
-          }
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -360,7 +351,76 @@ jobs:
         run: |
           dotnet nuget locals all --list
 
+      - name: Prime cache + depcheck2
+        shell: powershell
+        env:
+          MACHINE_NUGET_ROOT: ${{ steps.cache-roots.outputs.MACHINE_NUGET_ROOT }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $proj = Join-Path $env:GITHUB_WORKSPACE 'project.json'
+          if (-not (Test-Path $proj)) { throw "project.json not found at $proj" }
 
+          $json = Get-Content $proj -Raw | ConvertFrom-Json
+          $depProps = @()
+          if ($json.PSObject.Properties.Name -contains 'dependencies' -and $json.dependencies) {
+            $depProps = $json.dependencies.PSObject.Properties
+          }
+
+          if (-not $depProps -or $depProps.Count -eq 0) {
+            Write-Host "No 'dependencies' found; skipping restore."
+            'needs_restore=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            exit 0
+          }
+
+          function Copy-PkgIfExists {
+            param([string]$Id,[string]$Version)
+
+            # Locate Id folder in MACHINE cache (lowercase first, then original case)
+            $mRoot = Join-Path $env:MACHINE_NUGET_ROOT 'packages'
+            $src1  = Join-Path $mRoot ($Id.ToLower())
+            $src2  = Join-Path $mRoot $Id
+            $src   = if (Test-Path $src1) { $src1 } elseif (Test-Path $src2) { $src2 } else { $null }
+            if (-not $src) { return $false }
+
+            $srcVer = Join-Path $src $Version
+            if (-not (Test-Path $srcVer)) { return $false }
+
+            $dstId  = Join-Path $env:NUGET_PACKAGES ($Id.ToLower())
+            $dstVer = Join-Path $dstId $Version
+            if (-not (Test-Path $dstId)) { New-Item -ItemType Directory -Force -Path $dstId | Out-Null }
+
+            # robocopy dir->dir; treat 0–7 as success
+            robocopy "$srcVer" "$dstVer" /E /NFL /NDL /NJH /NJS /XO /XN /XC | Out-Null
+            $rc = $LASTEXITCODE
+            if ($rc -ge 8) { throw "robocopy failed with exit $rc while priming $Id@$Version" }
+            Write-Host "robocopy exit $rc (OK) : primed $Id@$Version -> $dstVer"
+            $global:LASTEXITCODE = 0
+            return $true
+          }
+
+          $missing = New-Object System.Collections.Generic.List[string]
+          foreach ($p in $depProps) {
+            $id  = [string]$p.Name
+            $ver = [string]$p.Value
+            if ([string]::IsNullOrWhiteSpace($id) -or [string]::IsNullOrWhiteSpace($ver)) { continue }
+            $null = Copy-PkgIfExists -Id $id -Version $ver
+
+            # Verify NuGet install markers exist in the JOB cache
+            $idDir  = Join-Path $env:NUGET_PACKAGES ($id.ToLower())
+            $verDir = Join-Path $idDir $ver
+            $sha = Get-ChildItem -Path $verDir -Filter '*.nupkg.sha512' -ErrorAction SilentlyContinue | Select-Object -First 1
+            $met = Get-ChildItem -Path $verDir -Filter '*.nupkg.metadata' -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not ($sha -and $met)) { $missing.Add("$id@$ver") }
+          }
+
+          if ($missing.Count -gt 0) {
+            "needs_restore=true"             | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "missing=$($missing -join ', ')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            Write-Host "Missing in JOB cache: $($missing -join ', ')"
+          } else {
+            "needs_restore=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            Write-Host "All deps present in JOB cache."
+          }
       - name: analyze
         if: inputs.target_env == 'dev'
         shell: powershell
