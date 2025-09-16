@@ -177,6 +177,17 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: '${{ runner.temp }}/.dotnet'
 
+      - name: Configure NuGet default caches
+        shell: powershell
+        run: |
+          $globalPkgs = Join-Path $env:USERPROFILE '.nuget\packages'
+          $httpCache  = Join-Path $env:LOCALAPPDATA 'NuGet\v3-cache'
+          New-Item -ItemType Directory -Force -Path $globalPkgs,$httpCache | Out-Null
+          "NUGET_PACKAGES=$globalPkgs"    >> $env:GITHUB_ENV
+          "NUGET_HTTP_CACHE_PATH=$httpCache" >> $env:GITHUB_ENV
+          Write-Host "Set NUGET_PACKAGES=$globalPkgs"
+          Write-Host "Set NUGET_HTTP_CACHE_PATH=$httpCache"
+
       - name: set nuget.config
         shell: powershell
         run: |
@@ -200,125 +211,31 @@ jobs:
           $uipcli = (Get-Command uipcli).Source
           Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
 
-
-      - name: Configure NuGet cache roots
-        id: cache-roots
-        shell: powershell
-        run: |
-          $MACHINE_NUGET_ROOT = Join-Path $env:ProgramData 'uipath\nuget'
-          $JOB_NUGET_ROOT     = Join-Path $env:RUNNER_TEMP  'nuget'
-
-          New-Item -ItemType Directory -Force -Path `
-            (Join-Path $MACHINE_NUGET_ROOT 'packages'),(Join-Path $MACHINE_NUGET_ROOT 'http'),`
-            (Join-Path $JOB_NUGET_ROOT     'packages'),(Join-Path $JOB_NUGET_ROOT     'http') | Out-Null
-
-          "MACHINE_NUGET_ROOT=$MACHINE_NUGET_ROOT" >> $env:GITHUB_OUTPUT
-          "JOB_NUGET_ROOT=$JOB_NUGET_ROOT"         >> $env:GITHUB_OUTPUT
-
-          # For the current job, point NuGet *at the JOB cache* (fast & isolated)
-          "NUGET_PACKAGES=$JOB_NUGET_ROOT\packages"    >> $env:GITHUB_ENV
-          "NUGET_HTTP_CACHE_PATH=$JOB_NUGET_ROOT\http" >> $env:GITHUB_ENV
-
-
       - name: Confirm NuGet folders
         shell: powershell
         run: |
           dotnet nuget locals all --list
           
-#      - name: Confirm NuGet folders
-#        shell: powershell
-#        run: |
-#          Write-Host "NUGET_PACKAGES=$env:NUGET_PACKAGES"
-#          Write-Host "NUGET_HTTP_CACHE_PATH=$env:NUGET_HTTP_CACHE_PATH"
-#          dotnet nuget locals all --list
+      - name: Confirm NuGet folders
+        shell: powershell
+        run: |
+          Write-Host "NUGET_PACKAGES=$env:NUGET_PACKAGES"
+          Write-Host "NUGET_HTTP_CACHE_PATH=$env:NUGET_HTTP_CACHE_PATH"
+          dotnet nuget locals all --list
 
-
-      - name: Prime cache + depcheck
+      - name: Decide if restore is needed
         id: depcheck
         shell: powershell
         env:
-          MACHINE_NUGET_ROOT: ${{ steps.cache-roots.outputs.MACHINE_NUGET_ROOT }}
-          # Optional: semicolon-separated extra roots, e.g. "D:\nuget\packages;E:\mirror\packages"
-          EXTRA_NUGET_ROOTS: ''
+          NUGET_PACKAGES:        ${{ env.NUGET_PACKAGES }}
         run: |
           $ErrorActionPreference = 'Stop'
-
-          # ---- Helpers ------------------------------------------------------------
-          function Normalize-VersionSpec {
-            param([string]$Spec)
-            $s = $Spec.Trim()
-            # exact pinned version like [25.8.0] -> 25.8.0
-            if ($s -match '^\[(?<v>[^\],\s]+)\]$') { return $Matches['v'] }
-            # plain version like 25.8.0 -> 25.8.0
-            if ($s -notmatch ',') { return $s }
-            # ranges (contain comma) -> cannot be sure -> return $null to force restore
-            return $null
-          }
-
-          function Get-CandidateRoots {
-            param()
-            $roots = New-Object System.Collections.Generic.List[string]
-            # 1) Machine cache we manage
-            $roots.Add( (Join-Path $env:MACHINE_NUGET_ROOT 'packages') )
-            # 2) Default user cache (where NuGet usually puts them if no override)
-            $userPkg = Join-Path $env:USERPROFILE '.nuget\packages'
-            if (Test-Path $userPkg) { $roots.Add($userPkg) }
-            # 3) Optional additional roots
-            if ($env:EXTRA_NUGET_ROOTS) {
-              $env:EXTRA_NUGET_ROOTS.Split(';') | ForEach-Object {
-                $p = $_.Trim()
-                if ($p) { $roots.Add($p) }
-              }
-            }
-            return $roots
-          }
-
-          function Find-PackagePath {
-            param([string]$Id,[string]$Version,[string[]]$Roots)
-            $idLower = $Id.ToLower()
-            foreach ($r in $Roots) {
-              $idDirLower = Join-Path $r $idLower
-              $idDirExact = Join-Path $r $Id
-              $idDir = $null
-              if (Test-Path $idDirLower) { $idDir = $idDirLower }
-              elseif (Test-Path $idDirExact) { $idDir = $idDirExact }
-              else { continue }
-
-              $verDir = Join-Path $idDir $Version
-              if (Test-Path $verDir) { return $verDir }
-            }
-            return $null
-          }
-
-          function Copy-PackageToJob {
-            param([string]$Id,[string]$Version,[string]$SrcVerDir)
-            $dstId  = Join-Path $env:NUGET_PACKAGES ($Id.ToLower())
-            $dstVer = Join-Path $dstId $Version
-            if (-not (Test-Path $dstId)) { New-Item -ItemType Directory -Force -Path $dstId | Out-Null }
-            robocopy "$SrcVerDir" "$dstVer" /E /NFL /NDL /NJH /NJS /XO /XN /XC | Out-Null
-            $rc = $LASTEXITCODE
-            if ($rc -ge 8) { throw "robocopy failed with exit $rc while priming $Id@$Version" }
-            Write-Host "robocopy exit $rc (OK): primed $Id@$Version"
-            $global:LASTEXITCODE = 0
-          }
-
-          function Test-PackagePresentInJob {
-            param([string]$Id,[string]$Version)
-            $verDir = Join-Path (Join-Path $env:NUGET_PACKAGES ($Id.ToLower())) $Version
-            if (-not (Test-Path $verDir)) { return $false }
-            # If the folder exists AND has either metadata or sha512, we consider it installed
-            $hasMarker = (Get-ChildItem -Path $verDir -Filter '*.nupkg.sha512' -ErrorAction SilentlyContinue |
-                          Select-Object -First 1) -or
-                        (Get-ChildItem -Path $verDir -Filter '*.nupkg.metadata' -ErrorAction SilentlyContinue |
-                          Select-Object -First 1)
-            return [bool]$hasMarker
-          }
-          # ------------------------------------------------------------------------
-
           $proj = Join-Path $env:GITHUB_WORKSPACE 'project.json'
           if (-not (Test-Path $proj)) { throw "project.json not found at $proj" }
 
           $json = Get-Content $proj -Raw | ConvertFrom-Json
+
+          # Collect UiPath dependencies
           $depProps = @()
           if ($json.PSObject.Properties.Name -contains 'dependencies' -and $json.dependencies) {
             $depProps = $json.dependencies.PSObject.Properties
@@ -330,45 +247,47 @@ jobs:
             exit 0
           }
 
-          $roots = Get-CandidateRoots
+          function Normalize-VersionSpec {
+            param([string]$Spec)
+            $s = $Spec.Trim()
+            if ($s -match '^\[(?<v>[^\],\s]+)\]$') { return $Matches['v'] }  # [25.8.0] -> 25.8.0
+            if ($s -match ',') { return $null }                              # ranges -> force restore
+            return $s                                                        # 25.8.0
+          }
+
+          function Test-PackagePresent {
+            param([string]$Id,[string]$Version)
+            $idLower = $Id.ToLower()
+            $dir1 = Join-Path $env:NUGET_PACKAGES $idLower
+            $dir2 = Join-Path $env:NUGET_PACKAGES $Id
+            $idDir = if (Test-Path $dir1) { $dir1 } elseif (Test-Path $dir2) { $dir2 } else { $null }
+            if (-not $idDir) { return $false }
+            $verDir = Join-Path $idDir $Version
+            return (Test-Path $verDir)
+          }
+
           $missing = New-Object System.Collections.Generic.List[string]
           foreach ($p in $depProps) {
-            $id = [string]$p.Name
+            $id  = [string]$p.Name
             $spec = [string]$p.Value
             if ([string]::IsNullOrWhiteSpace($id) -or [string]::IsNullOrWhiteSpace($spec)) { continue }
 
             $ver = Normalize-VersionSpec $spec
-            if (-not $ver) {
-              # version ranges -> force restore
+            if (-not $ver) { $missing.Add("$id@$spec"); continue }  # version range -> restore required
+
+            if (-not (Test-PackagePresent -Id $id -Version $ver)) {
               $missing.Add("$id@$spec")
-              continue
             }
-
-            # If already in JOB cache, nothing to do
-            if (Test-PackagePresentInJob -Id $id -Version $ver) { continue }
-
-            # Try to find in any known root and copy it in
-            $src = Find-PackagePath -Id $id -Version $ver -Roots $roots
-            if ($src) {
-              Copy-PackageToJob -Id $id -Version $ver -SrcVerDir $src
-              if (Test-PackagePresentInJob -Id $id -Version $ver) { continue }
-            }
-
-            # Still missing
-            $missing.Add("$id@$spec")
           }
 
           if ($missing.Count -gt 0) {
             "needs_restore=true"             | Out-File -FilePath $env:GITHUB_OUTPUT -Append
             "missing=$($missing -join ', ')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-            Write-Host "Missing in JOB cache: $($missing -join ', ')"
+            Write-Host "Missing in default cache ($env:NUGET_PACKAGES): $($missing -join ', ')"
           } else {
             "needs_restore=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-            Write-Host "All deps present in JOB cache."
+            Write-Host "All deps present in default cache: $env:NUGET_PACKAGES"
           }
-
-
-
       - name: restore
         if: steps.depcheck.outputs.needs_restore == 'true'
         shell: powershell
@@ -388,21 +307,6 @@ jobs:
             -y --traceLevel "Verbose"
             
 
-      - name: Backfill machine cache
-        if: steps.depcheck.outputs.needs_restore == 'true'
-        shell: powershell
-        env:
-          MACHINE_NUGET_ROOT: ${{ steps.cache-roots.outputs.MACHINE_NUGET_ROOT }}
-        run: |
-          $src = $env:NUGET_PACKAGES
-          $dst = Join-Path $env:MACHINE_NUGET_ROOT 'packages'
-          if (-not (Test-Path $dst)) { New-Item -ItemType Directory -Force -Path $dst | Out-Null }
-
-          robocopy "$src" "$dst" /E /NFL /NDL /NJH /NJS /XO /XN /XC | Out-Null
-          $rc = $LASTEXITCODE
-          if ($rc -ge 8) { throw "robocopy failed with exit $rc during backfill" }
-          Write-Host "robocopy exit $rc (OK) : backfilled machine cache."
-          $global:LASTEXITCODE = 0
 
 
       - name: Create Results DIR
@@ -415,92 +319,20 @@ jobs:
         run: |
           dotnet nuget locals all --list
 
-          
-      - name: post  depcheck
+       
+      - name: Decide if restore is needed
+        id: depcheck
         shell: powershell
         env:
-          MACHINE_NUGET_ROOT: ${{ steps.cache-roots.outputs.MACHINE_NUGET_ROOT }}
-          # Optional: semicolon-separated extra roots, e.g. "D:\nuget\packages;E:\mirror\packages"
-          EXTRA_NUGET_ROOTS: ${{ env.EXTRA_NUGET_ROOTS }}
+          NUGET_PACKAGES:        ${{ env.NUGET_PACKAGES }}
         run: |
           $ErrorActionPreference = 'Stop'
-
-          # ---- Helpers ------------------------------------------------------------
-          function Normalize-VersionSpec {
-            param([string]$Spec)
-            $s = $Spec.Trim()
-            # exact pinned version like [25.8.0] -> 25.8.0
-            if ($s -match '^\[(?<v>[^\],\s]+)\]$') { return $Matches['v'] }
-            # plain version like 25.8.0 -> 25.8.0
-            if ($s -notmatch ',') { return $s }
-            # ranges (contain comma) -> cannot be sure -> return $null to force restore
-            return $null
-          }
-
-          function Get-CandidateRoots {
-            param()
-            $roots = New-Object System.Collections.Generic.List[string]
-            # 1) Machine cache we manage
-            $roots.Add( (Join-Path $env:MACHINE_NUGET_ROOT 'packages') )
-            # 2) Default user cache (where NuGet usually puts them if no override)
-            $userPkg = Join-Path $env:USERPROFILE '.nuget\packages'
-            if (Test-Path $userPkg) { $roots.Add($userPkg) }
-            # 3) Optional additional roots
-            if ($env:EXTRA_NUGET_ROOTS) {
-              $env:EXTRA_NUGET_ROOTS.Split(';') | ForEach-Object {
-                $p = $_.Trim()
-                if ($p) { $roots.Add($p) }
-              }
-            }
-            return $roots
-          }
-
-          function Find-PackagePath {
-            param([string]$Id,[string]$Version,[string[]]$Roots)
-            $idLower = $Id.ToLower()
-            foreach ($r in $Roots) {
-              $idDirLower = Join-Path $r $idLower
-              $idDirExact = Join-Path $r $Id
-              $idDir = $null
-              if (Test-Path $idDirLower) { $idDir = $idDirLower }
-              elseif (Test-Path $idDirExact) { $idDir = $idDirExact }
-              else { continue }
-
-              $verDir = Join-Path $idDir $Version
-              if (Test-Path $verDir) { return $verDir }
-            }
-            return $null
-          }
-
-          function Copy-PackageToJob {
-            param([string]$Id,[string]$Version,[string]$SrcVerDir)
-            $dstId  = Join-Path $env:NUGET_PACKAGES ($Id.ToLower())
-            $dstVer = Join-Path $dstId $Version
-            if (-not (Test-Path $dstId)) { New-Item -ItemType Directory -Force -Path $dstId | Out-Null }
-            robocopy "$SrcVerDir" "$dstVer" /E /NFL /NDL /NJH /NJS /XO /XN /XC | Out-Null
-            $rc = $LASTEXITCODE
-            if ($rc -ge 8) { throw "robocopy failed with exit $rc while priming $Id@$Version" }
-            Write-Host "robocopy exit $rc (OK): primed $Id@$Version"
-            $global:LASTEXITCODE = 0
-          }
-
-          function Test-PackagePresentInJob {
-            param([string]$Id,[string]$Version)
-            $verDir = Join-Path (Join-Path $env:NUGET_PACKAGES ($Id.ToLower())) $Version
-            if (-not (Test-Path $verDir)) { return $false }
-            # If the folder exists AND has either metadata or sha512, we consider it installed
-            $hasMarker = (Get-ChildItem -Path $verDir -Filter '*.nupkg.sha512' -ErrorAction SilentlyContinue |
-                          Select-Object -First 1) -or
-                        (Get-ChildItem -Path $verDir -Filter '*.nupkg.metadata' -ErrorAction SilentlyContinue |
-                          Select-Object -First 1)
-            return [bool]$hasMarker
-          }
-          # ------------------------------------------------------------------------
-
           $proj = Join-Path $env:GITHUB_WORKSPACE 'project.json'
           if (-not (Test-Path $proj)) { throw "project.json not found at $proj" }
 
           $json = Get-Content $proj -Raw | ConvertFrom-Json
+
+          # Collect UiPath dependencies
           $depProps = @()
           if ($json.PSObject.Properties.Name -contains 'dependencies' -and $json.dependencies) {
             $depProps = $json.dependencies.PSObject.Properties
@@ -512,44 +344,48 @@ jobs:
             exit 0
           }
 
-          $roots = Get-CandidateRoots
+          function Normalize-VersionSpec {
+            param([string]$Spec)
+            $s = $Spec.Trim()
+            if ($s -match '^\[(?<v>[^\],\s]+)\]$') { return $Matches['v'] }  # [25.8.0] -> 25.8.0
+            if ($s -match ',') { return $null }                              # ranges -> force restore
+            return $s                                                        # 25.8.0
+          }
+
+          function Test-PackagePresent {
+            param([string]$Id,[string]$Version)
+            $idLower = $Id.ToLower()
+            $dir1 = Join-Path $env:NUGET_PACKAGES $idLower
+            $dir2 = Join-Path $env:NUGET_PACKAGES $Id
+            $idDir = if (Test-Path $dir1) { $dir1 } elseif (Test-Path $dir2) { $dir2 } else { $null }
+            if (-not $idDir) { return $false }
+            $verDir = Join-Path $idDir $Version
+            return (Test-Path $verDir)
+          }
+
           $missing = New-Object System.Collections.Generic.List[string]
           foreach ($p in $depProps) {
-            $id = [string]$p.Name
+            $id  = [string]$p.Name
             $spec = [string]$p.Value
             if ([string]::IsNullOrWhiteSpace($id) -or [string]::IsNullOrWhiteSpace($spec)) { continue }
 
             $ver = Normalize-VersionSpec $spec
-            if (-not $ver) {
-              # version ranges -> force restore
+            if (-not $ver) { $missing.Add("$id@$spec"); continue }  # version range -> restore required
+
+            if (-not (Test-PackagePresent -Id $id -Version $ver)) {
               $missing.Add("$id@$spec")
-              continue
             }
-
-            # If already in JOB cache, nothing to do
-            if (Test-PackagePresentInJob -Id $id -Version $ver) { continue }
-
-            # Try to find in any known root and copy it in
-            $src = Find-PackagePath -Id $id -Version $ver -Roots $roots
-            if ($src) {
-              Copy-PackageToJob -Id $id -Version $ver -SrcVerDir $src
-              if (Test-PackagePresentInJob -Id $id -Version $ver) { continue }
-            }
-
-            # Still missing
-            $missing.Add("$id@$spec")
           }
 
           if ($missing.Count -gt 0) {
             "needs_restore=true"             | Out-File -FilePath $env:GITHUB_OUTPUT -Append
             "missing=$($missing -join ', ')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-            Write-Host "Missing in JOB cache: $($missing -join ', ')"
+            Write-Host "Missing in default cache ($env:NUGET_PACKAGES): $($missing -join ', ')"
           } else {
             "needs_restore=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-            Write-Host "All deps present in JOB cache."
+            Write-Host "All deps present in default cache: $env:NUGET_PACKAGES"
           }
 
-          
 
       - name: analyze
         if: inputs.target_env == 'dev'
