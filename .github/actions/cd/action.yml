@@ -29,17 +29,33 @@ runs:
         )
         echo "Response: $response"
 
-    - name: Check Release
+
+    - name: update release
+      if: env.CREATE != 'true'
       shell: bash
       run: |
-        echo "Checking Release"
-        response=$(curl --fail --location \
-          --header "Authorization: Bearer ${{inputs.token}}" \
-          --header "X-UIPATH-OrganizationUnitId: ${{ inputs.fid }}" \
-          "${{ inputs.or_url }}/odata/Releases?%24select=Id%2CProcessKey%2CName%2CProcessType&%24filter=ProcessKey%20eq%20%27${{ inputs.pid }}%27"
-        )
-        echo "Release Response: $response"     
-        id_found=$(echo "$response" | jq -r '.value[0].Id // empty')
+        echo "updating release"
+        body="$(mktemp)"
+        trap 'rm -f "$body"' EXIT
+
+        curl_rc=0
+        status=$(
+          curl -L -sS \
+            --connect-timeout 10 --max-time 120 \
+            --output "$body" \
+            --write-out '%{http_code}' \
+            -H "Authorization: Bearer ${{ inputs.token }}" \
+            -H "Content-Type: application/json" \
+            -H "X-UIPATH-FolderPath: ${{ inputs.full_folder_name }}" \
+            "${{ inputs.or_url }}/odata/Releases?%24select=Id%2CProcessKey%2CName%2CProcessType&%24filter=ProcessKey%20eq%20%27${{ inputs.pid }}%27"
+        ) || curl_rc=$?
+
+        echo "Status Code: $status"
+        echo "::group::Response body"
+        if command -v jq >/dev/null; then jq -r . "$body" || cat "$body"; else cat "$body"; fi
+        echo "::endgroup::"
+
+        id_found=$(echo "$body" | jq -r '.value[0].Id // empty')
         echo "id_found=$id_found" >> "$GITHUB_ENV"
         if [ -n "$id_found" ]; then
           echo "Release Id found"
@@ -48,6 +64,13 @@ runs:
           echo "Release Id NOT found"
           echo "CREATE=true" >> "$GITHUB_ENV"
         fi
+
+
+
+        if [[ $curl_rc -ne 0 || ${status:-0} -ge 400 ]]; then
+          exit 1
+        fi
+
 
     - name: Upgrade Release
       shell: bash
