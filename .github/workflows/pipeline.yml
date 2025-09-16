@@ -166,8 +166,13 @@ jobs:
         shell: powershell
         run: |
           $cmd = Get-Command packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe -ErrorAction SilentlyContinue
-          if ($cmd) { "has_uipcli=true"  >> $env:GITHUB_OUTPUT } else { "has_uipcli=false" >> $env:GITHUB_OUTPUT }
-
+          if ($cmd) {
+            "has_uipcli=true"  >> $env:GITHUB_OUTPUT
+            Write-Host "Found uipcli in $((Split-Path $cmd.Source -Parent))"
+          } else {
+            "has_uipcli=false" >> $env:GITHUB_OUTPUT
+            Write-Host "uipcli not found on PATH"
+          }
             
       - name: Setup NuGet CLI
         if: steps.check-uipcli.outputs.has_uipcli != 'true'
@@ -185,8 +190,13 @@ jobs:
         shell: powershell
         run: |
           $cmd = Get-Command packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe -ErrorAction SilentlyContinue
-          if ($cmd) { "has_uipcli=true"  >> $env:GITHUB_OUTPUT } else { "has_uipcli=false" >> $env:GITHUB_OUTPUT }
-
+          if ($cmd) {
+            "has_uipcli=true"  >> $env:GITHUB_OUTPUT
+            Write-Host "Found uipcli in $((Split-Path $cmd.Source -Parent))"
+          } else {
+            "has_uipcli=false" >> $env:GITHUB_OUTPUT
+            Write-Host "uipcli not found on PATH"
+          }
       - name: Commands
         shell: cmd
         run: packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe --help
@@ -196,33 +206,29 @@ jobs:
         run: |
           dotnet nuget locals all --list
 
-      - name: Configure NuGet cache (ProgramData)
-        shell: powershell
-        run: |
-          $pkg = Join-Path $env:ProgramData 'uipath\nuget\packages'
-          $http = Join-Path $env:ProgramData 'uipath\nuget\http'
-          New-Item -ItemType Directory -Force -Path $pkg,$http | Out-Null
-          "NUGET_PACKAGES=$pkg"        >> $env:GITHUB_ENV
-          "NUGET_HTTP_CACHE_PATH=$http" >> $env:GITHUB_ENV
-          Write-Host "NUGET_PACKAGES=$pkg"
-          Write-Host "NUGET_HTTP_CACHE_PATH=$http"
 
       - name: set nuget.config
         shell: powershell
         run: |
-          @'
+          @"
           <?xml version="1.0" encoding="utf-8"?>
           <configuration>
             <config>
-              <add key="globalPackagesFolder" value="%ProgramData%\uipath\nuget\packages" />
+              <add key="globalPackagesFolder" value="%NUGET_PACKAGES%" />
             </config>
+
             <packageSources>
               <clear />
               <add key="UiPath-Marketplace" value="https://gallery.uipath.com/api/v3/index.json" />
               <add key="Official"           value="https://pkgs.dev.azure.com/uipath/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json" />
             </packageSources>
+
+            <fallbackPackageFolders>
+              <add key="DefaultUser" value="%USERPROFILE%\.nuget\packages" />
+              <add key="ProgramData" value="%ProgramData%\uipath\nuget\packages" />
+            </fallbackPackageFolders>
           </configuration>
-          '@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
+          "@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
 
           $uipcli = (Get-Command packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe).Source
           Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
@@ -237,6 +243,7 @@ jobs:
           NUGET_PACKAGES:        ${{ env.NUGET_PACKAGES }}
           NUGET_HTTP_CACHE_PATH: ${{ env.NUGET_HTTP_CACHE_PATH }}
         run: |
+          New-Item -ItemType Directory -Force -Path '${{ runner.temp }}\.nuget-cache','${{ runner.temp }}\.nuget-http' | Out-Null
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package restore '${{ github.workspace }}' `
             --restoreFolder '${{ env.NUGET_PACKAGES }}' `
             --nugetConfigFilePath '${{ github.workspace }}\nuget.config' `
