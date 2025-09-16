@@ -272,7 +272,7 @@ jobs:
             '${{ env.BASE_URL }}/' '${{ env.TENANT }}' `
             -P '${{ github.workspace }}\project.json' --out "junit" --r '${{ runner.temp }}\TestResults.xml' `
             -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
-            --applicationScope '${{ env.scope}}' `
+            --applicationScope '${{ env.scope}}' --attachRobotLogs `
             -o '${{ needs.resolve-dependencies.outputs.base_folder_name }}' `
             --traceLevel Verbose --disableBuiltInNugetFeeds -y `
             --identityUrl '${{ env.BASE_URL }}/identity_'
