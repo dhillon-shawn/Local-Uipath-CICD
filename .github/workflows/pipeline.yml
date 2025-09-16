@@ -429,6 +429,7 @@ jobs:
       - name: Find merged PR for this push
         id: pr
         uses: actions/github-script@v7
+        if: ${{ inputs.target_env == 'prod'}}
         with:
           script: |
             const {owner, repo} = context.repo;
