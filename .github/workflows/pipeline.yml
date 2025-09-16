@@ -161,14 +161,31 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: '${{ runner.temp }}/.dotnet'
 
+      - name: Check UiPath CLI
+        id: check-uipcli
+        shell: powershell
+        run: |
+          $cmd = Get-Command packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe -ErrorAction SilentlyContinue
+          if ($cmd) { "has_uipcli=true"  >> $env:GITHUB_OUTPUT } else { "has_uipcli=false" >> $env:GITHUB_OUTPUT }
+
+            
       - name: Setup NuGet CLI
+        if: steps.check-uipcli.outputs.has_uipcli != 'true'
         shell: cmd
         run: |
           curl.exe -o nuget.exe -L https://dist.nuget.org/win-x86-commandline/latest/nuget.exe
       - name: Install UiPath CLI
+        if: steps.check-uipcli.outputs.has_uipcli != 'true'
         shell: cmd
         run: |
           nuget.exe install UiPath.CLI.Windows -Version 25.4.9337.28376 -OutputDirectory packages -Source https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json
+
+          
+      - name: Check UiPath CLI
+        shell: powershell
+        run: |
+          $cmd = Get-Command packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe -ErrorAction SilentlyContinue
+          if ($cmd) { "has_uipcli=true"  >> $env:GITHUB_OUTPUT } else { "has_uipcli=false" >> $env:GITHUB_OUTPUT }
 
       - name: Commands
         shell: cmd
@@ -179,16 +196,16 @@ jobs:
         run: |
           dotnet nuget locals all --list
 
-      - name: Configure NuGet cache (default user cache)
+      - name: Configure NuGet cache (ProgramData)
         shell: powershell
         run: |
-          $globalPkgs = Join-Path $env:USERPROFILE '.nuget\packages'
-          $httpCache  = Join-Path $env:LOCALAPPDATA 'NuGet\v3-cache'
-          New-Item -ItemType Directory -Force -Path $globalPkgs,$httpCache | Out-Null
-          "NUGET_PACKAGES=$globalPkgs"          >> $env:GITHUB_ENV
-          "NUGET_HTTP_CACHE_PATH=$httpCache"    >> $env:GITHUB_ENV
-          Write-Host "NUGET_PACKAGES=$globalPkgs"
-          Write-Host "NUGET_HTTP_CACHE_PATH=$httpCache"
+          $pkg = Join-Path $env:ProgramData 'uipath\nuget\packages'
+          $http = Join-Path $env:ProgramData 'uipath\nuget\http'
+          New-Item -ItemType Directory -Force -Path $pkg,$http | Out-Null
+          "NUGET_PACKAGES=$pkg"        >> $env:GITHUB_ENV
+          "NUGET_HTTP_CACHE_PATH=$http" >> $env:GITHUB_ENV
+          Write-Host "NUGET_PACKAGES=$pkg"
+          Write-Host "NUGET_HTTP_CACHE_PATH=$http"
 
       - name: set nuget.config
         shell: powershell
@@ -197,8 +214,7 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <configuration>
             <config>
-              <!-- Belt & suspenders: force same global folder -->
-              <add key="globalPackagesFolder" value="%USERPROFILE%\.nuget\packages" />
+              <add key="globalPackagesFolder" value="%ProgramData%\uipath\nuget\packages" />
             </config>
             <packageSources>
               <clear />
