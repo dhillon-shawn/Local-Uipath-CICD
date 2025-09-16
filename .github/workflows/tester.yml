@@ -66,7 +66,7 @@ jobs:
                   --output "$body" \
                   -X POST \
                   --write-out '%{http_code}' \
-                  -H "Authorization: Bearer ${{ env.token }}" \
+                  -H "Authorization: Bearer $TOKEN" \
                   -H "Content-Type: application/json" \
                   -H "Content-Length: 0" \
                   -H "X-UIPATH-FolderPath: t2" \
