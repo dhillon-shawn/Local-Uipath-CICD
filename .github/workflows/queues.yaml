@@ -105,7 +105,7 @@ jobs:
             echo "Checking folder: $fname ($fid)"
 
             echo "::group::Fetch Queues [$fname]"
-            QUEUES="$(curl --silent --show-error --fail --location \
+            QUEUES="$(curl --silent --show-error --location \
               --header "Authorization: Bearer $TOKEN" \
               --header "X-UIPATH-FolderPath: $fname" \
               "${{ env.OR_URL }}/odata/QueueDefinitions?\$select=Id,Name")"
@@ -118,31 +118,28 @@ jobs:
               [ -n "$qid" ] || continue
               echo "  Queue: $qname ($qid)"
 
-              # OData-safe queue name (double any single quotes)
-              qname_odata="${qname//\'/\'\'}"
 
-              # Your exact call pattern, with explicit URLs and headers, and quoted literals in the filter
-              APP_EXCEPTIONS=$(curl --silent --show-error --fail --location \
+              APP_EXCEPTIONS=$(curl --silent --show-error  --location \
                 --header "Authorization: Bearer $TOKEN" \
                 --header "X-UIPATH-FolderPath: $fname" \
-                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname_odata}' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}' and ProcessingExceptionType eq 'ApplicationException'")
+                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname}' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}' and ProcessingExceptionType eq 'ApplicationException'")
 
-              BIZ_EXCEPTIONS=$(curl --silent --show-error --fail --location \
+              BIZ_EXCEPTIONS=$(curl --silent --show-error  --location \
                 --header "Authorization: Bearer $TOKEN" \
                 --header "X-UIPATH-FolderPath: $fname" \
-                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname_odata}' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}' and ProcessingExceptionType eq 'BusinessException'")
+                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname}' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}' and ProcessingExceptionType eq 'BusinessException'")
 
-              SUCCESSFUL=$(curl --silent --show-error --fail --location \
+              SUCCESSFUL=$(curl --silent --show-error  --location \
                 --header "Authorization: Bearer $TOKEN" \
                 --header "X-UIPATH-FolderPath: $fname" \
-                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname_odata}' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}' and Status eq 'Successful'")
+                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname}' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}' and Status eq 'Successful'")
 
-              TOTAL=$(curl --silent --show-error --fail --location \
+              TOTAL=$(curl --silent --show-error  --location \
                 --header "Authorization: Bearer $TOKEN" \
                 --header "X-UIPATH-FolderPath: $fname" \
-                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname_odata}' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}'")
+                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname}' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}'")
 
-              # CSV-escape quotes in names (replace " with "")
+
               fname_csv=$(printf '%s' "$fname" | sed 's/\"/\"\"/g')
               qname_csv=$(printf '%s' "$qname" | sed 's/\"/\"\"/g')
 
