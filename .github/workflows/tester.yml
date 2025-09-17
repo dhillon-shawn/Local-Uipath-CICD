@@ -105,9 +105,9 @@ jobs:
                   --data-binary @- \
                   "${{ env.OR_URL }}/odata/Releases" <<'JSON'
               {
-                "Name": "BlankProcess",
-                "ProcessKey": "BlankProcess",
-                "ProcessVersion": "0.3.9",
+                "Name": "FIX",
+                "ProcessKey": "FIX",
+                "ProcessVersion": "1.0.1",
                 "EntryPointPath": "Main.xaml",
                 "Description": "Repo https://github.com/${{ github.repository_owner }}/${{ github.repository }}"
               }
