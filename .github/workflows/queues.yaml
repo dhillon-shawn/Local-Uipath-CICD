@@ -122,22 +122,22 @@ jobs:
               APP_EXCEPTIONS=$(curl --silent --show-error  --location \
                 --header "Authorization: Bearer $TOKEN" \
                 --header "X-UIPATH-FolderPath: $fname" \
-                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname}' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}' and ProcessingExceptionType eq 'ApplicationException'")
+                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '$qname' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}' and ProcessingExceptionType eq 'ApplicationException'")
 
               BIZ_EXCEPTIONS=$(curl --silent --show-error  --location \
                 --header "Authorization: Bearer $TOKEN" \
                 --header "X-UIPATH-FolderPath: $fname" \
-                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname}' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}' and ProcessingExceptionType eq 'BusinessException'")
+                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '$qname' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}' and ProcessingExceptionType eq 'BusinessException'")
 
               SUCCESSFUL=$(curl --silent --show-error  --location \
                 --header "Authorization: Bearer $TOKEN" \
                 --header "X-UIPATH-FolderPath: $fname" \
-                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname}' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}' and Status eq 'Successful'")
+                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '$qname' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}' and Status eq 'Successful'")
 
               TOTAL=$(curl --silent --show-error  --location \
                 --header "Authorization: Bearer $TOKEN" \
                 --header "X-UIPATH-FolderPath: $fname" \
-                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname}' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}'")
+                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '$qname' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}'")
 
 
               fname_csv=$(printf '%s' "$fname" | sed 's/\"/\"\"/g')
