@@ -77,9 +77,10 @@ runs:
             core.setFailed(`Token step threw: ${err && err.message ? err.message : String(err)}`);
           }
           
+          
     - name: Get Auth Token
       id: get-token
-      if: runner.os == 'Linux'
+      if: runner.os != 'Windows'
       shell: bash
       env:
                 CLIENT_ID:     ${{  env.APP_ID }}
