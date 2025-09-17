@@ -54,13 +54,14 @@ jobs:
 
   scavenge:
     runs-on: windows-latest
+    needs: parse-dates
     env:
       START_ISO: ${{ needs.parse-dates.outputs.start_iso }}
       END_ISO: ${{ needs.parse-dates.outputs.end_iso }}
     steps:
 
       - name: auth
-        uses: ./.github/actions/auth
+        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
         with:
                 target_env: "prod"
                 role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
