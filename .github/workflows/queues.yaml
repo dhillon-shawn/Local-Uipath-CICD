@@ -52,7 +52,7 @@ jobs:
           echo "start_iso=${{ steps.parse.outputs.start_iso }}"
           echo "end_iso=${{ steps.parse.outputs.end_iso }}"
 
-  report:
+  scavenge:
     runs-on: windows-latest
     env:
       START_ISO: ${{ needs.parse-dates.outputs.start_iso }}
@@ -60,7 +60,7 @@ jobs:
     steps:
 
       - name: auth
-        uses: ca-dmv/RPA-UiPath-CICD/.github/actions/auth@main
+        uses: ./.github/actions/auth
         with:
                 target_env: "prod"
                 role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
