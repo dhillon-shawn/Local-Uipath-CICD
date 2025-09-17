@@ -25,6 +25,7 @@ jobs:
     steps:
       - name: Parse start/end into UTC ISO (Z)
         id: parse
+        shell: bash
         env:
           START_IN: ${{ github.event.inputs.start }}
           END_IN: ${{ github.event.inputs.end }}
@@ -40,15 +41,22 @@ jobs:
                 return datetime.strptime(s, fmt)
               except ValueError:
                 pass
-            raise SystemExit(f"Unsupported date format: {s} (expected MM/DD/YY or MM/DD/YYYY)")
+            raise SystemExit(f"Unsupported date format: {s} (use MM/DD/YY or MM/DD/YYYY)")
           start = parse_mdy(os.environ["START_IN"]).replace(tzinfo=timezone.utc)
           end   = parse_mdy(os.environ["END_IN"]).replace(tzinfo=timezone.utc)   # end is exclusive
           si = start.strftime("%Y-%m-%dT%H:%M:%SZ")
           ei = end.strftime("%Y-%m-%dT%H:%M:%SZ")
+          # print for logs
+          print(f"start_iso={si}")
+          print(f"end_iso={ei}")
+          # set step outputs
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-            f.write(f"start_iso={si}\n")
-            f.write(f"end_iso={ei}\n")
+            f.write(f"start_iso={si}\nend_iso={ei}\n")
           PY
+
+      - name: Show parsed ISO values
+        shell: bash
+        run: |
           echo "start_iso=${{ steps.parse.outputs.start_iso }}"
           echo "end_iso=${{ steps.parse.outputs.end_iso }}"
 
@@ -63,7 +71,7 @@ jobs:
       - name: auth
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
         with:
-                target_env: "prod"
+                target_env: "dev"
                 role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
                 aws_region: "us-west-2"
                 secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
@@ -71,78 +79,83 @@ jobs:
 
       - name: Scavenge Folder
         run: |
-        
+            set -Eeuo pipefail
             mkdir -p out
-            OUT_CSV="out/queue_counts.csv"
-            printf 'Folder,Queue Name,QueueDefinitionId,Business Exceptions,Application Exceptions,Successful,Total\n' > "$OUT_CSV"
 
-            FOLDERS=$(curl --location \
+            echo "::group::Fetch Folders"
+            FOLDERS="$(curl --silent --show-error --fail --location \
               --header "Authorization: Bearer $TOKEN" \
-              "${{ env.OR_URL }}/odata/Folders?\$select=FullyQualifiedName"
-            )
-            echo "::group::Response body"
-            echo "Folders Response: $FOLDERS"
+              "${{ env.OR_URL }}/odata/Folders?\$select=Id,FullyQualifiedName")"
+            echo "$FOLDERS"
             echo "::endgroup::"
-            
-            
-            jq -r '.value[]?.FullyQualifiedName' <<<"$FOLDERS" | while IFS= read -r FOLDER_PATH; do
-                [ -n "$FOLDER_PATH" ] || continue
-                echo "Checking folder: $FOLDER_PATH"
 
+            OUT_CSV="out/queue_counts.csv"
+            printf 'Folder,Queue Name,Business Exceptions,Application Exceptions,Successful,Total\n' > "$OUT_CSV"
 
-                fname=${fname%$'\r'}
+            csvq() { printf '%s' "$1" | sed 's/"/""/g'; }
 
-                [ -n "$fname" ] || continue
-                echo "Checking folder: $fname"
+            # iterate folders with your exact loop style
+            while IFS=$'\t' read -r fid fname || [ -n "$fid" ]; do
+              fid=${fid%$'\r'}
+              fname=${fname%$'\r'}
+              [ -n "$fid" ] || continue
+              echo "Checking folder: $fname ($fid)"
 
-
-                
-                QUEUES=$(curl --location \
+              echo "::group::Fetch Queues [$fname]"
+              QUEUES="$(curl --silent --show-error --fail --location \
                 --header "Authorization: Bearer $TOKEN" \
                 --header "X-UIPATH-FolderPath: $fname" \
-                "${{ env.OR_URL }}/odata/QueueDefinitions?$select=Id,Name"
-                )
-                echo "::group::Response body"
-                echo "Folders Response: $QUEUES"
-                echo "::endgroup::"
-                
-                
-                jq -r '.value[] | @base64' <<<"$QUEUES_JSON" | while IFS= read -r ROW; do
-                    _jq() { echo "$ROW" | base64 --decode | jq -r "${1}"; }
-                    QID=$(_jq '.Id')
-                    QNAME=$(_jq '.Name')
+                 "${{ env.OR_URL }}/odata/QueueDefinitions?\$select=Id,Name")"
+              echo "$QUEUES"
+              echo "::endgroup::"
 
-                    echo "  Queue: $QNAME ($QID)"
-                    
-                    
-                    APP_EXCEPTIONS=$(curl --location \
-                    --header "Authorization: Bearer $TOKEN" \
-                    --header "X-UIPATH-FolderPath: $fname" \
-                    "${{ env.OR_URL }}odata/QueueItems/$count?$filter=Name eq $qname and EndProcessing ge ${{ env.START_ISO}} and lt ${{ env.END_ISO}} and processingExceptionType eq 'ApplicationException'"
-                    )
+              # iterate queues with your loop style
+              while IFS=$'\t' read -r qid qname || [ -n "$qid" ]; do
+                qid=${qid%$'\r'}
+                qname=${qname%$'\r'}
+                [ -n "$qid" ] || continue
+                echo "  Queue: $qname ($qid)"
 
-                    BIZ_EXCEPTIONS=$(curl --location \
-                    --header "Authorization: Bearer $TOKEN" \
-                    --header "X-UIPATH-FolderPath: $fname" \
-                    "${{ env.OR_URL }}odata/QueueItems/$count?$filter=Name eq $qname and EndProcessing ge ${{ env.START_ISO}} and lt ${{ env.END_ISO}} and processingExceptionType eq 'BusinessException'"
-                    )
-                    
-                    SUCCESSFUL=$(curl --location \
-                    --header "Authorization: Bearer $TOKEN" \
-                    --header "X-UIPATH-FolderPath: $fname" \
-                    "${{ env.OR_URL }}odata/QueueItems/$count?$filter=Name eq $qname and EndProcessing ge ${{ env.START_ISO}} and lt ${{ env.END_ISO}} and Status eq 'Successful'"
-                    )
+                # OData: single-quote the queue name; double embedded single quotes
+                qname_odata=${qname//\'/\'\'}   # OData escaping for single quotes
 
-                    TOTAL=$(curl --location \
-                    --header "Authorization: Bearer $TOKEN" \
-                    --header "X-UIPATH-FolderPath: $fname" \
-                    "${{ env.OR_URL }}odata/QueueItems/$count?$filter=Name eq $qname and EndProcessing ge ${{ env.START_ISO}} and lt ${{ env.END_ISO}}"
-                    )
-                    printf '"%s","%s",%s,%s,%s,%s\n' \
-                        "$FOLDER_PATH" "$QNAME" "$QID" "$BIZ_EXCEPTIONS" "$APP_EXCEPTIONS" "$SUCCESSFUL" "$TOTAL" >> "$OUT_CSV"
-                done
-            done
+                # Your exact inline calls, with \$count and \$filter escaped so bash doesn't expand them.
+                # Also quote the OData string literals.
+                APP_EXCEPTIONS=$(curl --silent --show-error --fail --location \
+                  --header "Authorization: Bearer $TOKEN" \
+                  --header "X-UIPATH-FolderPath: $fname" \
+                  "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname_odata}' and EndProcessing ge '${START_ISO}' and EndProcessing lt '${END_ISO}' and ProcessingExceptionType eq 'ApplicationException'")
 
+                BIZ_EXCEPTIONS=$(curl --silent --show-error --fail --location \
+                  --header "Authorization: Bearer $TOKEN" \
+                  --header "X-UIPATH-FolderPath: $fname" \
+                  "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname_odata}' and EndProcessing ge '${START_ISO}' and EndProcessing lt '${END_ISO}' and ProcessingExceptionType eq 'BusinessException'")
+
+                SUCCESSFUL=$(curl --silent --show-error --fail --location \
+                  --header "Authorization: Bearer $TOKEN" \
+                  --header "X-UIPATH-FolderPath: $fname" \
+                  "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname_odata}' and EndProcessing ge '${START_ISO}' and EndProcessing lt '${END_ISO}' and Status eq 'Successful'")
+
+                TOTAL=$(curl --silent --show-error --fail --location \
+                  --header "Authorization: Bearer $TOKEN" \
+                  --header "X-UIPATH-FolderPath: $fname" \
+                  "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname_odata}' and EndProcessing ge '${START_ISO}' and EndProcessing lt '${END_ISO}'")
+
+                printf '"%s","%s",%s,%s,%s,%s\n' \
+                  "$(csvq "$fname")" "$(csvq "$qname")" "$BIZ_EXCEPTIONS" "$APP_EXCEPTIONS" "$SUCCESSFUL" "$TOTAL" >> "$OUT_CSV"
+
+              done < <(
+                printf '%s' "$QUEUES" \
+                | jq -r '.value[] | [(.Id|tostring), (.Name // "")] | @tsv' \
+                | tr -d '\r'
+              )
+
+            done < <(
+              printf '%s' "$FOLDERS" \
+              | jq -r '.value[] | [(.Id|tostring), (.FullyQualifiedName // "")] | @tsv' \
+              | tr -d '\r'
+            )
+              
       - name: Upload raw results
         uses: actions/upload-artifact@v4
         with:
