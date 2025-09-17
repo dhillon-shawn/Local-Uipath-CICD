@@ -493,7 +493,7 @@ jobs:
           or_url:       ${{ env.OR_URL }}
           token:        $TOKEN
           entry_point: ${{needs.setup.outputs.entry_point}}
-          
+
 
 
 
@@ -547,7 +547,7 @@ jobs:
         with:
           publishable:        ${{ needs.setup.outputs.publishable }}
           target_env:         ${{ inputs.target_env }}
-          test_html:     ${{ steps.test_html.outputs.html }}
+          test_html:    ./email/TestResults.html
           analysis_html_path: ${{ steps.analysis_html.outputs.html_path }}
           source_ref:  ${{ inputs.source_ref }}
           version:     ${{ needs.resolve-dependencies.outputs.version }}

@@ -201,3 +201,29 @@ jobs:
         with:
           name: queue-counts-xlsx
           path: uipath_queues_summary.xlsx
+
+
+
+
+              payload=$(
+      jq -cn \
+        --arg name '${{ inputs.pid }}' \
+        --arg ver  '${{ inputs.version }}' \
+        --arg ep   '${{ inputs.entry_point }}' \
+        --arg desc 'Repo https://github.com/${{ github.repository_owner }}/${{ github.repository }}' \
+        '{Name:$name, ProcessKey:$name, ProcessVersion:$ver, EntryPointPath:$ep, Description:$desc}'
+    )
+
+        curl_args=(
+      -L -sS
+      --connect-timeout 10 --max-time 120
+      --dump-header "$hdrs"
+      --output "$body"
+      --write-out '%{http_code}'
+      -X POST
+      -H "Authorization: Bearer ${{ inputs.token }}"
+      -H "Content-Type: application/json"
+      -H "X-UIPATH-FolderPath: ${{ inputs.full_folder_name }}"
+      --data "$payload"
+      "${{ env.OR_URL }}/odata/Releases"
+    )
