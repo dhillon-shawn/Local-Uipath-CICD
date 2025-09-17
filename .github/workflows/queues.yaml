@@ -119,26 +119,30 @@ jobs:
               echo "  Queue: $qname ($qid)"
 
 
-              APP_EXCEPTIONS=$(curl --silent --show-error  --location \
-                --header "Authorization: Bearer $TOKEN" \
-                --header "X-UIPATH-FolderPath: $fname" \
-                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '$qname' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}' and ProcessingExceptionType eq 'ApplicationException'")
+                    APP_EXCEPTIONS=$(curl --location \
+                    --header "Authorization: Bearer $TOKEN" \
+                    --header "X-UIPATH-FolderPath: $fname" \
+                    "${{ env.OR_URL }}odata/QueueItems/$count?$filter=Name eq $qname and EndProcessing ge ${{ env.START_ISO}} and  EndProcessing lt ${{ env.END_ISO}} and processingExceptionType eq 'ApplicationException'"
+                    )
 
-              BIZ_EXCEPTIONS=$(curl --silent --show-error  --location \
-                --header "Authorization: Bearer $TOKEN" \
-                --header "X-UIPATH-FolderPath: $fname" \
-                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '$qname' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}' and ProcessingExceptionType eq 'BusinessException'")
+                    BIZ_EXCEPTIONS=$(curl --location \
+                    --header "Authorization: Bearer $TOKEN" \
+                    --header "X-UIPATH-FolderPath: $fname" \
+                    "${{ env.OR_URL }}odata/QueueItems/$count?$filter=Name eq $qname and EndProcessing ge ${{ env.START_ISO}} and EndProcessing lt ${{ env.END_ISO}} and processingExceptionType eq 'BusinessException'"
+                    )
+                    
+                    SUCCESSFUL=$(curl --location \
+                    --header "Authorization: Bearer $TOKEN" \
+                    --header "X-UIPATH-FolderPath: $fname" \
+                    "${{ env.OR_URL }}odata/QueueItems/$count?$filter=Name eq $qname and EndProcessing ge ${{ env.START_ISO}} and EndProcessing lt ${{ env.END_ISO}}  and ProcessingExceptionType eq null and Status eq 'Successful'"
+                    )
 
-              SUCCESSFUL=$(curl --silent --show-error  --location \
-                --header "Authorization: Bearer $TOKEN" \
-                --header "X-UIPATH-FolderPath: $fname" \
-                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '$qname' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}' and Status eq 'Successful'")
-
-              TOTAL=$(curl --silent --show-error  --location \
-                --header "Authorization: Bearer $TOKEN" \
-                --header "X-UIPATH-FolderPath: $fname" \
-                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '$qname' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}'")
-
+                    TOTAL=$(curl --location \
+                    --header "Authorization: Bearer $TOKEN" \
+                    --header "X-UIPATH-FolderPath: $fname" \
+                    "${{ env.OR_URL }}odata/QueueItems/$count?$filter=Name eq $qname and EndProcessing ge ${{ env.START_ISO}} and EndProcessing lt ${{ env.END_ISO}}"
+                    )
+              
 
               fname_csv=$(printf '%s' "$fname" | sed 's/\"/\"\"/g')
               qname_csv=$(printf '%s' "$qname" | sed 's/\"/\"\"/g')
