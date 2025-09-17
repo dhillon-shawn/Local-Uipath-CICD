@@ -1,0 +1,183 @@
+name: "Generate queue report"
+
+on:
+    workflow_dispatch:
+        inputs:
+            start:
+                description: "Start Date"
+                required: true
+            end:
+                description: "End Date"
+                required: true
+
+env:
+  scope: "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Machines OR.Robots OR.Settings OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Users"
+
+permissions:
+    write-all
+
+jobs:
+  parse-dates:
+    runs-on: ubuntu-latest
+    outputs:
+      start_iso: ${{ steps.parse.outputs.start_iso }}
+      end_iso: ${{ steps.parse.outputs.end_iso }}
+    steps:
+      - name: Parse start/end into UTC ISO (Z)
+        id: parse
+        env:
+          START_IN: ${{ github.event.inputs.start }}
+          END_IN: ${{ github.event.inputs.end }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from datetime import datetime, timezone
+          def parse_mdy(s: str) -> datetime:
+            s = s.strip()
+            for fmt in ("%m/%d/%Y", "%m/%d/%y"):
+              try:
+                return datetime.strptime(s, fmt)
+              except ValueError:
+                pass
+            raise SystemExit(f"Unsupported date format: {s} (expected MM/DD/YY or MM/DD/YYYY)")
+          start = parse_mdy(os.environ["START_IN"]).replace(tzinfo=timezone.utc)
+          end   = parse_mdy(os.environ["END_IN"]).replace(tzinfo=timezone.utc)   # end is exclusive
+          si = start.strftime("%Y-%m-%dT%H:%M:%SZ")
+          ei = end.strftime("%Y-%m-%dT%H:%M:%SZ")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write(f"start_iso={si}\n")
+            f.write(f"end_iso={ei}\n")
+          PY
+          echo "start_iso=${{ steps.parse.outputs.start_iso }}"
+          echo "end_iso=${{ steps.parse.outputs.end_iso }}"
+
+  report:
+    runs-on: windows-latest
+    env:
+      START_ISO: ${{ needs.parse-dates.outputs.start_iso }}
+      END_ISO: ${{ needs.parse-dates.outputs.end_iso }}
+    steps:
+
+      - name: auth
+        uses: ca-dmv/RPA-UiPath-CICD/.github/actions/auth@main
+        with:
+                target_env: "prod"
+                role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
+                aws_region: "us-west-2"
+                secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
+                scopes: ${{ env.scope }}
+
+      - name: Scavenge Folder
+        run: |
+        
+            mkdir -p out
+            OUT_CSV="out/queue_counts.csv"
+            printf 'Folder,Queue Name,QueueDefinitionId,Business Exceptions,Application Exceptions,Successful,Total\n' > "$OUT_CSV"
+
+            FOLDERS=$(curl --location \
+              --header "Authorization: Bearer $TOKEN" \
+              "${{ env.OR_URL }}/odata/Folders?\$select=FullyQualifiedName"
+            )
+            echo "::group::Response body"
+            echo "Folders Response: $FOLDERS"
+            echo "::endgroup::"
+            
+            
+            jq -r '.value[]?.FullyQualifiedName' <<<"$FOLDERS" | while IFS= read -r FOLDER_PATH; do
+                [ -n "$FOLDER_PATH" ] || continue
+                echo "Checking folder: $FOLDER_PATH"
+
+
+                fname=${fname%$'\r'}
+
+                [ -n "$fname" ] || continue
+                echo "Checking folder: $fname"
+
+
+                
+                QUEUES=$(curl --location \
+                --header "Authorization: Bearer $TOKEN" \
+                --header "X-UIPATH-FolderPath: $fname" \
+                "${{ env.OR_URL }}/odata/QueueDefinitions?$select=Id,Name"
+                )
+                echo "::group::Response body"
+                echo "Folders Response: $QUEUES"
+                echo "::endgroup::"
+                
+                
+                jq -r '.value[] | @base64' <<<"$QUEUES_JSON" | while IFS= read -r ROW; do
+                    _jq() { echo "$ROW" | base64 --decode | jq -r "${1}"; }
+                    QID=$(_jq '.Id')
+                    QNAME=$(_jq '.Name')
+
+                    echo "  Queue: $QNAME ($QID)"
+                    
+                    
+                    APP_EXCEPTIONS=$(curl --location \
+                    --header "Authorization: Bearer $TOKEN" \
+                    --header "X-UIPATH-FolderPath: $fname" \
+                    "${{ env.OR_URL }}odata/QueueItems/$count?$filter=Name eq $qname and EndProcessing ge ${{ env.START_ISO}} and lt ${{ env.END_ISO}} and processingExceptionType eq 'ApplicationException'"
+                    )
+
+                    BIZ_EXCEPTIONS=$(curl --location \
+                    --header "Authorization: Bearer $TOKEN" \
+                    --header "X-UIPATH-FolderPath: $fname" \
+                    "${{ env.OR_URL }}odata/QueueItems/$count?$filter=Name eq $qname and EndProcessing ge ${{ env.START_ISO}} and lt ${{ env.END_ISO}} and processingExceptionType eq 'BusinessException'"
+                    )
+                    
+                    SUCCESSFUL=$(curl --location \
+                    --header "Authorization: Bearer $TOKEN" \
+                    --header "X-UIPATH-FolderPath: $fname" \
+                    "${{ env.OR_URL }}odata/QueueItems/$count?$filter=Name eq $qname and EndProcessing ge ${{ env.START_ISO}} and lt ${{ env.END_ISO}} and Status eq 'Successful'"
+                    )
+
+                    TOTAL=$(curl --location \
+                    --header "Authorization: Bearer $TOKEN" \
+                    --header "X-UIPATH-FolderPath: $fname" \
+                    "${{ env.OR_URL }}odata/QueueItems/$count?$filter=Name eq $qname and EndProcessing ge ${{ env.START_ISO}} and lt ${{ env.END_ISO}}"
+                    )
+                    printf '"%s","%s",%s,%s,%s,%s\n' \
+                        "$FOLDER_PATH" "$QNAME" "$QID" "$BIZ_EXCEPTIONS" "$APP_EXCEPTIONS" "$SUCCESSFUL" "$TOTAL" >> "$OUT_CSV"
+                done
+            done
+
+      - name: Upload raw results
+        uses: actions/upload-artifact@v4
+        with:
+          name: queue-counts
+          path: out/*
+
+
+
+  to-xlsx:
+    runs-on: ubuntu-latest
+    needs: scavenge
+    steps:
+      - name: Download raw results
+        uses: actions/download-artifact@v4
+        with:
+          name: queue-counts
+          path: raw
+
+      - name: Convert CSV → XLSX
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          python -m pip install --quiet --upgrade pip
+          pip install --quiet pandas openpyxl
+          python - <<'PY'
+          import pandas as pd
+          df = pd.read_csv("raw/queue_counts.csv")
+          out = "uipath_queues_summary.xlsx"
+          with pd.ExcelWriter(out, engine="openpyxl") as w:
+            df.to_excel(w, index=False, sheet_name="Summary")
+          print("Wrote", out)
+          PY
+
+      - name: Upload XLSX
+        uses: actions/upload-artifact@v4
+        with:
+          name: queue-counts-xlsx
+          path: uipath_queues_summary.xlsx
