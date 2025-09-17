@@ -73,32 +73,34 @@ runs:
             params.set('grant_type', 'client_credentials');
             params.set('client_id', APP_ID);
             params.set('client_secret', APP_SECRET);
-            params.set('scope', process.env.SCOPE);
-
-            const res = await fetch(tokenUrl, {
-              method: 'POST',
-              headers: { 'content-type':'application/x-www-form-urlencoded', 'accept':'application/json' },
-              body: params.toString()
-            });
-
-            const response = await res.text();
-
-            let data;
-            data = JSON.parse(response);
-
-            core.info(`Auth response body: ${JSON.stringify(data, null, 2)}`);
-
-            // Fail if status code not in 200s
-            if (!res.ok) {
-              core.setFailed(`Token request failed with status: ${res.status} - ${res.statusText}`);
-              return;
-            }
-
-            const token = (data && (data.access_token)) ? String(data.access_token) : '';
-
-            core.setSecret(token);
-            core.exportVariable('TOKEN', token);
-            core.setOutput('token', token);
           } catch (err) {
             core.setFailed(`Token step threw: ${err && err.message ? err.message : String(err)}`);
           }
+          
+    - name: Get Auth Token
+      id: get-token
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+                CLIENT_ID:     ${{  env.APP_ID }}
+                CLIENT_SECRET: ${{  env.APP_SECRET }}
+                BASE_URL:     "${{ env.BASE_URL }}"
+                SCOPES:       "${{ inputs.scopes }}"
+      run: |
+              echo "ID: $CLIENT_ID"
+              echo "SECRET: $CLIENT_SECRET"
+              echo "BASE URL: $BASE_URL"
+              echo "SCOPES: $SCOPES"
+              AUTH_RESPONSE=$(
+              curl --location \
+                  --header 'Content-Type: application/x-www-form-urlencoded' \
+                  --data-urlencode 'grant_type=client_credentials' \
+                  --data-urlencode "client_id=$CLIENT_ID" \
+                  --data-urlencode "client_secret=$CLIENT_SECRET" \
+                  --data-urlencode "scope=$SCOPES" \
+                  "$BASE_URL/identity_/connect/token"
+              )
+              echo "Response: $AUTH_RESPONSE"
+              TOKEN=$(echo "$AUTH_RESPONSE" | jq -r '.access_token')
+              echo "::add-mask::$TOKEN"
+              echo "TOKEN=$TOKEN" >> "$GITHUB_ENV"

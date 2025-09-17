@@ -11,7 +11,7 @@ on:
                 required: true
 
 env:
-  scope: "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Machines OR.Robots OR.Settings OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Users"
+  scope: "OR.Assets OR.Queues OR.BackgroundTasks OR.Execution OR.Folders OR.Machines OR.Robots OR.Settings OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Users"
 
 permissions:
     write-all
