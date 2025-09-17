@@ -80,7 +80,7 @@ runs:
           
     - name: Get Auth Token
       id: get-token
-      if: runner.os != 'Windows'
+      if: runner.os == 'Linux'
       shell: bash
       env:
                 CLIENT_ID:     ${{  env.APP_ID }}

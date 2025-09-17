@@ -61,7 +61,7 @@ jobs:
           echo "end_iso=${{ steps.parse.outputs.end_iso }}"
 
   scavenge:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     needs: parse-dates
     env:
       START_ISO: ${{ needs.parse-dates.outputs.start_iso }}
