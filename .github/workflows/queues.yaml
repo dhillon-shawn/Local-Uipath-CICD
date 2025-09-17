@@ -78,89 +78,94 @@ jobs:
                 scopes: ${{ env.scope }}
 
       - name: Scavenge Folder
+        shell: bash   # needed for process substitution and $'\t'
         run: |
-            set -Eeuo pipefail
-            mkdir -p out
+          set -Eeuo pipefail
+          mkdir -p out
 
-            echo "::group::Fetch Folders"
-            FOLDERS="$(curl --silent --show-error --fail --location \
+          echo "Window (UTC, end exclusive):"
+          echo "  START: $START_ISO"
+          echo "  END:   $END_ISO"
+
+          echo "::group::Fetch Folders"
+          FOLDERS="$(curl --silent --show-error --fail --location \
+            --header "Authorization: Bearer $TOKEN" \
+            "${{ env.OR_URL }}/odata/Folders?\$select=Id,FullyQualifiedName")"
+          echo "$FOLDERS"
+          echo "::endgroup::"
+
+          OUT_CSV="out/queue_counts.csv"
+          printf 'Folder,Queue Name,Business Exceptions,Application Exceptions,Successful,Total\n' > "$OUT_CSV"
+
+          # iterate folders (your exact loop style)
+          while IFS=$'\t' read -r fid fname || [ -n "$fid" ]; do
+            fid=${fid%$'\r'}
+            fname=${fname%$'\r'}
+            [ -n "$fid" ] || continue
+            echo "Checking folder: $fname ($fid)"
+
+            echo "::group::Fetch Queues [$fname]"
+            QUEUES="$(curl --silent --show-error --fail --location \
               --header "Authorization: Bearer $TOKEN" \
-              "${{ env.OR_URL }}/odata/Folders?\$select=Id,FullyQualifiedName")"
-            echo "$FOLDERS"
+              --header "X-UIPATH-FolderPath: $fname" \
+              "${{ env.OR_URL }}/odata/QueueDefinitions?\$select=Id,Name")"
+            echo "$QUEUES"
             echo "::endgroup::"
 
-            OUT_CSV="out/queue_counts.csv"
-            printf 'Folder,Queue Name,Business Exceptions,Application Exceptions,Successful,Total\n' > "$OUT_CSV"
+            while IFS=$'\t' read -r qid qname || [ -n "$qid" ]; do
+              qid=${qid%$'\r'}
+              qname=${qname%$'\r'}
+              [ -n "$qid" ] || continue
+              echo "  Queue: $qname ($qid)"
 
-            csvq() { printf '%s' "$1" | sed 's/"/""/g'; }
+              # OData-safe queue name (double any single quotes)
+              qname_odata="${qname//\'/\'\'}"
 
-            # iterate folders with your exact loop style
-            while IFS=$'\t' read -r fid fname || [ -n "$fid" ]; do
-              fid=${fid%$'\r'}
-              fname=${fname%$'\r'}
-              [ -n "$fid" ] || continue
-              echo "Checking folder: $fname ($fid)"
-
-              echo "::group::Fetch Queues [$fname]"
-              QUEUES="$(curl --silent --show-error --fail --location \
+              # Your exact call pattern, with explicit URLs and headers, and quoted literals in the filter
+              APP_EXCEPTIONS=$(curl --silent --show-error --fail --location \
                 --header "Authorization: Bearer $TOKEN" \
                 --header "X-UIPATH-FolderPath: $fname" \
-                 "${{ env.OR_URL }}/odata/QueueDefinitions?\$select=Id,Name")"
-              echo "$QUEUES"
-              echo "::endgroup::"
+                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname_odata}' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}' and ProcessingExceptionType eq 'ApplicationException'")
 
-              # iterate queues with your loop style
-              while IFS=$'\t' read -r qid qname || [ -n "$qid" ]; do
-                qid=${qid%$'\r'}
-                qname=${qname%$'\r'}
-                [ -n "$qid" ] || continue
-                echo "  Queue: $qname ($qid)"
+              BIZ_EXCEPTIONS=$(curl --silent --show-error --fail --location \
+                --header "Authorization: Bearer $TOKEN" \
+                --header "X-UIPATH-FolderPath: $fname" \
+                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname_odata}' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}' and ProcessingExceptionType eq 'BusinessException'")
 
-                # OData: single-quote the queue name; double embedded single quotes
-                qname_odata=${qname//\'/\'\'}   # OData escaping for single quotes
+              SUCCESSFUL=$(curl --silent --show-error --fail --location \
+                --header "Authorization: Bearer $TOKEN" \
+                --header "X-UIPATH-FolderPath: $fname" \
+                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname_odata}' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}' and Status eq 'Successful'")
 
-                # Your exact inline calls, with \$count and \$filter escaped so bash doesn't expand them.
-                # Also quote the OData string literals.
-                APP_EXCEPTIONS=$(curl --silent --show-error --fail --location \
-                  --header "Authorization: Bearer $TOKEN" \
-                  --header "X-UIPATH-FolderPath: $fname" \
-                  "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname_odata}' and EndProcessing ge '${START_ISO}' and EndProcessing lt '${END_ISO}' and ProcessingExceptionType eq 'ApplicationException'")
+              TOTAL=$(curl --silent --show-error --fail --location \
+                --header "Authorization: Bearer $TOKEN" \
+                --header "X-UIPATH-FolderPath: $fname" \
+                "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname_odata}' and EndProcessing ge '${{ env.START_ISO }}' and EndProcessing lt '${{ env.END_ISO }}'")
 
-                BIZ_EXCEPTIONS=$(curl --silent --show-error --fail --location \
-                  --header "Authorization: Bearer $TOKEN" \
-                  --header "X-UIPATH-FolderPath: $fname" \
-                  "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname_odata}' and EndProcessing ge '${START_ISO}' and EndProcessing lt '${END_ISO}' and ProcessingExceptionType eq 'BusinessException'")
+              # CSV-escape quotes in names (replace " with "")
+              fname_csv=$(printf '%s' "$fname" | sed 's/\"/\"\"/g')
+              qname_csv=$(printf '%s' "$qname" | sed 's/\"/\"\"/g')
 
-                SUCCESSFUL=$(curl --silent --show-error --fail --location \
-                  --header "Authorization: Bearer $TOKEN" \
-                  --header "X-UIPATH-FolderPath: $fname" \
-                  "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname_odata}' and EndProcessing ge '${START_ISO}' and EndProcessing lt '${END_ISO}' and Status eq 'Successful'")
-
-                TOTAL=$(curl --silent --show-error --fail --location \
-                  --header "Authorization: Bearer $TOKEN" \
-                  --header "X-UIPATH-FolderPath: $fname" \
-                  "${{ env.OR_URL }}/odata/QueueItems/\$count?\$filter=Name eq '${qname_odata}' and EndProcessing ge '${START_ISO}' and EndProcessing lt '${END_ISO}'")
-
-                printf '"%s","%s",%s,%s,%s,%s\n' \
-                  "$(csvq "$fname")" "$(csvq "$qname")" "$BIZ_EXCEPTIONS" "$APP_EXCEPTIONS" "$SUCCESSFUL" "$TOTAL" >> "$OUT_CSV"
-
-              done < <(
-                printf '%s' "$QUEUES" \
-                | jq -r '.value[] | [(.Id|tostring), (.Name // "")] | @tsv' \
-                | tr -d '\r'
-              )
+              printf '"%s","%s",%s,%s,%s,%s\n' \
+                "$fname_csv" "$qname_csv" "$BIZ_EXCEPTIONS" "$APP_EXCEPTIONS" "$SUCCESSFUL" "$TOTAL" >> "$OUT_CSV"
 
             done < <(
-              printf '%s' "$FOLDERS" \
-              | jq -r '.value[] | [(.Id|tostring), (.FullyQualifiedName // "")] | @tsv' \
+              printf '%s' "$QUEUES" \
+              | jq -r '.value[] | [(.Id|tostring), (.Name // "")] | @tsv' \
               | tr -d '\r'
             )
-              
+
+          done < <(
+            printf '%s' "$FOLDERS" \
+            | jq -r '.value[] | [(.Id|tostring), (.FullyQualifiedName // "")] | @tsv' \
+            | tr -d '\r'
+          )
+
       - name: Upload raw results
         uses: actions/upload-artifact@v4
         with:
           name: queue-counts
-          path: out/*
+          path: out/queue_counts.csv
 
 
 
