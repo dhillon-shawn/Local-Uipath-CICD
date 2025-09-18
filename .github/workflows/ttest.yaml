@@ -1,0 +1,69 @@
+name: Test Analyzer Email
+
+on:
+  push:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Write test XML (bash)
+        shell: bash
+        run: |
+          mkdir -p tmp
+          cat > tmp/sample.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <testsuites>
+            <testsuite time="21.57" tests="1" failures="0" errors="0" cancelled="0" hostname="t2" id="3063530" name="Automated - BlankProcess_Tests - 1.0.211756589-alpha" package="BlankProcess_Tests-1.0.211756589-alpha" timestamp="2025-09-16T21:19:04.513">
+              <testcase assertions="0" info="Job completed" classname="BlankProcess_Tests" name="TestCase.xaml" status="Passed" time="21.57">
+                <system-out>Test case TestCase.xaml (v1.0.211756589-alpha) executed as job 558910324 and took 21570ms.
+          Logs are available at https://cloud.uipath.com/test_sandbox/Default/orchestrator_/test/executions/3063530/logs/558910324?fid=7118098
+          Test case execution url: https://cloud.uipath.com/test_sandbox/Default/orchestrator_/test/executions/3063530?search=TestCase.xaml&amp;fid=7118098
+          Input arguments {}
+          Output arguments {}
+          Robot logs [{"Id":0,"Level":2,"WindowsIdentity":"VM-WIN11\\recre","ProcessName":"BlankProcess_Tests","TimeStamp":"2025-09-16T21:19:22.8709458+00:00","Message":"end","JobKey":"49c5b5b9-9bae-4f45-bf41-98fd9d333ca2","RawMessage":"{\"message\":\"end\",\"level\":\"Information\",\"logType\":\"User\",\"timeStamp\":\"2025-09-16T14:19:22.8709458-07:00\",\"fingerprint\":\"338ca717-7091-4f4e-81af-ebd00c179e4f\",\"windowsIdentity\":\"VM-WIN11\\\\recre\",\"machineName\":\"VM-WIN11\",\"fileName\":\"TestCase\",\"jobId\":\"49c5b5b9-9bae-4f45-bf41-98fd9d333ca2\",\"robotName\":\"vm-win11-bot-unattended\",\"machineId\":5335969,\"userKey\":\"613f9b34-8d62-47c7-b055-43e3e17ba592\",\"processName\":\"BlankProcess_Tests\",\"processVersion\":\"1.0.211756589-alpha\",\"organizationUnitId\":7118098,\"businessOperationId\":\"e378b8ad08884479889c249b72845aa7-1698c4344ffc4d6caed4e33373384138\"}","RobotName":"vm-win11-bot-unattended","HostMachineName":"VM-WIN11","MachineId":5335969,"MachineKey":"61c19323-79ee-407a-8802-01acf21e6079"},{"Id":0,"Level":2,"WindowsIdentity":"VM-WIN11\\recre","ProcessName":"BlankProcess_Tests","TimeStamp":"2025-09-16T21:19:22.8042709+00:00","Message":"start","JobKey":"49c5b5b9-9bae-4f45-bf41-98fd9d333ca2","RawMessage":"{\"message\":\"start\",\"level\":\"Information\",\"logType\":\"User\",\"timeStamp\":\"2025-09-16T14:19:22.8042709-07:00\",\"fingerprint\":\"6b2af303-f2f3-404b-8ca5-0ea54d8811b7\",\"windowsIdentity\":\"VM-WIN11\\\\recre\",\"machineName\":\"VM-WIN11\",\"fileName\":\"TestCase\",\"jobId\":\"49c5b5b9-9bae-4f45-bf41-98fd9d333ca2\",\"robotName\":\"vm-win11-bot-unattended\",\"machineId\":5335969,\"userKey\":\"613f9b34-8d62-47c7-b055-43e3e17ba592\",\"processName\":\"BlankProcess_Tests\",\"processVersion\":\"1.0.211756589-alpha\",\"organizationUnitId\":7118098,\"businessOperationId\":\"e378b8ad08884479889c249b72845aa7-1698c4344ffc4d6caed4e33373384138\"}","RobotName":"vm-win11-bot-unattended","HostMachineName":"VM-WIN11","MachineId":5335969,"MachineKey":"61c19323-79ee-407a-8802-01acf21e6079"},{"Id":0,"Level":2,"WindowsIdentity":"VM-WIN11\\recre","ProcessName":"BlankProcess_Tests","TimeStamp":"2025-09-16T21:19:22.3976195+00:00","Message":"BlankProcess_Tests execution started","JobKey":"49c5b5b9-9bae-4f45-bf41-98fd9d333ca2","RawMessage":"{\"message\":\"BlankProcess_Tests execution started\",\"level\":\"Information\",\"logType\":\"Default\",\"timeStamp\":\"2025-09-16T14:19:22.3976195-07:00\",\"fingerprint\":\"c8c22fcb-c47e-49b0-b740-82f5644d86ae\",\"windowsIdentity\":\"VM-WIN11\\\\recre\",\"machineName\":\"VM-WIN11\",\"fileName\":\"TestCase\",\"initiatedBy\":\"Orchestrator\",\"jobId\":\"49c5b5b9-9bae-4f45-bf41-98fd9d333ca2\",\"robotName\":\"vm-win11-bot-unattended\",\"machineId\":5335969,\"userKey\":\"613f9b34-8d62-47c7-b055-43e3e17ba592\",\"processName\":\"BlankProcess_Tests\",\"processVersion\":\"1.0.211756589-alpha\",\"organizationUnitId\":7118098,\"businessOperationId\":\"e378b8ad08884479889c249b72845aa7-1698c4344ffc4d6caed4e33373384138\"}","RobotName":"vm-win11-bot-unattended","HostMachineName":"VM-WIN11","MachineId":5335969,"MachineKey":"61c19323-79ee-407a-8802-01acf21e6079"},{"Id":0,"Level":2,"WindowsIdentity":"VM-WIN11\\recre","ProcessName":"BlankProcess_Tests","TimeStamp":"2025-09-16T21:19:25.8363085+00:00","Message":"BlankProcess_Tests execution ended","JobKey":"49c5b5b9-9bae-4f45-bf41-98fd9d333ca2","RawMessage":"{\"message\":\"BlankProcess_Tests execution ended\",\"level\":\"Information\",\"logType\":\"Default\",\"timeStamp\":\"2025-09-16T14:19:25.8363085-07:00\",\"fingerprint\":\"87babb51-10be-4bb0-82e9-2379a995cc2c\",\"windowsIdentity\":\"VM-WIN11\\\\recre\",\"machineName\":\"VM-WIN11\",\"fileName\":\"TestCase\",\"totalExecutionTimeInSeconds\":3,\"totalExecutionTime\":\"00:00:03\",\"jobId\":\"49c5b5b9-9bae-4f45-bf41-98fd9d333ca2\",\"robotName\":\"vm-win11-bot-unattended\",\"machineId\":5335969,\"userKey\":\"613f9b34-8d62-47c7-b055-43e3e17ba592\",\"processName\":\"BlankProcess_Tests\",\"processVersion\":\"1.0.211756589-alpha\",\"organizationUnitId\":7118098,\"businessOperationId\":\"e378b8ad08884479889c249b72845aa7-1698c4344ffc4d6caed4e33373384138\"}","RobotName":"vm-win11-bot-unattended","HostMachineName":"VM-WIN11","MachineId":5335969,"MachineKey":"61c19323-79ee-407a-8802-01acf21e6079"}]
+          </system-out>
+              </testcase>
+              <system-out>Test set execution Automated - BlankProcess_Tests - 1.0.211756589-alpha took 21570ms.
+          Test set execution url: https://cloud.uipath.com/test_sandbox/Default/orchestrator_/test/executions/3063530?fid=7118098</system-out>
+            </testsuite>
+          </testsuites>
+          XML
+          echo "Wrote $(wc -c < tmp/sample.xml) bytes to tmp/sample.xml"
+
+          
+      - name: Test Results → HTML
+        id: test_html
+        if: ${{ inputs.target_env == 'test' &&  needs.setup.outputs.publishable == 'true' && hashFiles('results/TestResults.xml') != '' }}
+        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/test_results@main
+        with:
+          xml_path: tmp/sample.xml
+
+
+      # Send – IMPORTANT: point html_body to the FILE
+      - name: Send Email (SMTP)
+        if: always()
+        uses: dawidd6/action-send-mail@v6
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject:  ${{ steps.compose.outputs.subject }}
+          to:       "dhillon.shawns@gmail.com"
+          from:     "UiPath CI/CD <uipath-cicd@noreply.com>"
+          html_body: file://${{ steps.test_html.outputs.html }}
+          convert_markdown: false
+
+      # Also upload the HTML so you can inspect without email clients
+      - name: Upload HTML artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: analyzer-email-preview
+          path: |
+            ${{ steps.analysis_html.outputs.html_path }}
+            ${{ steps.compose.outputs.html }}

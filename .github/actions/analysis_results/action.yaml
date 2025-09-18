@@ -129,12 +129,3 @@ runs:
           fs.writeFileSync(outPath, html, 'utf8');
           core.setOutput('html_path', outPath);
           core.setOutput('html', html);
-
-
-    - name: Add HTML to Job Summary
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const fs = require('fs');
-          const html = fs.readFileSync('${{ steps.build_html.outputs.html_path }}','utf8');
-          await core.summary.addRaw(html, true).write();
