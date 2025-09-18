@@ -49,7 +49,7 @@ jobs:
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/compose_email@main
         with:
           publishable:        false
-          target_env:         "dev"
+          target_env:         "test"
           test_html_path:     ${{ steps.test_html.outputs.html}}                         # no test table for this dry run
           analysis_html_path: "N/A"
           source_ref:         refs/heads/test
