@@ -2,36 +2,52 @@ name: "Compose final email (status + body + subject)"
 description: "Picks body (test/analysis), computes overall from cd_status, renders status table and final HTML."
 inputs:
   publishable:
+    description: "String 'true' or 'false'. Only relevant for test."
     required: false
   target_env:
+    description: "Target environment: 'test' or 'dev'."
     required: false
   test_html_path:
+    description: "Path to TestResults.html if rendered (formatter output)."
     required: false
     default: "./email/TestResults.html"
   analysis_html_path:
+    description: "Path to analysis-report.html if rendered (formatter output)."
     required: false
     default: "./email/analysis-report.html"
+
+  # deployment table inputs
   source_ref:
+    description: "Source git ref / SHA."
     required: false
   version:
+    description: "Version label."
     required: false
   folder_name:
+    description: "Folder display name."
     required: false
   project_id:
+    description: "Project identifier."
     required: false
   migrate:
+    description: "Migration flag text."
     required: false
   cd_status:
+    description: "Deployment job result (e.g., success|failure|cancelled)."
     required: false
 
 outputs:
   html:
+    description: "Composed full HTML email (file path)."
     value: ${{ steps.make.outputs.html }}
   subject:
+    description: "Computed subject."
     value: ${{ steps.make.outputs.subject }}
   attach_path:
+    description: "Path to the chosen (or fallback) body file."
     value: ${{ steps.make.outputs.attach_path }}
   overall:
+    description: "Computed overall: success or failure (from cd_status)."
     value: ${{ steps.make.outputs.overall }}
 
 runs:
