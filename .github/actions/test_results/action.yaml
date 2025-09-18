@@ -27,7 +27,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        pip install --no-input junit2html
+        pip install --no-input junit2html premailer
         xml="${{ inputs.xml_path }}"
         out="${{ inputs.out_path }}"
 
