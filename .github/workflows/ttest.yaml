@@ -52,7 +52,7 @@ jobs:
         with:
           publishable:        true
           target_env:         "test"
-          test_html_path:     ${{ steps.test_html.outputs.out_path}}                         # no test table for this dry run
+          test_html_path:     ${{ steps.test_html.outputs.html}}                         # no test table for this dry run
           analysis_html_path: "N/A"
           source_ref:         refs/heads/test
           version:            0.0.0-test
@@ -75,3 +75,9 @@ jobs:
           html_body: file://${{ steps.compose.outputs.html }}
           convert_markdown: false
 
+      - name: Upload HTML artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: analyzer-email-preview
+          path: |
+            ${{ steps.test_html.outputs.out_path}}    
