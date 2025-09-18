@@ -1,8 +1,7 @@
 name: "Format JUnit XML to HTML"
-description: "Converts JUnit XML to HTML using junit2html (cross-OS; requires Python)"
+description: "Converts JUnit XML to HTML"
 inputs:
-  xml_path:     { required: true,  description: "Path to JUnit XML (artifact)" }
-  out_path:     { required: false, default: "./email/TestResults.html" , description: "path to results"}
+  xml_path:     { required: true,  description: "Path to JUnit XML" }
 outputs:
   html:
     description: "HTML string"
@@ -29,7 +28,7 @@ runs:
         set -euo pipefail
         pip install --no-input junit2html
         xml="${{ inputs.xml_path }}"
-        out="${{ inputs.out_path }}"
+        out="./email/TestResults.html"
 
         mkdir -p "$(dirname "$out")"
         junit2html "$xml" "$out"
@@ -37,13 +36,4 @@ runs:
 
         npx --yes juice "$out" "$out"
 
-
-
-
-    - name: html preview (debug)
-      shell: bash
-      run: |
-        echo "Wrote: ${{ steps.embed_report.outputs.out_path }}"
-        head -n 20 "${{ steps.embed_report.outputs.out_path }}" || true
-        ls -l "${{ steps.embed_report.outputs.out_path }}" || true
 

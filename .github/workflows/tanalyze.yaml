@@ -3,7 +3,7 @@ name: Test Analyzer Email
 on:
   push:
 
-    
+
 jobs:
   run:
     runs-on: ubuntu-latest
@@ -146,7 +146,7 @@ jobs:
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/analysis_results@main
         with:
           json_path: ./results/analyze.json
-          out_path:  ./email/analysis-report.html
+
 
 
       - name: print
@@ -159,8 +159,6 @@ jobs:
         with:
           publishable:        false
           target_env:         "dev"
-          test_html_path:     "N/A"                         # no test table for this dry run
-          analysis_html_path: ${{ steps.analysis_html.outputs.html_path }}
           source_ref:         refs/heads/test
           version:            0.0.0-test
           folder_name:        Demo
