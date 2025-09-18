@@ -36,7 +36,6 @@ runs:
           if (!inPath) { core.setFailed('IN was empty.'); return; }
           if (!fs.existsSync(inPath)) { core.setFailed(`IN not found: ${inPath}`); return; }
 
-          // Escape HTML + backticks
           const esc = s => String(s ?? '')
             .replace(/&/g,'&amp;').replace(/</g,'&lt;')
             .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
@@ -95,8 +94,6 @@ runs:
           const rowsHtml = rowsArr.join('');
 
           const when = new Date().toISOString();
-
-          // Build full HTML in one go (single template literal ok here)
           const html = `<!doctype html>
           <html>
             <body style="${css.body}">
@@ -121,7 +118,7 @@ runs:
                     </tr>
                   </thead>
                   <tbody>
-                    ${rowsHtml || `<tr><td style="${css.td}" colspan="5">No results.</td></tr>`}
+                    ${rowsHtml}
                   </tbody>
                 </table>
               </div>
@@ -134,10 +131,10 @@ runs:
           core.setOutput('html', html);
 
 
-    - name: Add HTML to Job Summary (raw)
+    - name: Add HTML to Job Summary
       uses: actions/github-script@v7
       with:
         script: |
           const fs = require('fs');
           const html = fs.readFileSync('${{ steps.build_html.outputs.html_path }}','utf8');
-          await core.summary.addRaw(html, true).write(); // true => don't escape, render HTML
+          await core.summary.addRaw(html, true).write();
