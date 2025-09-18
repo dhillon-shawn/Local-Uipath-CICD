@@ -44,7 +44,21 @@ jobs:
           xml_path: tmp/sample.xml
 
 
-      # Send – IMPORTANT: point html_body to the FILE
+      - name: Compose final email (table + body + subject)
+        id: compose
+        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/compose_email@main
+        with:
+          publishable:        false
+          target_env:         "dev"
+          test_html_path:     ${{ steps.test_html.outputs.html}}                         # no test table for this dry run
+          analysis_html_path: "N/A"
+          source_ref:         refs/heads/test
+          version:            0.0.0-test
+          folder_name:        Demo
+          project_id:         DEMO
+          migrate:            false
+          cd_status:          success
+
       - name: Send Email (SMTP)
         if: always()
         uses: dawidd6/action-send-mail@v6
@@ -56,14 +70,6 @@ jobs:
           subject:  ${{ steps.compose.outputs.subject }}
           to:       "dhillon.shawns@gmail.com"
           from:     "UiPath CI/CD <uipath-cicd@noreply.com>"
-          html_body: file://${{ steps.test_html.outputs.html }}
+          html_body: file://${{ steps.compose.outputs.html }}
           convert_markdown: false
 
-      # Also upload the HTML so you can inspect without email clients
-      - name: Upload HTML artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: analyzer-email-preview
-          path: |
-            ${{ steps.analysis_html.outputs.html_path }}
-            ${{ steps.compose.outputs.html }}
