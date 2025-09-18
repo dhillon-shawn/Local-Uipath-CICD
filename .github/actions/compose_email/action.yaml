@@ -92,6 +92,7 @@ runs:
             fallbackMsg = '<p>No content.</p>';
           }
 
+
           const extractBody = (html) => {
             const m = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(html);
             return (m ? m[1] : html);
@@ -100,6 +101,7 @@ runs:
             .replace(/<\/?(html|head|body)[^>]*>/gi, '')
             .replace(/<script[\s\S]*?<\/script>/gi, '');
 
+          // metadata
           const server = (process.env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/+$/,'');
           const repo   = process.env.GITHUB_REPOSITORY || '';
           const runId  = process.env.GITHUB_RUN_ID || '';
@@ -138,13 +140,14 @@ runs:
               row('Overall:',    overall) +
             '</table>';
 
-          const button = runUrl
+     
             ? ('<p style="margin-top:20px;">' +
                  '<a href="' + runUrl + '" style="background-color:#007acc;color:#ffffff;padding:10px 15px;text-decoration:none;border-radius:5px;display:inline-block;">' +
                    'View Workflow Details' +
                  '</a>' +
                '</p>')
             : '';
+
 
           let finalHtml = [
             '<!doctype html><html>',
