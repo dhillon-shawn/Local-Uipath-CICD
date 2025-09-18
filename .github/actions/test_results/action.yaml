@@ -47,7 +47,7 @@ runs:
     - name: html preview (debug)
       shell: bash
       run: |
-        echo "Wrote: ${{ steps.embed_report.outputs.html_path }}"
-        head -n 20 "${{ steps.embed_report.outputs.html_path }}" || true
-        ls -l "${{ steps.embed_report.outputs.html_path }}" || true
+        echo "Wrote: ${{ steps.embed_report.outputs.html }}"
+        head -n 20 "${{ steps.embed_report.outputs.html }}" || true
+        ls -l "${{ steps.embed_report.outputs.html }}" || true
 

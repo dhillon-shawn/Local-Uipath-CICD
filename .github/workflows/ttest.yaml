@@ -76,9 +76,4 @@ jobs:
           html_body: file://${{ steps.compose.outputs.html }}
           convert_markdown: false
 
-      - name: Upload HTML artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: analyzer-email-preview
-          path: |
-            ${{ steps.test_html.outputs.out_path}}    
+
