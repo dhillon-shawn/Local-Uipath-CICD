@@ -59,7 +59,7 @@ runs:
     env:
       PUBLISHABLE:        ${{ inputs.publishable }}
       TARGET_ENV:         ${{ inputs.target_env }}
-      TEST_PATH_IN:       ${{ inputs.test_html }}
+      TEST_PATH_IN:       ${{ inputs.test_html_path }}
       ANALYSIS_PATH_IN:   ${{ inputs.analysis_html_path }}
       SOURCE_REF:         ${{ inputs.source_ref }}
       VERSION:            ${{ inputs.version }}
