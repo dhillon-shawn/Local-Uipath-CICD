@@ -38,7 +38,6 @@ jobs:
           
       - name: Test Results → HTML
         id: test_html
-        if: ${{ inputs.target_env == 'test' &&  needs.setup.outputs.publishable == 'true' && hashFiles('results/TestResults.xml') != '' }}
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/test_results@main
         with:
           xml_path: tmp/sample.xml
