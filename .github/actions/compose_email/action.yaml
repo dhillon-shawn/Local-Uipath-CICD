@@ -101,11 +101,7 @@ runs:
             bodyPath = fb;
           }
 
-          const extractBody = html => {
-            const m = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(html);
-            return (m ? m[1] : html);
-          };
-          const bodyInner = extractBody(fs.readFileSync(bodyPath, 'utf8'));
+
 
           // Build run link
           const server = (process.env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/+$/,'');
@@ -153,7 +149,7 @@ runs:
           const finalHtml = `<!doctype html><html>
             <body style="font-family:Arial,Helvetica,sans-serif;margin:20px;color:#0f172a;">
               ${statusHtml}
-              ${bodyInner}
+              ${bodyPath}
               ${button}
             </body></html>`;
 
