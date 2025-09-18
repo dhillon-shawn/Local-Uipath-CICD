@@ -20,26 +20,27 @@ runs:
       shell: bash
       run: mkdir -p "$(dirname "${{ inputs.out_path }}")"
 
-    - name: Build analyzer HTML (mobile scroll, proper render)
+    - name: Build analyzer HTML (no template literal in tbody)
       id: build_html
       uses: actions/github-script@v7
       env:
-        IN:  ${{ inputs.json_path }}          # e.g. ./results/analyze.json
-        OUT: ${{ inputs.out_path }}           # e.g. ./email/analysis-report.html
+        IN:  ${{ inputs.json_path }}
+        OUT: ${{ inputs.out_path }}
       with:
         script: |
           const fs = require('fs');
           const path = require('path');
 
-          const esc = s => String(s ?? '')
-            .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-            .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
-            .replace(/'/g,'&#39;');
-
           const inPath  = process.env.IN || '';
           const outPath = process.env.OUT || 'email/analysis-report.html';
           if (!inPath) { core.setFailed('IN was empty.'); return; }
           if (!fs.existsSync(inPath)) { core.setFailed(`IN not found: ${inPath}`); return; }
+
+          // Escape HTML + backticks
+          const esc = s => String(s ?? '')
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+            .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+            .replace(/'/g,'&#39;').replace(/`/g,'&#96;');
 
           const sevMeta = {
             1: { name:'Error',   icon:'❌', row:'#fff1f2', pillBg:'#fee2e2', pillFg:'#991b1b', bd:'#fecaca' },
@@ -60,6 +61,7 @@ runs:
 
           const totals = { 1:0, 2:0, 3:0 };
           for (const r of rows) if (totals[r.sev] != null) totals[r.sev]++;
+
           rows.sort((a,b) => (a.sev - b.sev) || a.rule.localeCompare(b.rule));
 
           const css = {
@@ -75,21 +77,26 @@ runs:
             tdSev: 'white-space:nowrap;width:200px;',
           };
 
-          let tbody = '';
+          // Build rows WITHOUT template literals
+          const rowsArr = [];
           for (const r of rows) {
             const s = sevMeta[r.sev] || sevMeta[3];
-            const sevCell = `${s.icon} ${s.name}${r.code ? ' — ' + esc(r.code) : ''}`;
-            tbody += `
-            <tr style="background:${s.row};">
-              <td style="${css.td}${css.tdSev}">${sevCell}</td>
-              <td style="${css.td}">${esc(r.rule)}</td>
-              <td style="${css.td}">${esc(r.activity)}</td>
-              <td style="${css.td}">${esc(r.desc).replace(/\r?\n/g,'<br>')}</td>
-              <td style="${css.td}">${esc(r.rec).replace(/\r?\n/g,'<br>')}</td>
-            </tr>`;
-                  }
+            const sevCell = (s.icon + ' ' + s.name + (r.code ? ' — ' + esc(r.code) : ''));
+            rowsArr.push(
+              '<tr style="background:', s.row, ';">',
+                '<td style="', css.td, css.tdSev, '">', sevCell, '</td>',
+                '<td style="', css.td, '">', esc(r.rule), '</td>',
+                '<td style="', css.td, '">', esc(r.activity), '</td>',
+                '<td style="', css.td, '">', esc(r.desc).replace(/\r?\n/g,'<br>'), '</td>',
+                '<td style="', css.td, '">', esc(r.rec).replace(/\r?\n/g,'<br>'), '</td>',
+              '</tr>'
+            );
+          }
+          const rowsHtml = rowsArr.join('');
 
           const when = new Date().toISOString();
+
+          // Build full HTML in one go (single template literal ok here)
           const html = `<!doctype html>
           <html>
             <body style="${css.body}">
@@ -114,7 +121,7 @@ runs:
                     </tr>
                   </thead>
                   <tbody>
-                    ${tbody || `<tr><td style="${css.td}" colspan="5">No results.</td></tr>`}
+                    ${rowsHtml || `<tr><td style="${css.td}" colspan="5">No results.</td></tr>`}
                   </tbody>
                 </table>
               </div>
@@ -124,8 +131,8 @@ runs:
           fs.mkdirSync(path.dirname(outPath), { recursive: true });
           fs.writeFileSync(outPath, html, 'utf8');
           core.setOutput('html_path', outPath);
-          // Also expose the full HTML string (raw) for direct use in next steps if needed
           core.setOutput('html', html);
+
 
     - name: Add HTML to Job Summary (raw)
       uses: actions/github-script@v7
