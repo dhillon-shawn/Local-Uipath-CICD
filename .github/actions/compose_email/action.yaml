@@ -91,10 +91,29 @@ runs:
             fallbackMsg = '<p>No content</p>';
           }
 
-          const bodyInner = fs.readFileSync(bodyPath, 'utf8');
+
+          const extractBody = html => {
+            const m = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(html);
+            return m ? m[1] : html;
+          };
+
+          let bodyHtml = '';
+          if (bodyPath) {
+            try {
+              const fullHtml = fs.readFileSync(bodyPath, 'utf8');
+              bodyHtml = extractBody(fullHtml);
+            } catch (e) {
+              core.warning(`Failed to read ${bodyPath}: ${e.message}`);
+              bodyHtml = fallbackMsg || '<p>Unable to read content.</p>';
+            }
+          } else {
+            bodyHtml = fallbackMsg || '<p>Nothing to show.</p>';
+          }
+
+          core.setOutput('email_body_html', bodyHtml);
 
           // Build run link
-          const server = (process.env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/+$/,'');
+          const server = ('https://github.com').replace(/\/+$/,'');
           const repo   = process.env.GITHUB_REPOSITORY || '';
           const runId  = process.env.GITHUB_RUN_ID || '';
           const runUrl = (server && repo && runId) ? `${server}/${repo}/actions/runs/${runId}` : '';
