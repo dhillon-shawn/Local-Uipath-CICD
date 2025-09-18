@@ -76,11 +76,8 @@ runs:
           const env = (process.env.TARGET_ENV || '').toLowerCase();
           const publishable = (process.env.PUBLISHABLE || '').toLowerCase() === 'true';
 
-          const defTest = './email/TestResults.html';
-          const defAnalysis = './email/analysis-report.html';
-
-          const testPathIn = process.env.TEST_PATH_IN || defTest;
-          const analysisPathIn = process.env.ANALYSIS_PATH_IN || defAnalysis;
+          const testPathIn = process.env.TEST_PATH_IN;
+          const analysisPathIn = process.env.ANALYSIS_PATH_IN;
 
           let bodyPath = '';
           let fallbackMsg = '';
@@ -94,12 +91,6 @@ runs:
             fallbackMsg = '<p>No content</p>';
           }
 
-          if (!bodyPath) {
-            const fb = env === 'test' ? defTest : defAnalysis;
-            fs.mkdirSync(path.dirname(fb), { recursive: true });
-            fs.writeFileSync(fb, `<!doctype html><html><body>${fallbackMsg}</body></html>`);
-            bodyPath = fb;
-          }
 
           const extractBody = html => {
             const m = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(html);
@@ -120,8 +111,7 @@ runs:
           const COLOR = ok ? '#2e7d32' : '#c62828';
           const WORD = ok ? 'Successful' : 'Failed';
 
-          const subject = (env === 'test' ? 'UiPath Test Report' : env === 'dev' ? 'UiPath Analysis Report' : 'UiPath Report')
-                          + ` - ${repo} #${process.env.GITHUB_RUN_NUMBER || ''}`;
+          const subject = (env === 'test' ? 'UiPath Test Report' : env === 'dev' ? 'UiPath Analysis Report' : 'UiPath Report') + ` - ${repo} }`;
 
           const row = (k,v) => v ? `<tr>
             <td style="padding:8px;border:1px solid #ddd;"><strong>${k}</strong></td>
