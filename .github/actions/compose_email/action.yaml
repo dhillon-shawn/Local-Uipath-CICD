@@ -7,7 +7,7 @@ inputs:
   target_env:
     description: "Target environment: 'test' or 'dev'."
     required: false
-  test_html_path:
+  test_html:
     description: "Path to TestResults.html if rendered (formatter output)."
     required: false
     default: "./email/TestResults.html"
@@ -39,7 +39,7 @@ inputs:
 outputs:
   html:
     description: "Composed full HTML email."
-    value: ${{ steps.make.outputs.html_path }}
+    value: ${{ steps.make.outputs.html }}
   subject:
     description: "Computed subject."
     value: ${{ steps.make.outputs.subject }}
@@ -53,128 +53,114 @@ outputs:
 runs:
   using: "composite"
   steps:
-      # Read the HTML file into an output (multiline-safe)
-  - name: Compose final email (table + body + subject)
-    id: make
-    uses: actions/github-script@v7
-    env:
-      PUBLISHABLE:        ${{ inputs.publishable }}
-      TARGET_ENV:         ${{ inputs.target_env }}
-      TEST_PATH_IN:       ${{ steps.embed_report.outputs.html }}        # inline HTML from previous step
-      ANALYSIS_PATH_IN:   ${{ inputs.analysis_html_path }}              # can be inline HTML OR a path
-      SOURCE_REF:         ${{ inputs.source_ref }}
-      VERSION:            ${{ inputs.version }}
-      FOLDER_NAME:        ${{ inputs.folder_name }}
-      PROJECT_ID:         ${{ inputs.project_id }}
-      MIGRATE:            ${{ inputs.migrate }}
-      CD_STATUS:          ${{ inputs.cd_status }}
-    with:
-      script: |
-        const fs = require('fs');
-        const path = require('path');
+    - name: Compose final email (table + body + subject)
+      id: make
+      uses: actions/github-script@v7
+      env:
+        PUBLISHABLE:        ${{ inputs.publishable }}
+        TARGET_ENV:         ${{ inputs.target_env }}
+        TEST_PATH_IN:       ${{ inputs.test_html }}
+        ANALYSIS_PATH_IN:   ${{ inputs.analysis_html_path }}
+        SOURCE_REF:         ${{ inputs.source_ref }}
+        VERSION:            ${{ inputs.version }}
+        FOLDER_NAME:        ${{ inputs.folder_name }}
+        PROJECT_ID:         ${{ inputs.project_id }}
+        MIGRATE:            ${{ inputs.migrate }}
+        CD_STATUS:          ${{ inputs.cd_status }}
+      with:
+        script: |
+          const fs = require('fs'); const path = require('path');
 
-        const okFile = (p) => {
-          try { return !!p && fs.statSync(p).isFile() && fs.statSync(p).size > 0; } catch { return false; }
-        };
-        const isInlineHtml = (s='') => /<[^>]+>/.test(s) && /<\/(html|body|table|div|p|tr|h\d)>/i.test(s);
-        const extractBody = (html='') => {
-          const m = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(html);
-          return m ? m[1] : html;
-        };
+          const okFile = p => { try { return p && fs.statSync(p).size > 0; } catch { return false; } };
 
-        const envLower   = (process.env.TARGET_ENV || '').toLowerCase();
-        const publishable= (process.env.PUBLISHABLE || '').toLowerCase() === 'true';
-        const testIn     = process.env.TEST_PATH_IN || '';
-        const analysisIn = process.env.ANALYSIS_PATH_IN || '';
+          const env = (process.env.TARGET_ENV || '').toLowerCase();
+          const publishable = (process.env.PUBLISHABLE || '').toLowerCase() === 'true';
 
-        let fallbackMsg = '<p>No content</p>';
-        if (envLower === 'test') fallbackMsg = '<p>No test results found.</p>';
-        if (envLower === 'dev')  fallbackMsg = '<p>No analysis results found.</p>';
+          const defTest = './email/TestResults.html';
+          const defAnalysis = './email/analysis-report.html';
 
-        // Precedence: TEST input (if provided) -> ANALYSIS (if provided) -> fallback
-        const trySources = [];
-        if (testIn) trySources.push({label:'TEST_PATH_IN', val:testIn});
-        if (analysisIn) trySources.push({label:'ANALYSIS_PATH_IN', val:analysisIn});
+          const testPathIn = process.env.TEST_PATH_IN || defTest;
+          const analysisPathIn = process.env.ANALYSIS_PATH_IN || defAnalysis;
 
-        let bodyInner = '';
-        for (const src of trySources) {
-          if (isInlineHtml(src.val)) {
-            bodyInner = extractBody(src.val);
-            core.info(`Using inline HTML from ${src.label}`);
-            break;
-          }
-          if (okFile(src.val)) {
-            core.info(`Reading HTML file from ${src.label}: ${src.val}`);
-            try {
-              const html = fs.readFileSync(src.val, 'utf8');
-              bodyInner = extractBody(html);
-              break;
-            } catch (e) {
-              core.warning(`Failed to read ${src.val}: ${e.message}`);
-            }
+          let bodyPath = '';
+          let fallbackMsg = '';
+          if (env === 'test' && publishable) {
+            bodyPath = okFile(testPathIn) ? testPathIn : '';
+            if (!bodyPath) fallbackMsg = '<p>No test results found.</p>';
+          } else if (env === 'dev') {
+            bodyPath = okFile(analysisPathIn) ? analysisPathIn : '';
+            if (!bodyPath) fallbackMsg = '<p>No analysis results found.</p>';
           } else {
-            core.info(`${src.label} is not inline HTML and not a valid file path.`);
+            fallbackMsg = '<p>No content for this environment.</p>';
           }
-        }
-        if (!bodyInner) bodyInner = fallbackMsg;
 
-        // Status/Subject
-        const server = (process.env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/+$/,'');
-        const repo   = process.env.GITHUB_REPOSITORY || '';
-        const runId  = process.env.GITHUB_RUN_ID || '';
-        const runUrl = (server && repo && runId) ? `${server}/${repo}/actions/runs/${runId}` : '';
+          if (!bodyPath) {
+            const fb = env === 'test' ? defTest : defAnalysis;
+            fs.mkdirSync(path.dirname(fb), { recursive: true });
+            fs.writeFileSync(fb, `<!doctype html><html><body>${fallbackMsg}</body></html>`);
+            bodyPath = fb;
+          }
 
-        const cd = (process.env.CD_STATUS || '').toLowerCase();
-        const overall = cd === 'success' ? 'success' : 'failure';
-        const ok = overall === 'success';
-        const ICON = ok ? '✅' : '❌';
-        const COLOR = ok ? '#2e7d32' : '#c62828';
-        const WORD = ok ? 'Successful' : 'Failed';
+          const extractBody = html => {
+            const m = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(html);
+            return (m ? m[1] : html);
+          };
+          const bodyInner = extractBody(fs.readFileSync(bodyPath, 'utf8'));
 
-        const subjectBase = envLower === 'test' ? 'UiPath Test Report'
-                          : envLower === 'dev'  ? 'UiPath Analysis Report'
-                          : 'UiPath Report';
-        const subject = `${subjectBase} - ${repo} #${process.env.GITHUB_RUN_NUMBER || ''}`;
+          // Build run link
+          const server = (process.env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/+$/,'');
+          const repo   = process.env.GITHUB_REPOSITORY || '';
+          const runId  = process.env.GITHUB_RUN_ID || '';
+          const runUrl = (server && repo && runId) ? `${server}/${repo}/actions/runs/${runId}` : '';
 
-        const row = (k,v) => v ? `<tr>
-          <td style="padding:8px;border:1px solid #ddd;"><strong>${k}</strong></td>
-          <td style="padding:8px;border:1px solid #ddd;">${v}</td>
-        </tr>` : '';
+          const cd = (process.env.CD_STATUS || '').toLowerCase();
+          const overall = cd === 'success' ? 'success' : 'failure';
+          const ok = overall === 'success';
+          const ICON = ok ? '✅' : '❌';
+          const COLOR = ok ? '#2e7d32' : '#c62828';
+          const WORD = ok ? 'Successful' : 'Failed';
 
-        const statusHtml = `
-          <h2 style="color:${COLOR};margin:0 0 12px 0;">${ICON} Deployment ${WORD} — ${process.env.TARGET_ENV}</h2>
-          <table style="border-collapse:collapse;width:100%;margin-bottom:16px;">
-            ${row('Repository:', repo)}
-            ${row('Run:', runUrl ? `<a href="${runUrl}" target="_blank" style="color:#1d4ed8;text-decoration:none;">${runUrl}</a>` : '(n/a)')}
-            ${row('Source ref:', process.env.SOURCE_REF)}
-            ${row('Version:',    process.env.VERSION)}
-            ${row('Folder:',     process.env.FOLDER_NAME)}
-            ${row('Project ID:', process.env.PROJECT_ID)}
-            ${row('Migrate:',    process.env.MIGRATE)}
-            ${row('CD Status:',  process.env.CD_STATUS)}
-            ${row('Overall:',    overall)}
-          </table>`;
+          const subject = (env === 'test' ? 'UiPath Test Report' : env === 'dev' ? 'UiPath Analysis Report' : 'UiPath Report')
+                          + ` - ${repo} #${process.env.GITHUB_RUN_NUMBER || ''}`;
 
-        const button = runUrl ? `
-          <p style="margin-top:20px;">
-            <a href="${runUrl}"
-              style="background-color:#007acc;color:white;padding:10px 15px;text-decoration:none;border-radius:5px;">
-              View Workflow Details
-            </a>
-          </p>` : '';
+          const row = (k,v) => v ? `<tr>
+            <td style="padding:8px;border:1px solid #ddd;"><strong>${k}</strong></td>
+            <td style="padding:8px;border:1px solid #ddd;">${v}</td>
+          </tr>` : '';
 
-        const finalHtml = `<!doctype html><html>
-          <body style="font-family:Arial,Helvetica,sans-serif;margin:20px;color:#0f172a;">
-            ${statusHtml}
-            ${bodyInner}
-            ${button}
-          </body></html>`;
+          const statusHtml = `
+            <h2 style="color:${COLOR};margin:0 0 12px 0;">${ICON} Deployment ${WORD} — ${process.env.TARGET_ENV}</h2>
+            <table style="border-collapse:collapse;width:100%;margin-bottom:16px;">
+              ${row('Repository:', repo)}
+              ${row('Run:', runUrl ? `<a href="${runUrl}" target="_blank" style="color:#1d4ed8;text-decoration:none;">${runUrl}</a>` : '(n/a)')}
+              ${row('Source ref:', process.env.SOURCE_REF)}
+              ${row('Version:',    process.env.VERSION)}
+              ${row('Folder:',     process.env.FOLDER_NAME)}
+              ${row('Project ID:', process.env.PROJECT_ID)}
+              ${row('Migrate:',    process.env.MIGRATE)}
+              ${row('CD Status:',  process.env.CD_STATUS)}
+              ${row('Overall:',    overall)}
+            </table>`;
 
-        const outPath = './email/final-email.html';
-        fs.mkdirSync(path.dirname(outPath), { recursive: true });
-        fs.writeFileSync(outPath, finalHtml, 'utf8');
+          const button = `
+            <p style="margin-top:20px;">
+                <a href="${server}/${repo}/actions/runs/${runId}"
+                  style="background-color:#007acc;color:white;padding:10px 15px;text-decoration:none;border-radius:5px;">
+                  View Workflow Details
+                </a>
+            </p>`;
 
-        core.setOutput('html_path', outPath);  // path to file
-        core.setOutput('subject', subject);
-        core.setOutput('overall', overall);
+          const finalHtml = `<!doctype html><html>
+            <body style="font-family:Arial,Helvetica,sans-serif;margin:20px;color:#0f172a;">
+              ${statusHtml}
+              ${bodyInner}
+              ${button}
+            </body></html>`;
 
+          const outPath = './email/final-email.html';
+          fs.mkdirSync(path.dirname(outPath), { recursive: true });
+          fs.writeFileSync(outPath, finalHtml, 'utf8');
+
+          core.setOutput('html', outPath);
+          core.setOutput('subject', subject);
+          core.setOutput('overall', overall);
