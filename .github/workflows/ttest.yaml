@@ -49,7 +49,7 @@ jobs:
         with:
           publishable:        false
           target_env:         "test"
-          test_html_path:     ${{ steps.test_html.outputs.html}}                         # no test table for this dry run
+          test_html_path:     ${{ steps.test_html.outputs.out_path}}                         # no test table for this dry run
           analysis_html_path: "N/A"
           source_ref:         refs/heads/test
           version:            0.0.0-test

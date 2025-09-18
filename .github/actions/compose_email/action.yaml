@@ -91,7 +91,7 @@ runs:
             bodyPath = okFile(analysisPathIn) ? analysisPathIn : '';
             if (!bodyPath) fallbackMsg = '<p>No analysis results found.</p>';
           } else {
-            fallbackMsg = '<p>No content for this environment.</p>';
+            fallbackMsg = '<p>No content</p>';
           }
 
           if (!bodyPath) {
