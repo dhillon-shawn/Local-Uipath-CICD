@@ -39,7 +39,7 @@ inputs:
 outputs:
   html:
     description: "Composed full HTML email."
-    value: ${{ steps.load_final_html.outputs.html }}
+    value: ${{ steps.make.outputs.html_path }}
   subject:
     description: "Computed subject."
     value: ${{ steps.make.outputs.subject }}
@@ -178,15 +178,3 @@ runs:
         core.setOutput('subject', subject);
         core.setOutput('overall', overall);
 
-  - name: Load final email HTML
-    id: load_final_html
-    shell: bash
-    run: |
-      set -euo pipefail
-      file="${{ steps.make.outputs.html_path }}"
-      delim="HTML_$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
-      {
-        echo "html<<$delim"
-        cat "$file"
-        printf '\n%s\n' "$delim"
-      } >> "$GITHUB_OUTPUT"
