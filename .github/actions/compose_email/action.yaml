@@ -38,7 +38,7 @@ inputs:
 
 outputs:
   html:
-    description: "Path to composed full HTML email."
+    description: "Composed full HTML email (file path)."
     value: ${{ steps.make.outputs.html }}
   subject:
     description: "Computed subject."
@@ -83,7 +83,7 @@ runs:
           const testPathIn = process.env.TEST_PATH_IN || defTest;
           const analysisPathIn = process.env.ANALYSIS_PATH_IN || defAnalysis;
 
-          // Choose body file based on env + publishable
+          // Choose body path
           let bodyPath = '';
           let fallbackMsg = '';
           if (env === 'test' && publishable) {
@@ -96,7 +96,7 @@ runs:
             fallbackMsg = '<p>No content for this environment.</p>';
           }
 
-          // Create fallback minimal HTML file if needed
+          // Fallback file if needed
           if (!bodyPath) {
             const fb = env === 'test' ? defTest : defAnalysis;
             fs.mkdirSync(path.dirname(fb), { recursive: true });
@@ -104,18 +104,17 @@ runs:
             bodyPath = fb;
           }
 
-          // Extract inner <body> safely
+          // Extract inner body safely
           const extractBody = (html) => {
             const m = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(html);
             return (m ? m[1] : html);
           };
           let bodyInner = extractBody(fs.readFileSync(bodyPath, 'utf8'));
-          // Strip stray wrappers/scripts that confuse some email clients
           bodyInner = bodyInner
             .replace(/<\/?(html|head|body)[^>]*>/gi, '')
             .replace(/<script[\s\S]*?<\/script>/gi, '');
 
-          // Build run link + status
+          // Build metadata
           const server = (process.env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/+$/,'');
           const repo   = process.env.GITHUB_REPOSITORY || '';
           const runId  = process.env.GITHUB_RUN_ID || '';
@@ -132,6 +131,7 @@ runs:
                                 (env === 'dev')  ? 'UiPath Analysis Report' : 'UiPath Report';
           const subject = subjectPrefix + ' - ' + repo + ' #' + (process.env.GITHUB_RUN_NUMBER || '');
 
+          // Simple table builder
           const row = (k, v) => v ? (
             '<tr>' +
               '<td style="padding:8px;border:1px solid #ddd;"><strong>' + k + '</strong></td>' +
@@ -155,15 +155,14 @@ runs:
 
           const button = runUrl
             ? ('<p style="margin-top:20px;">' +
-                 '<a href="' + runUrl + '" ' +
-                   'style="background-color:#007acc;color:white;padding:10px 15px;text-decoration:none;border-radius:5px;">' +
+                 '<a href="' + runUrl + '" style="background-color:#007acc;color:#ffffff;padding:10px 15px;text-decoration:none;border-radius:5px;display:inline-block;">' +
                    'View Workflow Details' +
                  '</a>' +
                '</p>')
             : '';
 
-          // Build final HTML WITHOUT template literals (safer for arbitrary content)
-          const finalHtml = [
+          // Compose final HTML (array join; no template literals)
+          let finalHtml = [
             '<!doctype html><html>',
             '<body style="font-family:Arial,Helvetica,sans-serif;margin:20px;color:#0f172a;">',
             statusHtml,
@@ -171,6 +170,9 @@ runs:
             button,
             '</body></html>'
           ].join('');
+
+          // Hard-wrap long lines to avoid truncation in mail transports
+          finalHtml = finalHtml.replace(/(.{1,800})(?=.)/g, '$1\r\n');
 
           const outPath = './email/final-email.html';
           fs.mkdirSync(path.dirname(outPath), { recursive: true });
