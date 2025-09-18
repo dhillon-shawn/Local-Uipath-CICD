@@ -3,7 +3,6 @@ description: "Reads analyze.json (utf-8/utf-16) and renders a clean HTML report"
 
 inputs:
   json_path: { required: true, description: "Path to analyze.json" }
-  out_path:  { required: false, default: "./email/analysis-report.html", description: "Path to HTML results" }
 
 outputs:
   html:
