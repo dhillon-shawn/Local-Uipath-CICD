@@ -7,7 +7,7 @@ inputs:
   target_env:
     description: "Target environment: 'test' or 'dev'."
     required: false
-  test_html:
+  test_html_path:
     description: "Path to TestResults.html if rendered (formatter output)."
     required: false
     default: "./email/TestResults.html"
