@@ -105,7 +105,7 @@ runs:
             const m = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(html);
             return (m ? m[1] : html);
           };
-          const bodyInner = extractBody(fs.readFileSync(bodyPath, 'utf16'));
+          const bodyInner = extractBody(fs.readFileSync(bodyPath, 'utf8'));
 
           // Build run link
           const server = (process.env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/+$/,'');
