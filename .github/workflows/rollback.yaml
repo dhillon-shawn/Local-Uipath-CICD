@@ -1,167 +1,28 @@
-name: Rollback last merge to hotfix
-
-on:
-  workflow_dispatch:
-    inputs:
-      base_branch:
-        description: 'Branch to rollback from (defaults to repo default branch)'
-        required: false
-      hotfix_prefix:
-        description: 'Prefix for the hotfix branch name'
-        required: false
-        default: 'hotfix/revert'
-      create_pr:
-        description: 'Open a draft PR back to the base branch'
-        required: false
-        default: 'yes'
-        type: choice
-        options: ['yes', 'no']
+name: Revert latest merge
+on: workflow_dispatch
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
-  rollback:
+  revert-merge:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Determine base branch
-        id: base
-        shell: bash
-        run: |
-          set -euo pipefail
-          INPUT_BASE="${{ github.event.inputs.base_branch }}"
-          if [ -z "${INPUT_BASE}" ]; then
-            # Prefer repo default branch from event context; fall back to remote HEAD
-            BASE="${{ github.event.repository.default_branch }}"
-            if [ -z "${BASE}" ]; then
-              BASE="$(git remote show origin | sed -n '/HEAD branch/s/.*: //p')"
-            fi
-          else
-            BASE="${INPUT_BASE}"
-          fi
-          if [ -z "${BASE}" ]; then
-            echo "::error::Could not determine base branch."
-            exit 1
-          fi
-          echo "base=${BASE}" >> "$GITHUB_OUTPUT"
-
-      - name: Sync and checkout base branch locally
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch origin "${{ steps.base.outputs.base }}"
-          git checkout -B "${{ steps.base.outputs.base }}" "origin/${{ steps.base.outputs.base }}"
-          git status -sb
-
-      - name: Find target commit (latest merge on first-parent)
-        id: target
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Latest merge reachable from HEAD on the first-parent chain
-          LAST_MERGE="$(git rev-list --first-parent --merges -n 1 HEAD || true)"
-          if [ -n "${LAST_MERGE}" ]; then
-            TARGET="${LAST_MERGE}"
-          else
-            # Fallback (e.g., repos that only squash/fast-forward): use HEAD
-            TARGET="$(git rev-parse HEAD)"
-          fi
-          SHORT="$(git rev-parse --short "${TARGET}")"
-          PARENTS_COUNT=$(git rev-list --parents -n 1 "${TARGET}" | wc -w | awk '{print $1}')
-          # Note: rev-list prints "<sha> <p1> <p2> ..." so >2 means it's a merge
-          if [ "${PARENTS_COUNT}" -gt 2 ]; then
-            IS_MERGE=true
-          else
-            IS_MERGE=false
-          fi
-          echo "sha=${TARGET}" >> "$GITHUB_OUTPUT"
-          echo "short=${SHORT}" >> "$GITHUB_OUTPUT"
-          echo "is_merge=${IS_MERGE}" >> "$GITHUB_OUTPUT"
-
-      - name: Create hotfix branch
-        id: branch
-        shell: bash
-        run: |
-          set -euo pipefail
-          PREFIX="${{ github.event.inputs.hotfix_prefix }}"
-          [ -z "${PREFIX}" ] && PREFIX="hotfix/revert"
-          TS="$(date -u +'%Y%m%d-%H%M%S')"
-          BRANCH="${PREFIX}-${{ steps.target.outputs.short }}-${TS}"
-          git checkout -b "${BRANCH}" "${{ steps.base.outputs.base }}"
-          echo "name=${BRANCH}" >> "$GITHUB_OUTPUT"
-
-      - name: Configure Git identity
-        shell: bash
+      - name: Configure git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Revert target commit (merge uses -m 1)
-        id: revert
-        shell: bash
+      - name: Revert most recent merge commit
         run: |
           set -euo pipefail
-          TARGET="${{ steps.target.outputs.sha }}"
-          if [ "${{ steps.target.outputs.is_merge }}" = "true" ]; then
-            set +e
-            git revert -m 1 "${TARGET}" --no-edit
-            status=$?
-            set -e
-          else
-            set +e
-            git revert "${TARGET}" --no-edit
-            status=$?
-            set -e
+          MERGE_SHA=$(git rev-list --merges -n 1 HEAD || true)
+          if [ -z "$MERGE_SHA" ]; then
+            echo "No merge commits found on this branch."
+            exit 1
           fi
-
-          if [ "$status" -ne 0 ]; then
-            echo "conflicts=true" >> "$GITHUB_OUTPUT"
-            echo "::warning::Revert encountered conflicts; falling back to pre-merge base for hotfix branch."
-            # Safely abort revert and reset the branch to the merge's first parent (pre-merge state)
-            git revert --abort || true
-            if [ "${{ steps.target.outputs.is_merge }}" = "true" ]; then
-              P1="$(git rev-parse "${TARGET}^1")"
-              git checkout -B "${{ steps.branch.outputs.name }}" "${P1}"
-            else
-              # If it wasn't a merge and still conflicted, just base off the parent of HEAD
-              P1="$(git rev-parse "${TARGET}^1")"
-              git checkout -B "${{ steps.branch.outputs.name }}" "${P1}"
-            fi
-          else
-            echo "conflicts=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Push hotfix branch
-        shell: bash
-        run: |
-          set -euo pipefail
-          git push --set-upstream origin "${{ steps.branch.outputs.name }}"
-
-      - name: Open draft PR (optional)
-        if: ${{ github.event.inputs.create_pr == 'yes' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          BASE="${{ steps.base.outputs.base }}"
-          HEAD="${{ steps.branch.outputs.name }}"
-          TITLE="Hotfix: rollback ${BASE} at ${{ steps.target.outputs.short }}"
-          BODY="$(cat <<'EOF'
-          This branch was created automatically to roll back the latest change on the base branch.
-
-          **Details**
-          - Base branch: `${BASE}`
-          - Target commit: `${{ steps.target.outputs.sha }}`
-          - Strategy: revert (merge uses `-m 1` on first-parent). If the revert conflicted, the branch was reset to the merge’s first parent for a clean hotfix starting point.
-
-          Review this branch, make any fixes, and merge when ready.
-          EOF
-          )"
-          # Create as a draft; if one already exists, this will error harmlessly
-          gh pr create --title "$TITLE" --body "$BODY" --base "$BASE" --head "$HEAD" --draft || true
+          echo "Reverting merge $MERGE_SHA"
+          git revert -m 1 --no-edit "$MERGE_SHA"
+          git push origin HEAD

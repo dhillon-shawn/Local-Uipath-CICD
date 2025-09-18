@@ -1,0 +1,199 @@
+name: Test Analyzer Email
+
+on:
+  push:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Write analyzer fixture JSON
+        run: |
+          mkdir -p results
+          cat > results/analyze.json <<'JSON'
+          [
+            {
+              "ErrorCode": "ST-ANA-003",
+              "Description": "Expand to see details",
+              "RuleName": "Project Workflow Count",
+              "FilePath": "project.json",
+              "ActivityId": null,
+              "ActivityDisplayName": null,
+              "WorkflowDisplayName": null,
+              "Item": null,
+              "ErrorSeverity": 3,
+              "Recommendation": "Project workflow count:\r\n* Totals: 1 Folders and 1 workflows\r\n",
+              "DocumentationLink": "https://docs.uipath.com/en/studio/standalone/2025.10/user-guide/st-ana-003"
+            },
+            {
+              "ErrorCode": "ST-ANA-009",
+              "Description": "Expand to see details",
+              "RuleName": "File Activities Stats",
+              "FilePath": "D:\\a\\t2\\t2\\Main.xaml",
+              "ActivityId": null,
+              "ActivityDisplayName": null,
+              "WorkflowDisplayName": null,
+              "Item": null,
+              "ErrorSeverity": 3,
+              "Recommendation": "Activities: 3",
+              "DocumentationLink": "https://docs.uipath.com/en/studio/standalone/2025.10/user-guide/st-ana-009"
+            },
+            {
+              "ErrorCode": "ST-MRD-002",
+              "Description": "Activity ConvertImage has a default name.",
+              "RuleName": "Activity Name Defaults",
+              "FilePath": "D:\\a\\t2\\t2\\Main.xaml",
+              "ActivityId": { "Id": null, "IdRef": "ConvertImage_1" },
+              "ActivityDisplayName": "ConvertImage",
+              "WorkflowDisplayName": null,
+              "Item": null,
+              "ErrorSeverity": 2,
+              "Recommendation": "Check if it could be easier to understand what the activity does by adding a more descriptive title. [Learn more.](https://docs.uipath.com/en/studio/standalone/2025.10/user-guide/st-mrd-002)",
+              "DocumentationLink": "https://docs.uipath.com/en/studio/standalone/2025.10/user-guide/st-mrd-002"
+            },
+            {
+              "ErrorCode": "ST-MRD-002",
+              "Description": "Activity Load Image has a default name.",
+              "RuleName": "Activity Name Defaults",
+              "FilePath": "D:\\a\\t2\\t2\\Main.xaml",
+              "ActivityId": { "Id": null, "IdRef": "LoadImage_1" },
+              "ActivityDisplayName": "Load Image",
+              "WorkflowDisplayName": null,
+              "Item": null,
+              "ErrorSeverity": 2,
+              "Recommendation": "Check if it could be easier to understand what the activity does by adding a more descriptive title. [Learn more.](https://docs.uipath.com/en/studio/standalone/2025.10/user-guide/st-mrd-002)",
+              "DocumentationLink": "https://docs.uipath.com/en/studio/standalone/2025.10/user-guide/st-mrd-002"
+            },
+            {
+              "ErrorCode": "UI-ANA-018",
+              "Description": "OCR and Image activities detected.",
+              "RuleName": "List OCR/Image Activities",
+              "FilePath": null,
+              "ActivityId": null,
+              "ActivityDisplayName": null,
+              "WorkflowDisplayName": null,
+              "Item": null,
+              "ErrorSeverity": 2,
+              "Recommendation": "Occurrences of OCR or Find Image activities:\r\n* Main\r\n** Load Image\r\n [Learn more.](https://docs.uipath.com/activities/lang-en/docs/ui-ana-018)",
+              "DocumentationLink": "https://docs.uipath.com/activities/lang-en/docs/ui-ana-018"
+            },
+            {
+              "ErrorCode": "ST-MRD-002",
+              "Description": "Activity Log Message has a default name.",
+              "RuleName": "Activity Name Defaults",
+              "FilePath": "D:\\a\\t2\\t2\\Main.xaml",
+              "ActivityId": { "Id": null, "IdRef": "LogMessage_1" },
+              "ActivityDisplayName": "Log Message",
+              "WorkflowDisplayName": null,
+              "Item": null,
+              "ErrorSeverity": 2,
+              "Recommendation": "Check if it could be easier to understand what the activity does by adding a more descriptive title. [Learn more.](https://docs.uipath.com/en/studio/standalone/2025.10/user-guide/st-mrd-002)",
+              "DocumentationLink": "https://docs.uipath.com/en/studio/standalone/2025.10/user-guide/st-mrd-002"
+            },
+            {
+              "ErrorCode": "ST-USG-009",
+              "Description": "Variable variable1 is not used.",
+              "RuleName": "Unused Variables",
+              "FilePath": "D:\\a\\t2\\t2\\Main.xaml",
+              "ActivityId": { "Id": null, "IdRef": "Sequence_1" },
+              "ActivityDisplayName": "Main Sequence",
+              "WorkflowDisplayName": null,
+              "Item": { "Name": "variable1", "Type": 2 },
+              "ErrorSeverity": 2,
+              "Recommendation": "Remove variables that are not used. [Learn more.](https://docs.uipath.com/en/studio/standalone/2025.10/user-guide/st-usg-009)",
+              "DocumentationLink": "https://docs.uipath.com/en/studio/standalone/2025.10/user-guide/st-usg-009"
+            },
+            {
+              "ErrorCode": "ST-USG-009",
+              "Description": "Variable variable2 is not used.",
+              "RuleName": "Unused Variables",
+              "FilePath": "D:\\a\\t2\\t2\\Main.xaml",
+              "ActivityId": { "Id": null, "IdRef": "Sequence_1" },
+              "ActivityDisplayName": "Main Sequence",
+              "WorkflowDisplayName": null,
+              "Item": { "Name": "variable2", "Type": 2 },
+              "ErrorSeverity": 2,
+              "Recommendation": "Remove variables that are not used. [Learn more.](https://docs.uipath.com/en/studio/standalone/2025.10/user-guide/st-usg-009)",
+              "DocumentationLink": "https://docs.uipath.com/en/studio/standalone/2025.10/user-guide/st-usg-009"
+            },
+            {
+              "ErrorCode": "ST-USG-009",
+              "Description": "Variable variable3 is not used.",
+              "RuleName": "Unused Variables",
+              "FilePath": "D:\\a\\t2\\t2\\Main.xaml",
+              "ActivityId": { "Id": null, "IdRef": "Sequence_1" },
+              "ActivityDisplayName": "Main Sequence",
+              "WorkflowDisplayName": null,
+              "Item": { "Name": "variable3", "Type": 2 },
+              "ErrorSeverity": 2,
+              "Recommendation": "Remove variables that are not used. [Learn more.](https://docs.uipath.com/en/studio/standalone/2025.10/user-guide/st-usg-009)",
+              "DocumentationLink": "https://docs.uipath.com/en/studio/standalone/2025.10/user-guide/st-usg-009"
+            }
+          ]
+          JSON
+          echo "Fixture written to results/analyze.json"
+          
+      - name: Ensure email directory
+        run: mkdir -p ./email
+      # Build the pretty HTML (your composite)
+      - name: Analysis → HTML
+        id: analysis_html
+        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/analysis_results@main
+        with:
+          json_path: ./results/analyze.json
+          out_path:  ./email/analysis-report.html
+
+
+      - name: print
+        run: cat ${{ steps.analysis_html.outputs.html_path }}
+
+      # Compose final email HTML (your composite) – must output html_path + subject
+      - name: Compose final email (table + body + subject)
+        id: compose
+        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/compose_email@main
+        with:
+          publishable:        false
+          target_env:         "dev"
+          test_html_path:     "N/A"                         # no test table for this dry run
+          analysis_html_path: ${{ steps.analysis_html.outputs.html_path }}
+          source_ref:         refs/heads/test
+          version:            0.0.0-test
+          folder_name:        Demo
+          project_id:         DEMO
+          migrate:            false
+          cd_status:          success
+
+      # Safety check: show where the final HTML lives and preview the first lines
+      - name: Debug composed HTML
+        run: |
+          echo "Final path: ${{ steps.compose.outputs.html }}"
+          head -n 30 "${{ steps.compose.outputs.html }}" || true
+          echo ${{ steps.compose.outputs.html }}
+
+      # Send – IMPORTANT: point html_body to the FILE
+      - name: Send Email (SMTP)
+        if: always()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject:  ${{ steps.compose.outputs.subject }}
+          to:       "dhillon.shawns@gmail.com"
+          from:     "UiPath CI/CD <uipath-cicd@noreply.com>"
+          html_body: file://${{ steps.compose.outputs.html }}
+          convert_markdown: false
+
+      # Also upload the HTML so you can inspect without email clients
+      - name: Upload HTML artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: analyzer-email-preview
+          path: |
+            ${{ steps.analysis_html.outputs.html_path }}
+            ${{ steps.compose.outputs.html }}
