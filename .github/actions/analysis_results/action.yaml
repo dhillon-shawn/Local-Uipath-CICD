@@ -119,7 +119,7 @@ runs:
                     </tr>
                   </thead>
                   <tbody>
-                    ${tbody || `<tr><td style="${css.td}" colspan="5">No results.</td></tr>`}
+                    ${tbody}
                   </tbody>
                 </table>
               </div>
