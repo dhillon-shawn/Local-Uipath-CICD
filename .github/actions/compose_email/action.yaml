@@ -60,8 +60,8 @@ runs:
     env:
       PUBLISHABLE:        ${{ inputs.publishable }}
       TARGET_ENV:         ${{ inputs.target_env }}
-      TEST_PATH_IN:       ${{ steps.load_html.outputs.html }}          # can be inline HTML OR a path
-      ANALYSIS_PATH_IN:   ${{ inputs.analysis_html_path }}             # can be inline HTML OR a path
+      TEST_PATH_IN:       ${{ steps.embed_report.outputs.html }}        # inline HTML from previous step
+      ANALYSIS_PATH_IN:   ${{ inputs.analysis_html_path }}              # can be inline HTML OR a path
       SOURCE_REF:         ${{ inputs.source_ref }}
       VERSION:            ${{ inputs.version }}
       FOLDER_NAME:        ${{ inputs.folder_name }}
@@ -76,7 +76,7 @@ runs:
         const okFile = (p) => {
           try { return !!p && fs.statSync(p).isFile() && fs.statSync(p).size > 0; } catch { return false; }
         };
-        const isInlineHtml = (s='') => /\<[^>]+>/.test(s) && /<\/(html|body|table|div|p|tr|h\d)>/i.test(s);
+        const isInlineHtml = (s='') => /<[^>]+>/.test(s) && /<\/(html|body|table|div|p|tr|h\d)>/i.test(s);
         const extractBody = (html='') => {
           const m = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(html);
           return m ? m[1] : html;
@@ -87,27 +87,16 @@ runs:
         const testIn     = process.env.TEST_PATH_IN || '';
         const analysisIn = process.env.ANALYSIS_PATH_IN || '';
 
-        // Choose source(s) by precedence:
-        // 1) TEST_PATH_IN (inline or file) if env=test & publishable, or if provided at all
-        // 2) ANALYSIS_PATH_IN (inline or file) if env=dev
-        // 3) fallback message
-        let bodyInner = '';
         let fallbackMsg = '<p>No content</p>';
         if (envLower === 'test') fallbackMsg = '<p>No test results found.</p>';
         if (envLower === 'dev')  fallbackMsg = '<p>No analysis results found.</p>';
 
+        // Precedence: TEST input (if provided) -> ANALYSIS (if provided) -> fallback
         const trySources = [];
-
-        // Hard precedence: if TEST has value, try it first
         if (testIn) trySources.push({label:'TEST_PATH_IN', val:testIn});
+        if (analysisIn) trySources.push({label:'ANALYSIS_PATH_IN', val:analysisIn});
 
-        if (envLower === 'dev' && analysisIn) {
-          trySources.push({label:'ANALYSIS_PATH_IN', val:analysisIn});
-        } else if (!testIn && analysisIn) {
-          // if no test input provided but we have analysis, try it
-          trySources.push({label:'ANALYSIS_PATH_IN', val:analysisIn});
-        }
-
+        let bodyInner = '';
         for (const src of trySources) {
           if (isInlineHtml(src.val)) {
             bodyInner = extractBody(src.val);
@@ -124,16 +113,12 @@ runs:
               core.warning(`Failed to read ${src.val}: ${e.message}`);
             }
           } else {
-            core.info(`${src.label} is not a valid file path.`);
+            core.info(`${src.label} is not inline HTML and not a valid file path.`);
           }
         }
+        if (!bodyInner) bodyInner = fallbackMsg;
 
-        if (!bodyInner) {
-          core.info(`Falling back to message: ${fallbackMsg}`);
-          bodyInner = fallbackMsg;
-        }
-
-        // ---- status/header/subject ----
+        // Status/Subject
         const server = (process.env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/+$/,'');
         const repo   = process.env.GITHUB_REPOSITORY || '';
         const runId  = process.env.GITHUB_RUN_ID || '';
@@ -189,7 +174,19 @@ runs:
         fs.mkdirSync(path.dirname(outPath), { recursive: true });
         fs.writeFileSync(outPath, finalHtml, 'utf8');
 
-        core.setOutput('html', outPath);        // path to file
+        core.setOutput('html_path', outPath);  // path to file
         core.setOutput('subject', subject);
         core.setOutput('overall', overall);
 
+  - name: Load final email HTML
+    id: load_final_html
+    shell: bash
+    run: |
+      set -euo pipefail
+      file="${{ steps.make.outputs.html_path }}"
+      delim="HTML_$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
+      {
+        echo "html<<$delim"
+        cat "$file"
+        printf '\n%s\n' "$delim"
+      } >> "$GITHUB_OUTPUT"
