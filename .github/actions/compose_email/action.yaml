@@ -39,7 +39,7 @@ inputs:
 outputs:
   html:
     description: "Composed full HTML email."
-    value: ${{ steps.make.outputs.html }}
+    value: ${{ steps.load_final_html.outputs.html }}
   subject:
     description: "Computed subject."
     value: ${{ steps.make.outputs.subject }}
