@@ -3,6 +3,7 @@ name: Test Analyzer Email
 on:
   push:
 
+    
 jobs:
   run:
     runs-on: ubuntu-latest
