@@ -35,7 +35,10 @@ jobs:
           XML
           echo "Wrote $(wc -c < tmp/sample.xml) bytes to tmp/sample.xml"
 
-          
+      - name: verify
+        run: |
+          cat tmp/sample.xml
+
       - name: Test Results → HTML
         id: test_html
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/test_results@main
