@@ -95,9 +95,7 @@ runs:
 
           const when = new Date().toISOString();
 
-          const html = `<!doctype html>
-          <html>
-            <body style="${css.body}">
+          const html = `<!doctype html><html><body style="${css.body}">
               <h1 style="${css.h1}">UiPath Analyzer Report</h1>
               <p style="${css.sub}">Generated: ${esc(when)}</p>
 
@@ -123,8 +121,7 @@ runs:
                   </tbody>
                 </table>
               </div>
-            </body>
-          </html>`;
+            </body></html>`;
 
           fs.mkdirSync(path.dirname(outPath), { recursive: true });
           fs.writeFileSync(outPath, html, 'utf8');
