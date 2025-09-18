@@ -62,7 +62,7 @@ runs:
         delim=HTML_$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid)
         {
           echo "body<<$delim"
-          cat "${{ steps.embed_report.outputs.out_path }}"
+          cat "${{ inputs.test_html_path }}"
           echo "$delim"
         } >> "$GITHUB_OUTPUT"
 
