@@ -155,7 +155,7 @@ runs:
           const finalHtml = `<!doctype html><html>
             <body style="font-family:Arial,Helvetica,sans-serif;margin:20px;color:#0f172a;">
               ${statusHtml}
-              ${bodyPath}
+              ${bodyInner}
               ${button}
             </body></html>`;
 
