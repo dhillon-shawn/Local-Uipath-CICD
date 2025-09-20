@@ -170,197 +170,20 @@ runs:
       if: ${{ inputs.target_env == 'test' && inputs.publishable == 'true' && inputs.xml_path != '' }}
       shell: python
       run: |
-        from pathlib import Path
-        import xml.etree.ElementTree as ET
-        import html, re, datetime
+            from pathlib import Path
+            import sys, subprocess
 
-        XML_PATH = r"""${{ inputs.xml_path }}"""
-        OUT = Path("test.html")
-        OUT.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-input", "junit2html", "premailer"])
 
-        # -------- helpers --------
-        def esc(s): return html.escape("" if s is None else str(s))
-        def autolink(s: str) -> str:
-            e = esc(s)
-            return re.sub(r'https?://[^\s<>\]]+', lambda m: f'<a href="{esc(m.group(0))}" target="_blank" style="color:#1d4ed8;text-decoration:none;">{esc(m.group(0))}</a>', e)
-        def to_int(v, d=0):
-            try: return int(v)
-            except: return d
-        def to_float(v, d=0.0):
-            try: return float(v)
-            except: return d
-        def status_of(tc):
-            s = (tc.attrib.get("status") or "").strip()
-            if s: return s.capitalize()
-            if tc.find("failure") is not None: return "Failed"
-            if tc.find("error")   is not None: return "Error"
-            if tc.find("skipped") is not None: return "Skipped"
-            return "Passed"
-        def first_detail_node(tc):
-            for tag in ("failure","error","skipped"):
-                n = tc.find(tag)
-                if n is not None:
-                    msg = (n.attrib.get("message") or "").strip()
-                    txt = (n.text or "").strip()
-                    combined = (msg + ("\n" if msg and txt else "") + txt)
-                    return tag.capitalize(), combined
-            return "", ""
-        def sec(s):  # render seconds nicely
-            try:
-                x = float(s)
-                return f"{x:.3f}s" if x < 100 else f"{x:.1f}s"
-            except:
-                return esc(s)
+            xml = r"""${{ inputs.xml_path }}"""
+            out = Path("email/TestResults.html")
+            out.parent.mkdir(parents=True, exist_ok=True)
 
-        # -------- parse --------
-        root = ET.parse(XML_PATH).getroot()
-        suites = root.findall(".//testsuite") or ([root] if root.tag == "testsuite" else [])
-        all_cases = root.findall(".//testcase")
+            subprocess.check_call([sys.executable, "-m", "junit2htmlreport", xml, str(out)])
 
-        tot_tests = sum(to_int(s.attrib.get("tests")) for s in suites) or (len(all_cases) if all_cases else 0)
-        tot_fail  = sum(to_int(s.attrib.get("failures")) for s in suites)
-        tot_err   = sum(to_int(s.attrib.get("errors")) for s in suites)
-        tot_skip  = sum(to_int(s.attrib.get("skipped") or s.attrib.get("disabled")) for s in suites)
-        tot_time  = (sum(to_float(s.attrib.get("time")) for s in suites) or sum(to_float(tc.attrib.get("time")) for tc in all_cases))
-        if not tot_tests and all_cases:
-            tot_tests = len(all_cases)
-            for tc in all_cases:
-                if tc.find("skipped") is not None: tot_skip += 1
-                elif tc.find("failure") is not None: tot_fail += 1
-                elif tc.find("error")   is not None: tot_err  += 1
-        passed = max(tot_tests - tot_fail - tot_err - tot_skip, 0)
-
-        # -------- styles (inline) --------
-        BODY="font-family:Arial,Helvetica,sans-serif;margin:20px;color:#0f172a"
-        H1="margin:0 0 8px 0;font-size:20px"
-        H2="margin:20px 0 8px 0;font-size:18px"
-        H3="margin:16px 0 8px 0;font-size:16px"
-        SUB="color:#475569;font-size:12px;margin:0 0 16px 0"
-        INDEX_LINK="display:inline-block;margin:0 8px 8px 0;padding:6px 10px;border:1px solid #e5e7eb;border-radius:999px;text-decoration:none;color:#0f172a;background:#f8fafc"
-        WRAP="overflow-x:auto"
-        TAB="border-collapse:separate;border-spacing:0;width:100%;min-width:900px;border:1px solid #e5e7eb"
-        TH="background:#f8fafc;border-bottom:1px solid #e5e7eb;text-align:left;padding:8px 10px;font-weight:700;font-size:13px;white-space:nowrap"
-        TD="border-top:1px solid #e5e7eb;padding:8px 10px;vertical-align:top;font-size:13px"
-        TDN=TD+";white-space:nowrap"
-        PRE="background:#0b1020;color:#e6edf3;padding:12px;border-radius:8px;line-height:1.35;font-size:12px;white-space:pre-wrap"
-        PILL="border:1px solid #e5e7eb;border-radius:999px;padding:6px 10px;font-weight:700"
-        OK=PILL+";background:#dcfce7;color:#166534;border-color:#bbf7d0"
-        FAIL=PILL+";background:#fee2e2;color:#991b1b;border-color:#fecaca"
-        ERR=PILL+";background:#fee2e2;color:#991b1b;border-color:#fecaca"
-        SKP=PILL+";background:#ffedd5;color:#92400e;border-color:#fed7aa"
-        TIM=PILL+";background:#e0f2fe;color:#075985;border-color:#bae6fd"
-
-        def pill(text, cls): return f'<span style="{cls}">{esc(text)}</span>'
-        def pill_status(s):
-            s1=(s or "").strip().capitalize()
-            cls=TIM
-            if s1=="Passed": cls=OK
-            elif s1=="Failed": cls=FAIL
-            elif s1=="Error": cls=ERR
-            elif s1=="Skipped": cls=SKP
-            return pill(s1, cls)
-
-        # -------- summary --------
-        when = datetime.datetime.utcnow().isoformat(timespec="seconds")+"Z"
-        summary = (
-          f'<h1 style="{H1}">JUnit Test Results</h1>'
-          f'<p style="{SUB}">Generated: {esc(when)}</p>'
-          f'<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 16px 0">'
-          f'{pill(f"✅ Passed: {passed}", OK)}'
-          f'{pill(f"❌ Failures: {tot_fail}", FAIL)}'
-          f'{pill(f"🧨 Errors: {tot_err}", ERR)}'
-          f'{pill(f"⚠️ Skipped: {tot_skip}", SKP)}'
-          f'{pill(f"⏱ Time: {tot_time:.2f}s", TIM)}'
-          f'</div>'
-        )
-
-        # -------- suite index --------
-        index_links=[]
-        for idx,s in enumerate(suites,1):
-            name = s.attrib.get("name","")
-            index_links.append(f'<a href="#suite-{idx}" style="{INDEX_LINK}">{esc(name or f"Suite {idx}")}</a>')
-        index_block = f"<div>{''.join(index_links)}</div>" if index_links else ""
-
-        # -------- per-suite sections (junit2html-like layout) --------
-        suite_html=[]
-        for idx, s in enumerate(suites, 1):
-            sname = s.attrib.get("name","") or f"Suite {idx}"
-            scases = s.findall("./testcase")  # direct children (typical)
-            # Tests table
-            rows=[]
-            for tc in scases:
-                st = status_of(tc)
-                cls = tc.attrib.get("classname","")
-                nm  = tc.attrib.get("name","")
-                tm  = sec(tc.attrib.get("time",""))
-                tag,msg = first_detail_node(tc)
-                msg_short = msg.splitlines()[0] if msg else ""
-                rows.append(
-                  f"<tr>"
-                  f"<td style='{TDN}'>{pill_status(st)}</td>"
-                  f"<td style='{TD}'>{esc(cls)}</td>"
-                  f"<td style='{TD}'>{esc(nm)}</td>"
-                  f"<td style='{TDN}'>{esc(tm)}</td>"
-                  f"<td style='{TD}'>{esc(msg_short)}</td>"
-                  f"</tr>"
-                )
-                # like junit2html: show full failure/error/skipped text right under the row if present
-                if msg:
-                    rows.append(
-                      f"<tr><td style='{TD}' colspan='5'>"
-                      f"<div><b>{esc(tag)}</b></div>"
-                      f"<pre style='{PRE}'>{autolink(msg)}</pre>"
-                      f"</td></tr>"
-                    )
-                # testcase stdout/stderr
-                t_out = tc.findtext("system-out")
-                if t_out is not None:
-                    rows.append(f"<tr><td style='{TD}' colspan='5'><div><b>System out</b></div><pre style='{PRE}'>{autolink(t_out)}</pre></td></tr>")
-                t_err = tc.findtext("system-err")
-                if t_err is not None:
-                    rows.append(f"<tr><td style='{TD}' colspan='5'><div><b>System err</b></div><pre style='{PRE}'>{autolink(t_err)}</pre></td></tr>")
-
-            table = (
-              f"<div style='{WRAP}'>"
-              f"<table role='table' aria-label='Tests' style='{TAB}'>"
-              f"<thead><tr>"
-              f"<th style='{TH}'>Result</th><th style='{TH}'>Class</th><th style='{TH}'>Name</th><th style='{TH}'>Time</th><th style='{TH}'>Message</th>"
-              f"</tr></thead>"
-              f"<tbody>{''.join(rows) if rows else f\"<tr><td style='{TD}' colspan='5'>(no testcases)</td></tr>\"}</tbody>"
-              f"</table></div>"
-            )
-
-            # suite stdout/stderr (placed after table, like junit2html)
-            s_out = s.findtext("system-out")
-            s_err = s.findtext("system-err")
-            sys_blocks = []
-            if s_out is not None:
-                sys_blocks.append(f"<h3 style='{H3}'>System out</h3><pre style='{PRE}'>{autolink(s_out)}</pre>")
-            if s_err is not None:
-                sys_blocks.append(f"<h3 style='{H3}'>System err</h3><pre style='{PRE}'>{autolink(s_err)}</pre>")
-
-            suite_html.append(
-              f"<a id='suite-{idx}'></a>"
-              f"<h2 style='{H2}'>{esc(sname)}</h2>"
-              f"{table}"
-              f"{''.join(sys_blocks)}"
-            )
-
-        suites_block = "".join(suite_html) or "<p>No suites.</p>"
-
-        # -------- write --------
-        html_doc = f"""<!doctype html>
-        <html>
-          <head><meta charset="utf-8"></head>
-          <body style="{BODY}">
-            {summary}
-            {index_block}
-            {suites_block}
-          </body>
-        </html>"""
-        OUT.write_text(html_doc, encoding="utf-8")
-        print(f"Wrote {OUT}")
-
+            from premailer import transform
+            html = out.read_text(encoding="utf-8").replace("Generated by junit2html", "")
+            out.write_text(transform(html, remove_classes=False), encoding="utf-8")
 
 
 
