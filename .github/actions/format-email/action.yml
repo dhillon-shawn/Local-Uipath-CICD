@@ -176,7 +176,7 @@ runs:
             subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-input", "junit2html", "premailer"])
 
             xml = r"""${{ inputs.xml_path }}"""
-            out = Path("email/TestResults.html")
+            out = Path("test.html")
             out.parent.mkdir(parents=True, exist_ok=True)
 
             subprocess.check_call([sys.executable, "-m", "junit2htmlreport", xml, str(out)])
