@@ -86,7 +86,7 @@ runs:
             3: { name:'Info',    icon:'ℹ️', row:'#eff6ff' },
           };
           
-          const stripLearnMore = (s) => String(s || '')
+          const stripLink = (s) => String(s || '')
             .replace(/\s*\[learn more\.?\]\([^)]+\)/gi, '')          
             .replace(/\s*<a\b[^>]*>\s*learn more\.?\s*<\/a>/gi, ''); 
             
@@ -98,7 +98,7 @@ runs:
             rule: String(x.RuleName ?? ''),
             activity: String(x.ActivityDisplayName ?? ''),
             desc: String(x.Description ?? ''),
-            rec: stripLearnMore(x.Recommendation), 
+            rec: stripLink(x.Recommendation), 
           }));
           const totals = { 1:0, 2:0, 3:0 }; rows.forEach(r => totals[r.sev] = (totals[r.sev]||0)+1);
           rows.sort((a,b) => (a.sev - b.sev) || a.rule.localeCompare(b.rule));
