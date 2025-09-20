@@ -73,7 +73,7 @@ jobs:
     outputs:
       version: ${{ steps.compute.outputs.version }}
     steps:
-      - name: Checkout exact source ref 
+      - name: Checkout exact source ref
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.source_ref }}
@@ -383,7 +383,7 @@ jobs:
   send:
     needs: [setup, CLI, DEPLOY]
     runs-on: windows-latest
-    if: always()
+    if: ${{ always() && !cancelled() }}
     steps:
 
       - name: Download results artifact
