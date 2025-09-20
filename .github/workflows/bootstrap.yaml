@@ -86,16 +86,20 @@ jobs:
             cp -r "$GITHUB_WORKSPACE/templates/PRs/PULL_REQUEST_TEMPLATE" .github/
             cp "$GITHUB_WORKSPACE/templates/CICD.yml"                     .github/workflows/
 
+            # NEW: add root files
+            cp "$GITHUB_WORKSPACE/templates/.gitignore"                   .
+            cp "$GITHUB_WORKSPACE/templates/nuget.config"                 .
 
-            git add .github
-            if ! git diff --cached --quiet -- .github; then
-              git commit -m "update .github on ${default_branch} [skip cicd]"
+            # Stage and commit only if .github/.gitignore/nuget.config changed
+            git add .github .gitignore nuget.config
+            if ! git diff --cached --quiet -- .github .gitignore nuget.config; then
+              git commit -m "update .github, .gitignore, nuget.config on ${default_branch} [skip cicd]"
               if ! git push origin "${default_branch}"; then
                 echo "::notice:: push to ${default_branch} blocked (protected?) – continuing."
               fi
             else
               git reset -q
-              echo "No .github changes on ${default_branch}."
+              echo "No .github/.gitignore/nuget.config changes on ${default_branch}."
             fi
 
             # -------------------------
@@ -116,7 +120,7 @@ jobs:
 
             DEFAULT_SRC="origin/${default_branch}"
             DEFAULT_SHA="$(git rev-parse ${DEFAULT_SRC})"
-            
+
             if [[ -f "./project.json" ]]; then
               PID="$(jq -er '.name' ./project.json)"
               echo "PID=$PID" >> "$GITHUB_ENV"
@@ -124,10 +128,10 @@ jobs:
             fi
 
             # -------------------------
-            # Ensure non-prod exists, rebase onto main, overlay ONLY .github, push
+            # Ensure non-prod exists, rebase onto main, overlay ONLY .github, .gitignore, nuget.config, push
             # -------------------------
 
-            # Fetch refs
+            # Fetch refs (redundant-safe)
             git fetch --prune --no-tags origin \
               "+refs/heads/${default_branch}:refs/remotes/origin/${default_branch}"
             git fetch --prune --no-tags origin \
@@ -153,19 +157,21 @@ jobs:
             # Rebase non-prod onto main (keep dev work; ensures “not behind”)
             git rebase --rebase-merges "${DEFAULT_SRC}"
 
-            # Overlay ONLY .github from main (remove extras, then restore exact tree)
+            # Overlay ONLY .github, .gitignore, and nuget.config from main
+            # - remove existing ones first to ensure an exact overlay
             git rm -r --quiet --ignore-unmatch .github || true
-            git restore --source="${DEFAULT_SRC}" --staged --worktree -- .github
+            git rm --quiet --ignore-unmatch .gitignore nuget.config || true
+            git restore --source="${DEFAULT_SRC}" --staged --worktree -- .github .gitignore nuget.config
 
-            # Commit only if .github differs from HEAD
-            if ! git diff --quiet HEAD -- .github; then
+            # Commit only if any of these paths differ from HEAD
+            if ! git diff --quiet HEAD -- .github .gitignore nuget.config; then
               git commit -m "sync with ${default_branch} ($(git rev-parse --short ${DEFAULT_SRC})) [skip cicd]"
             fi
 
             # Publish (force since we rebased; also sets upstream)
             git push --force -u origin HEAD:"refs/heads/${non_branch}"
 
-            echo "::notice:: ${non_branch} is up to date with ${default_branch}; only .github was changed."
+            echo "::notice:: ${non_branch} is up to date with ${default_branch}; only .github, .gitignore, and nuget.config were changed."
 
 
       - name: protect non-prod
