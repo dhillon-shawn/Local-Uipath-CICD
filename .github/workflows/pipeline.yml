@@ -68,7 +68,7 @@ jobs:
                 echo "NOTES: ${{ steps.notes.outputs.release_text }}"
 
   CLI:
-    runs-on: [self-hosted,X64 ,Windows ,tosca-runner]
+    runs-on: windows-latest
     needs: [setup]
     outputs:
       version: ${{ steps.compute.outputs.version }}
@@ -305,7 +305,7 @@ jobs:
 
 
   DEPLOY:
-    runs-on: [self-hosted,Linux ,X64, wsi, aws ,akteaws ]
+    runs-on: ubuntu-latest
     needs: [setup, CLI   ]
     strategy:
       fail-fast: false
@@ -382,7 +382,7 @@ jobs:
 
   send:
     needs: [setup, CLI, DEPLOY]
-    runs-on: [self-hosted,X64 ,Windows ,tosca-runner]
+    runs-on: windows-latest
     if: always()
     steps:
 
