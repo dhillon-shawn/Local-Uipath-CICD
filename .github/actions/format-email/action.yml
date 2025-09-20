@@ -170,305 +170,247 @@ runs:
       if: ${{ inputs.target_env == 'test' && inputs.publishable == 'true' && inputs.xml_path != '' }}
       shell: python
       run: |
-            from pathlib import Path
-            import xml.etree.ElementTree as ET
-            import html, re, json, datetime
+        from pathlib import Path
+        import xml.etree.ElementTree as ET
+        import html, re, json, datetime
 
-            XML_PATH = r"""${{ inputs.xml_path }}"""
-            OUT = Path("test.html")
-            OUT.parent.mkdir(parents=True, exist_ok=True)
+        XML_PATH = r"""${{ inputs.xml_path }}"""
+        OUT = Path("test.html")
+        OUT.parent.mkdir(parents=True, exist_ok=True)
 
-            # ---------- helpers ----------
-            def i(v, d=0):
-                try: return int(v)
-                except: return d
-            def f(v, d=0.0):
-                try: return float(v)
-                except: return d
-            def esc(s): return html.escape("" if s is None else str(s))
-            def autolink(s: str) -> str:
-                e = esc(s)
-                return re.sub(r'https?://[^\s<>\]]+', lambda m: f'<a href="{esc(m.group(0))}" target="_blank" style="color:#1d4ed8;text-decoration:none;">{esc(m.group(0))}</a>', e)
+        # ---------------- helpers ----------------
+        def i(v, d=0):
+            try: return int(v)
+            except: return d
+        def f(v, d=0.0):
+            try: return float(v)
+            except: return d
+        def esc(s): return html.escape("" if s is None else str(s))
+        def autolink(s: str) -> str:
+            e = esc(s)
+            return re.sub(r'https?://[^\s<>\]]+', lambda m: f'<a href="{esc(m.group(0))}" target="_blank" style="color:#1d4ed8;text-decoration:none;">{esc(m.group(0))}</a>', e)
 
-            # Generic JSON detection: find balanced {...} / [...] outside of quotes and pretty-print each
-            def render_text_with_json(s: str, pre_style: str) -> str:
-                # If the entire text is JSON, just pretty print it once.
-                full = s.strip().strip('`')
-                try:
-                    obj = json.loads(full)
-                    return f"<pre style='{pre_style}'>{esc(json.dumps(obj, indent=2, ensure_ascii=False))}</pre>"
-                except Exception:
-                    pass
+        # Pretty-print any JSON found in a block of text.
+        # Strategy:
+        # 1) if whole text is JSON → pretty it.
+        # 2) otherwise, scan and pretty-print each *balanced* {...} / [...] JSON block,
+        #    leaving non-JSON parts as normal (URL-linked) text.
+        def render_text_with_json(text: str, pre_style: str) -> str:
+            t = text.strip().strip('`')
+            try:
+                obj = json.loads(t)
+                return f"<pre style='{pre_style}'>{esc(json.dumps(obj, indent=2, ensure_ascii=False))}</pre>"
+            except Exception:
+                pass
 
-                parts = []
-                n = len(s)
-                idx = 0
-                while idx < n:
-                    # find next potential JSON opener
-                    m = re.search(r'[\{\[]', s[idx:])
-                    if not m:
-                        parts.append(autolink(s[idx:]))
-                        break
-                    start = idx + m.start()
-                    opener = s[start]
-                    closer = '}' if opener == '{' else ']'
+            parts = []
+            s = text
+            n = len(s)
+            idx = 0
+            while idx < n:
+                m = re.search(r'[\{\[]', s[idx:])
+                if not m:
+                    parts.append(f"<pre style='{pre_style}'>{autolink(s[idx:])}</pre>")
+                    break
+                start = idx + m.start()
+                opener = s[start]
+                closer = '}' if opener == '{' else ']'
 
-                    # copy text before opener
-                    if start > idx:
-                        parts.append(autolink(s[idx:start]))
+                # emit text before opener
+                if start > idx:
+                    parts.append(f"<pre style='{pre_style}'>{autolink(s[idx:start])}</pre>")
 
-                    # scan forward to find matching closer with quote/escape handling
-                    j = start
-                    depth = 0
-                    in_str = False
-                    str_quote = ''
-                    escape = False
-                    while j < n:
-                        ch = s[j]
-                        if in_str:
-                            if escape:
-                                escape = False
-                            elif ch == '\\\\':
-                                escape = True
-                            elif ch == str_quote:
-                                in_str = False
-                        else:
-                            if ch in ('"', "'"):
-                                in_str = True
-                                str_quote = ch
-                            elif ch == opener:
-                                depth += 1
-                            elif ch == closer:
-                                depth -= 1
-                                if depth == 0:
-                                    # candidate JSON is s[start:j+1]
-                                    candidate = s[start:j+1]
-                                    try:
-                                        obj = json.loads(candidate)
-                                        parts.append(f"<pre style='{pre_style}'>{esc(json.dumps(obj, indent=2, ensure_ascii=False))}</pre>")
-                                        idx = j + 1
-                                        break
-                                    except Exception:
-                                        # not valid JSON; treat opener as plain text and continue searching
-                                        parts.append(autolink(s[start:start+1]))
-                                        idx = start + 1
-                                        break
-                        j += 1
+                # try to find matching close with quote-aware scan
+                j = start
+                depth = 0
+                in_str = False
+                q = ''
+                escp = False
+                matched = False
+                while j < n:
+                    ch = s[j]
+                    if in_str:
+                        if escp: escp = False
+                        elif ch == '\\\\': escp = True
+                        elif ch == q: in_str = False
                     else:
-                        # ran out without closing; treat rest as plain text
-                        parts.append(autolink(s[start:]))
-                        idx = n
-                return "".join(parts)
+                        if ch in ('"', "'"):
+                            in_str = True; q = ch
+                        elif ch == opener:
+                            depth += 1
+                        elif ch == closer:
+                            depth -= 1
+                            if depth == 0:
+                                cand = s[start:j+1]
+                                try:
+                                    obj = json.loads(cand)
+                                    parts.append(f"<pre style='{pre_style}'>{esc(json.dumps(obj, indent=2, ensure_ascii=False))}</pre>")
+                                    idx = j + 1
+                                    matched = True
+                                    break
+                                except Exception:
+                                    # not JSON; treat just the opener as plain text and continue
+                                    parts.append(f"<pre style='{pre_style}'>{autolink(s[start:start+1])}</pre>")
+                                    idx = start + 1
+                                    matched = True
+                                    break
+                    j += 1
+                if not matched:
+                    # no close found; rest is plain
+                    parts.append(f"<pre style='{pre_style}'>{autolink(s[start:])}</pre>")
+                    idx = n
+            return "".join(parts)
 
-            def status_of(tc):
-                s = (tc.attrib.get("status") or "").strip()
-                if s: return s
-                if tc.find("failure") is not None: return "Failed"
-                if tc.find("error")   is not None: return "Error"
-                if tc.find("skipped") is not None: return "Skipped"
-                return "Passed"
+        def status_of(tc):
+            s = (tc.attrib.get("status") or "").strip()
+            if s: return s
+            if tc.find("failure") is not None: return "Failed"
+            if tc.find("error")   is not None: return "Error"
+            if tc.find("skipped") is not None: return "Skipped"
+            return "Passed"
 
-            # ---------- parse XML (generic) ----------
-            root = ET.parse(XML_PATH).getroot()
-            suites = root.findall(".//testsuite") or ([root] if root.tag == "testsuite" else [])
-            all_cases = root.findall(".//testcase")
+        # ---------------- parse XML ----------------
+        root = ET.parse(XML_PATH).getroot()
+        suites = root.findall(".//testsuite") or ([root] if root.tag == "testsuite" else [])
+        all_cases = root.findall(".//testcase")
 
-            tot_tests = sum(i(s.attrib.get("tests")) for s in suites) or (len(all_cases) if all_cases else 0)
-            tot_fail  = sum(i(s.attrib.get("failures")) for s in suites)
-            tot_err   = sum(i(s.attrib.get("errors")) for s in suites)
-            tot_skip  = sum(i(s.attrib.get("skipped") or s.attrib.get("disabled")) for s in suites)
-            tot_cxl   = sum(i(s.attrib.get("cancelled")) for s in suites)
-            tot_time  = (sum(f(s.attrib.get("time")) for s in suites) or sum(f(tc.attrib.get("time")) for tc in all_cases))
-            if not tot_tests and all_cases:
-                tot_tests = len(all_cases)
-                for tc in all_cases:
-                    if tc.find("skipped") is not None: tot_skip += 1
-                    elif tc.find("failure") is not None: tot_fail += 1
-                    elif tc.find("error") is not None: tot_err += 1
-            passed = max(tot_tests - tot_fail - tot_err - tot_skip - tot_cxl, 0)
+        tot_tests = sum(i(s.attrib.get("tests")) for s in suites) or (len(all_cases) if all_cases else 0)
+        tot_fail  = sum(i(s.attrib.get("failures")) for s in suites)
+        tot_err   = sum(i(s.attrib.get("errors")) for s in suites)
+        tot_skip  = sum(i(s.attrib.get("skipped") or s.attrib.get("disabled")) for s in suites)
+        tot_cxl   = sum(i(s.attrib.get("cancelled")) for s in suites)
+        tot_time  = (sum(f(s.attrib.get("time")) for s in suites) or sum(f(tc.attrib.get("time")) for tc in all_cases))
+        if not tot_tests and all_cases:
+            tot_tests = len(all_cases)
+            for tc in all_cases:
+                if tc.find("skipped") is not None: tot_skip += 1
+                elif tc.find("failure") is not None: tot_fail += 1
+                elif tc.find("error") is not None: tot_err += 1
+        passed = max(tot_tests - tot_fail - tot_err - tot_skip - tot_cxl, 0)
 
-            # Associate suites → direct testcases + suite log
-            suite_sections = []
-            for s in suites:
-                scases = s.findall("./testcase")  # direct children are typical
-                meta = {
-                    "Name":      s.attrib.get("name",""),
-                    "Package":   s.attrib.get("package",""),
-                    "Hostname":  s.attrib.get("hostname",""),
-                    "ID":        s.attrib.get("id",""),
-                    "Timestamp": s.attrib.get("timestamp",""),
-                    "Tests":     s.attrib.get("tests",""),
-                    "Failures":  s.attrib.get("failures",""),
-                    "Errors":    s.attrib.get("errors",""),
-                    "Skipped":   s.attrib.get("skipped") or s.attrib.get("disabled",""),
-                    "Cancelled": s.attrib.get("cancelled",""),
-                    "Time":      s.attrib.get("time",""),
-                }
-                suite_sections.append((s, scases, meta, s.findtext("system-out") or ""))
+        # map each suite to its direct testcases and suite log
+        suite_sections = []
+        for s in suites:
+            suite_sections.append((
+                s,
+                s.findall("./testcase"),
+                s.findtext("system-out") or ""
+            ))
 
-            # ---------- inline style tokens ----------
-            BODY="font-family:Arial,Helvetica,sans-serif;margin:20px;color:#0f172a"
-            H1="margin:0 0 8px 0;font-size:20px"
-            H2="margin:20px 0 8px 0;font-size:18px"
-            H3="margin:12px 0 8px 0;font-size:16px"
-            SUB="color:#475569;font-size:12px;margin:0 0 16px 0"
-            WRAP="overflow-x:auto"
-            BOX="border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin:12px 0"
-            TAB="border-collapse:separate;border-spacing:0;width:100%;min-width:900px;border:1px solid #e5e7eb"
-            TH="background:#f8fafc;border-bottom:1px solid #e5e7eb;text-align:left;padding:8px 10px;font-weight:700;font-size:13px;white-space:nowrap"
-            TD="border-top:1px solid #e5e7eb;padding:8px 10px;vertical-align:top;font-size:13px"
-            TDN=TD+";white-space:nowrap"
-            PRE="background:#0b1020;color:#e6edf3;padding:12px;border-radius:8px;line-height:1.35;font-size:12px;white-space:pre-wrap"
-            PILL="border:1px solid #e5e7eb;border-radius:999px;padding:6px 10px;font-weight:700"
-            OK=PILL+";background:#dcfce7;color:#166534;border-color:#bbf7d0"
-            FAIL=PILL+";background:#fee2e2;color:#991b1b;border-color:#fecaca"
-            ERR=PILL+";background:#fee2e2;color:#991b1b;border-color:#fecaca"
-            SKP=PILL+";background:#ffedd5;color:#92400e;border-color:#fed7aa"
-            CXL=PILL+";background:#ffe4e6;color:#9f1239;border-color:#fecdd3"
-            TIM=PILL+";background:#e0f2fe;color:#075985;border-color:#bae6fd"
+        # ---------------- inline styles ----------------
+        BODY="font-family:Arial,Helvetica,sans-serif;margin:20px;color:#0f172a"
+        H1="margin:0 0 8px 0;font-size:20px"
+        H2="margin:20px 0 8px 0;font-size:18px"
+        SUB="color:#475569;font-size:12px;margin:0 0 16px 0"
+        WRAP="overflow-x:auto"
+        TAB="border-collapse:separate;border-spacing:0;width:100%;min-width:900px;border:1px solid #e5e7eb"
+        TH="background:#f8fafc;border-bottom:1px solid #e5e7eb;text-align:left;padding:8px 10px;font-weight:700;font-size:13px;white-space:nowrap"
+        TD="border-top:1px solid #e5e7eb;padding:8px 10px;vertical-align:top;font-size:13px"
+        TDN=TD+";white-space:nowrap"
+        PRE="background:#0b1020;color:#e6edf3;padding:12px;border-radius:8px;line-height:1.35;font-size:12px;white-space:pre-wrap"
+        PILL="border:1px solid #e5e7eb;border-radius:999px;padding:6px 10px;font-weight:700"
+        OK=PILL+";background:#dcfce7;color:#166534;border-color:#bbf7d0"
+        FAIL=PILL+";background:#fee2e2;color:#991b1b;border-color:#fecaca"
+        ERR=PILL+";background:#fee2e2;color:#991b1b;border-color:#fecaca"
+        SKP=PILL+";background:#ffedd5;color:#92400e;border-color:#fed7aa"
+        CXL=PILL+";background:#ffe4e6;color:#9f1239;border-color:#fecdd3"
+        TIM=PILL+";background:#e0f2fe;color:#075985;border-color:#bae6fd"
 
-            def pill(text, cls): return f'<span style="{cls}">{esc(text)}</span>'
-            def pill_status(s):
-                s1=(s or "").strip().capitalize()
-                cls=TIM
-                if s1=="Passed": cls=OK
-                elif s1=="Failed": cls=FAIL
-                elif s1=="Error": cls=ERR
-                elif s1=="Skipped": cls=SKP
-                return pill(s1, cls)
+        def pill(text, cls): return f'<span style="{cls}">{esc(text)}</span>'
+        def pill_status(s):
+            s1=(s or "").strip().capitalize()
+            cls=TIM
+            if s1=="Passed": cls=OK
+            elif s1=="Failed": cls=FAIL
+            elif s1=="Error": cls=ERR
+            elif s1=="Skipped": cls=SKP
+            return pill(s1, cls)
 
-            # ---------- Summary ----------
-            when = datetime.datetime.utcnow().isoformat(timespec="seconds")+"Z"
-            summary = (
-              f'<h1 style="{H1}">JUnit Test Results</h1>'
-              f'<p style="{SUB}">Generated: {esc(when)}</p>'
-              f'<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 16px 0">'
-              f'{pill(f"✅ Passed: {passed}", OK)}'
-              f'{pill(f"❌ Failures: {tot_fail}", FAIL)}'
-              f'{pill(f"🧨 Errors: {tot_err}", ERR)}'
-              f'{pill(f"⚠️ Skipped: {tot_skip}", SKP)}'
-              f'{pill(f"⛔ Cancelled: {tot_cxl}", CXL)}'
-              f'{pill(f"⏱ Time: {tot_time:.2f}s", TIM)}'
-              f'</div>'
-            )
+        # ---------------- summary ----------------
+        when = datetime.datetime.utcnow().isoformat(timespec="seconds")+"Z"
+        summary = (
+          f'<h1 style="{H1}">JUnit Test Results</h1>'
+          f'<p style="{SUB}">Generated: {esc(when)}</p>'
+          f'<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 16px 0">'
+          f'{pill(f"✅ Passed: {passed}", OK)}'
+          f'{pill(f"❌ Failures: {tot_fail}", FAIL)}'
+          f'{pill(f"🧨 Errors: {tot_err}", ERR)}'
+          f'{pill(f"⚠️ Skipped: {tot_skip}", SKP)}'
+          f'{pill(f"⛔ Cancelled: {tot_cxl}", CXL)}'
+          f'{pill(f"⏱ Time: {tot_time:.2f}s", TIM)}'
+          f'</div>'
+        )
 
-            # ---------- All Testcases table (with Details column) ----------
-            def detail_cell(tc):
-                blocks=[]
-                for tag in ("failure","error","skipped"):
-                    n=tc.find(tag)
-                    if n is not None:
-                        msg = n.attrib.get("message","")
-                        txt = n.text or ""
-                        block = (msg + ("\n" if msg and txt else "") + txt).strip()
-                        if block:
-                            rendered = render_text_with_json(block, PRE)
-                            blocks.append(f"<div><b>{tag.capitalize()}</b></div>{rendered}")
-                        else:
-                            blocks.append(f"<div><b>{tag.capitalize()}</b></div>")
-                return "".join(blocks)
+        # ---------------- all testcases table ----------------
+        def detail_cell(tc):
+            out=[]
+            for tag in ("failure","error","skipped"):
+                n=tc.find(tag)
+                if n is not None:
+                    msg = n.attrib.get("message","")
+                    txt = n.text or ""
+                    block = (msg + ("\n" if msg and txt else "") + txt).strip()
+                    if block:
+                        rendered = render_text_with_json(block, PRE)
+                        out.append(f"<div><b>{tag.capitalize()}</b></div>{rendered}")
+                    else:
+                        out.append(f"<div><b>{tag.capitalize()}</b></div>")
+            return "".join(out)
 
-            case_rows = "\n".join(
-                f"<tr>"
-                f"<td style='{TDN}'>{pill_status(status_of(tc))}</td>"
-                f"<td style='{TD}'>{esc(tc.attrib.get('classname',''))}</td>"
-                f"<td style='{TD}'>{esc(tc.attrib.get('name',''))}</td>"
-                f"<td style='{TDN}'>{esc(tc.attrib.get('time',''))}</td>"
-                f"<td style='{TD}'>{detail_cell(tc)}</td>"
-                f"</tr>"
-                for tc in all_cases
-            )
-            case_table = f"""
-            <div style="{WRAP}">
-              <table role="table" aria-label="All Testcases" style="{TAB}">
-                <thead>
-                  <tr>
-                    <th style="{TH}">Status</th>
-                    <th style="{TH}">Class</th>
-                    <th style="{TH}">Name</th>
-                    <th style="{TH}">Time</th>
-                    <th style="{TH}">Details</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {case_rows}
-                </tbody>
-              </table>
-            </div>"""
+        case_rows = "\n".join(
+            f"<tr>"
+            f"<td style='{TDN}'>{pill_status(status_of(tc))}</td>"
+            f"<td style='{TD}'>{esc(tc.attrib.get('classname',''))}</td>"
+            f"<td style='{TD}'>{esc(tc.attrib.get('name',''))}</td>"
+            f"<td style='{TDN}'>{esc(tc.attrib.get('time',''))}</td>"
+            f"<td style='{TD}'>{detail_cell(tc)}</td>"
+            f"</tr>"
+            for tc in all_cases
+        )
+        case_table = f"""
+        <div style="{WRAP}">
+          <table role="table" aria-label="All Testcases" style="{TAB}">
+            <thead>
+              <tr>
+                <th style="{TH}">Status</th>
+                <th style="{TH}">Class</th>
+                <th style="{TH}">Name</th>
+                <th style="{TH}">Time</th>
+                <th style="{TH}">Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {case_rows}
+            </tbody>
+          </table>
+        </div>"""
 
-            # ---------- Suites (each in a collapsible details) ----------
-            suite_html=[]
-            for idx,(s,scases,meta,slog) in enumerate(suite_sections,1):
-                meta_rows="".join(f"<tr><td style='{TD}'><b>{esc(k)}</b></td><td style='{TD}'>{esc(v)}</td></tr>" for k,v in meta.items())
-                log_rendered = render_text_with_json(slog, PRE)
-                # suite's own table of its direct testcases
-                scase_rows = "\n".join(
-                    f"<tr>"
-                    f"<td style='{TDN}'>{pill_status(status_of(tc))}</td>"
-                    f"<td style='{TD}'>{esc(tc.attrib.get('classname',''))}</td>"
-                    f"<td style='{TD}'>{esc(tc.attrib.get('name',''))}</td>"
-                    f"<td style='{TDN}'>{esc(tc.attrib.get('time',''))}</td>"
-                    f"</tr>"
-                    for tc in scases
-                )
-                scase_table = f"""
-                <div style="{WRAP}">
-                  <table role="table" aria-label="Suite Testcases" style="{TAB}">
-                    <thead><tr><th style="{TH}">Status</th><th style="{TH}">Class</th><th style="{TH}">Name</th><th style="{TH}">Time</th></tr></thead>
-                    <tbody>{scase_rows}</tbody>
-                  </table>
-                </div>"""
-                suite_html.append(
-                  f"<details style='{BOX}' open=''>"
-                  f"<summary><span style='font-weight:700'>Suite #{idx}:</span> {esc(meta['Name'])}</summary>"
-                  f"<div style='margin-top:8px'>"
-                  f"<div style='{WRAP}'><table style='{TAB}'><tbody>{meta_rows}</tbody></table></div>"
-                  f"<h3 style='{H3}'>Suite Log</h3>{log_rendered}"
-                  f"<h3 style='{H3}'>Suite Testcases</h3>{scase_table}"
-                  f"</div></details>"
-                )
-            suites_block = "".join(suite_html) or f"<div style='{BOX}'><p>No suites.</p></div>"
+        # ---------------- Test Logs (pretty-printed) ----------------
+        # A single section containing: every suite log, then every testcase log.
+        logs_parts = []
+        for s, scases, slog in suite_sections:
+            name = s.attrib.get("name","")
+            logs_parts.append(f"<h3 style='margin:16px 0 8px 0;font-size:16px'>Suite Log — {esc(name)}</h3>")
+            logs_parts.append(render_text_with_json(slog, PRE))
+        for tc in all_cases:
+            cname = tc.attrib.get("classname","")
+            tname = tc.attrib.get("name","")
+            logs_parts.append(f"<h3 style='margin:16px 0 8px 0;font-size:16px'>Testcase Log — {esc((cname+'.'+tname).strip('.'))}</h3>")
+            logs_parts.append(render_text_with_json(tc.findtext("system-out") or "", PRE))
+        logs_block = "".join(logs_parts) or f"<pre style='{PRE}'></pre>"
 
-            # ---------- Per-testcase collapsibles (logs closed by default) ----------
-            tc_html=[]
-            for ti, tc in enumerate(all_cases,1):
-                cname=tc.attrib.get("classname",""); tname=tc.attrib.get("name",""); ttime=tc.attrib.get("time",""); st=status_of(tc)
-                tlog = tc.findtext("system-out") or ""
-                tlog_rendered = render_text_with_json(tlog, PRE)
-                meta_rows = (
-                  f"<tr><td style='{TD}'><b>Status</b></td><td style='{TD}'>{pill_status(st)}</td></tr>"
-                  f"<tr><td style='{TD}'><b>Class</b></td><td style='{TD}'>{esc(cname)}</td></tr>"
-                  f"<tr><td style='{TD}'><b>Name</b></td><td style='{TD}'>{esc(tname)}</td></tr>"
-                  f"<tr><td style='{TD}'><b>Time</b></td><td style='{TD}'>{esc(ttime)}</td></tr>"
-                )
-                extra = detail_cell(tc)
-                extra_html = f"<h3 style='{H3}'>Details</h3>{extra}" if extra else ""
-                # closed by default (omit 'open' attr)
-                tc_html.append(
-                  f"<details style='{BOX}'>"
-                  f"<summary><span style='font-weight:700'>Testcase #{ti}:</span> {esc((cname+'.'+tname).strip('.'))}</summary>"
-                  f"<div style='margin-top:8px'>"
-                  f"<div style='{WRAP}'><table style='{TAB}'><tbody>{meta_rows}</tbody></table></div>"
-                  f"{extra_html}"
-                  f"<h3 style='{H3}'>Testcase Log</h3>{tlog_rendered}"
-                  f"</div></details>"
-                )
-            tcs_block = "".join(tc_html) or f"<div style='{BOX}'><p>No testcases.</p></div>"
-
-            # ---------- write ----------
-            html_doc = f"""<!doctype html>
-            <html><head><meta charset="utf-8"></head>
-            <body style="{BODY}">
-              {summary}
-              <h2 style="{H2}">All Testcases</h2>
-              {case_table}
-              <h2 style="{H2}">Suites</h2>
-              {suites_block}
-              <h2 style="{H2}">Testcases (Detailed)</h2>
-              {tcs_block}
-            </body></html>"""
-            OUT.write_text(html_doc, encoding="utf-8")
-            print(f"Wrote {OUT}")
+        # ---------------- write ----------------
+        html_doc = f"""<!doctype html>
+        <html><head><meta charset="utf-8"></head>
+        <body style="{BODY}">
+          {summary}
+          <h2 style="{H2}">All Testcases</h2>
+          {case_table}
+          <h2 style="{H2}">Test Logs</h2>
+          {logs_block}
+        </body></html>"""
+        OUT.write_text(html_doc, encoding="utf-8")
+        print(f"Wrote {OUT}")
 
 
 
