@@ -173,6 +173,10 @@ jobs:
   format:
     runs-on: windows-latest
     steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download results artifact
         uses: actions/download-artifact@v4
         with:
