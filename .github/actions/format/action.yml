@@ -173,7 +173,7 @@ runs:
 
 
     - name: Build JUnit HTML (if xml_path provided)
-      if: ${{ inputs.target_env == 'test' &&  inputs.publishable == 'true' && hashFiles('results/Test.xml') != '' }}
+      if: ${{ inputs.target_env == 'test' &&  inputs.publishable == 'true' && hashFiles('${{inputs.xml_path}}') != '' }}
       uses: actions/github-script@v7
       env:
         XML_IN:  ${{ inputs.xml_path }}
