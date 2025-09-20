@@ -1,4 +1,4 @@
-name: Compute Version (placeholder)
+name: Compute Version
 description: Simulate version resolution without external calls
 inputs:
   target_env:      {  required: true, description: "" }
@@ -12,25 +12,23 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: test
-      shell: bash
-      run: echo "Token ${{ env.TOKEN}} - $TOKEN"
-
 
     - name: Get latest version
       id: get_latest_version
-      shell: bash
+      shell: powershell
       run: |
-        RESPONSE=$(
-          curl --location \
-            --header "Authorization: Bearer ${{ env.TOKEN }}" \
-            "${{ env.OR_URL }}/odata/Processes/UiPath.Server.Configuration.OData.GetProcessVersions(processId='${{inputs.pid}}')?%24orderby=Version%20desc&%24top=1&%24select=Version"
-        )
-        LATEST_VERSION=$(echo "$RESPONSE" | jq -r '.value[0].Version')
-        if [[ -z "$LATEST_VERSION" || "$LATEST_VERSION" == "null" ]]; then
-          LATEST_VERSION="0.0.0"
-        fi
-        echo "LATEST_VERSION=$LATEST_VERSION" >> "$GITHUB_ENV"
+          $url = ("{0}/odata/Processes/UiPath.Server.Configuration.OData.GetProcessVersions(processId='{1}')" -f $env:OR_URL, "${{ inputs.pid }}")) +
+                "?`$orderby=Version%20desc&`$top=1&`$select=Version"
+
+          $resp = Invoke-RestMethod -Method Get -Headers @{ Authorization = "Bearer $env:TOKEN" } -Uri $url
+
+          $latest = $null
+          if ($resp -and $resp.value -and $resp.value.Count -ge 1) { $latest = $resp.value[0].Version }
+          if ([string]::IsNullOrWhiteSpace($latest) -or $latest -eq 'null') { $latest = '0.0.0' }
+
+          # Write env var (UTF-8 without BOM)
+          $utf8 = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "LATEST_VERSION=$latest`n", $utf8)
 
 
     - name: Compute auto-bumped version
@@ -64,55 +62,8 @@ runs:
         NEW_PATCH=$((INC % 10))
         NEW_MINOR=$((MINOR + INC / 10))
 
-        AUTO_NEW_VERSION="${MAJOR}.${NEW_MINOR}.${NEW_PATCH}"
-        echo "AUTO_NEW_VERSION=$AUTO_NEW_VERSION" >> "$GITHUB_OUTPUT"
-
-    - name: Parse commit override (exact, delimiter via env)
-      id: commit_override
-      shell: bash
-      env:
-        OPEN: '['
-        CLOSE: ']'
-      run: |
-        COMMIT_MSG="$(git log -1 --pretty=%B 2>/dev/null || true)"
-        ONE_LINE="$(printf '%s' "$COMMIT_MSG" | tr -d '\r' | tr '\n' ' ')"
-        EXTRACT=$(
-          printf '%s\n' "$ONE_LINE" | awk -v o="$OPEN" -v c="$CLOSE" '{
-            n=split($0,a,""); inside=0; buf="";
-            for(i=1;i<=n;i++){
-              ch=a[i];
-              if(inside==0 && ch==o){ inside=1; continue }
-              if(inside==1 && ch==c){ print buf; exit }
-              if(inside==1){ buf=buf ch }
-            }
-          }'
-        )
-
-        EXTRACT_TRIMMED="$(printf '%s' "$EXTRACT" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
-
-        # must contain at least one digit dot digit
-        if printf '%s' "$EXTRACT_TRIMMED" | LC_ALL=C grep -Eq '[[:digit:]]+\.[[:digit:]]+'; then
-          COMMIT_VERSION_EXACT="$EXTRACT_TRIMMED"
-        else
-          COMMIT_VERSION_EXACT=""
-        fi
-
-        echo "COMMIT_VERSION_EXACT=$COMMIT_VERSION_EXACT" >> "$GITHUB_OUTPUT"
-
-    - name: Select final version
-      id: set
-      shell: bash
-      env:
-        AUTO_NEW_VERSION: ${{ steps.auto_bump.outputs.AUTO_NEW_VERSION }}
-        COMMIT_VERSION_EXACT: ${{ steps.commit_override.outputs.COMMIT_VERSION_EXACT }}
-      run: |
-        if [[ -n "$COMMIT_VERSION_EXACT" ]]; then
-          NEW_VERSION="$COMMIT_VERSION_EXACT"
-          SRC="Commit Message"
-        else
-          NEW_VERSION="$AUTO_NEW_VERSION"
-          SRC="Latest from Orchestrator"
-        fi
-
+        NEW_VERSION="${MAJOR}.${NEW_MINOR}.${NEW_PATCH}"
         echo "NEW_VERSION=$NEW_VERSION" >> "$GITHUB_OUTPUT"
-        echo "Selected ($SRC): $NEW_VERSION"
+
+
+
