@@ -164,7 +164,7 @@ jobs:
           echo "Wrote $(wc -c < results/test.xml) bytes to results/test.xml"
           
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: results
           path: ./results/*
@@ -172,13 +172,14 @@ jobs:
 
   format:
     runs-on: windows-latest
+    needs: results
     steps:
 
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Download results artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: results
           path: ./results
