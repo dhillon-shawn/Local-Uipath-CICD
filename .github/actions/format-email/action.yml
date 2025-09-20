@@ -61,7 +61,7 @@ runs:
         node-version: "20"
 
     - name: format analysis json to html
-      if: ${{ inputs.target_env == 'dev' && hashFiles('inputs.json_path) != '' }}
+      if: ${{ inputs.target_env == 'dev' && inputs.json_path != '' }}
       uses: actions/github-script@v7
       env:
         IN:  ${{ inputs.json_path }}
