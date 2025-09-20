@@ -62,137 +62,123 @@ jobs:
           default_branch: ${{ steps.get_default.outputs.DEFAULT_BRANCH }}
           non_branch: non-prod
         run: |
-            set -euo pipefail
+          set -euo pipefail
 
-            REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository_owner }}/${repo}"
-            REMOTE="origin"
-            DEFAULT_BRANCH="${default_branch}"
-            NONPROD_BRANCH="${non_branch}"
+          REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository_owner }}/${repo}"
+          REMOTE="origin"
+          DEFAULT_BRANCH="${default_branch}"
+          NONPROD_BRANCH="${non_branch}"
 
-            # Define which paths are considered "templates"
-            # (adjust as needed; order doesn't matter)
-            TEMPLATE_PATHS=(
-              ".github"
-              ".gitignore"
-              "nuget.config"
-            )
+          # Which paths are considered templates
+          TEMPLATE_PATHS=(
+            ".github"
+            ".gitignore"
+            "nuget.config"
+          )
 
-            git clone --filter=blob:none --depth=1000 "$REPO_URL"
-            cd "$(basename "$repo")"
+          git clone --filter=blob:none --depth=1000 "$REPO_URL"
+          cd "$(basename "$repo")"
 
-            git config --global --add safe.directory "$(pwd)"
-            git config user.name  "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global --add safe.directory "$(pwd)"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-            # Always start fresh with latest remote refs
-            git fetch --prune --no-tags "$REMOTE" \
-              "+refs/heads/*:refs/remotes/$REMOTE/*" || true
+          # Fresh refs
+          git fetch --prune --no-tags "$REMOTE" "+refs/heads/*:refs/remotes/$REMOTE/*" || true
 
-            # -------------------------
-            # 1) Update DEFAULT (main) with local template sources
-            # -------------------------
+          # -------------------------
+          # 1) Update main from templates folder
+          # -------------------------
+          git switch -C "$DEFAULT_BRANCH" "$REMOTE/$DEFAULT_BRANCH"
 
-            git switch -C "$DEFAULT_BRANCH" "$REMOTE/$DEFAULT_BRANCH"
+          mkdir -p .github/workflows
+          cp "$GITHUB_WORKSPACE/templates/Issues/issue.yml"             .github/workflows/
+          cp -r "$GITHUB_WORKSPACE/templates/Issues/ISSUE_TEMPLATE"     .github/
+          cp "$GITHUB_WORKSPACE/templates/PRs/pull_request_template.md" .github/
+          cp -r "$GITHUB_WORKSPACE/templates/PRs/PULL_REQUEST_TEMPLATE" .github/
+          cp "$GITHUB_WORKSPACE/templates/CICD.yml"                     .github/workflows/
+          cp "$GITHUB_WORKSPACE/templates/.gitignore"                   .
+          cp "$GITHUB_WORKSPACE/templates/nuget.config"                 .
 
-            # Materialize templates into the worktree
-            mkdir -p .github/workflows
-            cp "$GITHUB_WORKSPACE/templates/Issues/issue.yml"             .github/workflows/
-            cp -r "$GITHUB_WORKSPACE/templates/Issues/ISSUE_TEMPLATE"     .github/
-            cp "$GITHUB_WORKSPACE/templates/PRs/pull_request_template.md" .github/
-            cp -r "$GITHUB_WORKSPACE/templates/PRs/PULL_REQUEST_TEMPLATE" .github/
-            cp "$GITHUB_WORKSPACE/templates/CICD.yml"                     .github/workflows/
-            cp "$GITHUB_WORKSPACE/templates/.gitignore"                   .
-            cp "$GITHUB_WORKSPACE/templates/nuget.config"                 .
+          git add -A -- "${TEMPLATE_PATHS[@]}"
 
-            # Stage ONLY template paths (prevents unrelated churn)
-            git add -A -- "${TEMPLATE_PATHS[@]}"
-
-            UPDATED_MAIN=0
-            if ! git diff --cached --quiet; then
-              git commit -m "chore(templates): sync .github, .gitignore, nuget.config [skip ci]"
-              # Push main (no force). If protected, we’ll just skip and apply on non-prod later.
-              if git push "$REMOTE" "HEAD:refs/heads/$DEFAULT_BRANCH"; then
-                UPDATED_MAIN=1
-              else
-                echo "::notice:: push to $DEFAULT_BRANCH blocked (protected?) – continuing."
-              fi
+          UPDATED_MAIN=0
+          if ! git diff --cached --quiet -- "${TEMPLATE_PATHS[@]}"; then
+            git commit -m "chore(templates): sync .github, .gitignore, nuget.config [skip ci]"
+            if git push "$REMOTE" "HEAD:refs/heads/$DEFAULT_BRANCH"; then
+              UPDATED_MAIN=1
             else
-              git reset -q
-              echo "No template changes for $DEFAULT_BRANCH."
+              echo "::notice:: push to $DEFAULT_BRANCH blocked (protected?) – continuing."
             fi
+          else
+            git reset -q
+            echo "No template changes for $DEFAULT_BRANCH."
+          fi
 
-            # Clean tree before switching branches
-            git reset --hard HEAD
-            git clean -fd
+          git reset --hard HEAD
+          git clean -fd
 
-            # Refresh remote refs so we have the exact SHA to lease against
+          git fetch --prune --no-tags "$REMOTE" \
+            "+refs/heads/$DEFAULT_BRANCH:refs/remotes/$REMOTE/$DEFAULT_BRANCH" \
+            "+refs/heads/$NONPROD_BRANCH:refs/remotes/$REMOTE/$NONPROD_BRANCH" || true
+
+          # -------------------------
+          # 2) Ensure non-prod exists
+          # -------------------------
+          if git ls-remote --exit-code "$REMOTE" "refs/heads/$NONPROD_BRANCH" >/dev/null 2>&1; then
+            git switch -C "$NONPROD_BRANCH" "$REMOTE/$NONPROD_BRANCH"
+          else
+            git switch -C "$NONPROD_BRANCH" "$REMOTE/$DEFAULT_BRANCH"
+            git push -u "$REMOTE" "HEAD:refs/heads/$NONPROD_BRANCH" || true
+          fi
+
+          # -------------------------
+          # 3) Overlay ONLY template paths from latest main onto non-prod
+          # -------------------------
+          MAIN_SRC="refs/remotes/$REMOTE/$DEFAULT_BRANCH"
+
+          git restore --source="$MAIN_SRC" --staged --worktree -- "${TEMPLATE_PATHS[@]}" || true
+
+          # IMPORTANT FIX: compare index vs HEAD (staged changes) – not worktree vs index
+          if ! git diff --cached --quiet -- "${TEMPLATE_PATHS[@]}"; then
+            git commit -m "chore(templates): sync from ${DEFAULT_BRANCH} ($(git rev-parse --short "$MAIN_SRC")) [skip ci]"
+          else
+            echo "No template deltas to apply on $NONPROD_BRANCH."
+          fi
+
+          # -------------------------
+          # 4) Safe publish to non-prod with explicit lease
+          # -------------------------
+          OLD_TIP="$(git rev-parse "refs/remotes/$REMOTE/$NONPROD_BRANCH" 2>/dev/null || echo "")"
+
+          push_with_lease() {
+            if [ -n "$OLD_TIP" ]; then
+              git push --force-with-lease="refs/heads/$NONPROD_BRANCH:$OLD_TIP" "$REMOTE" "HEAD:refs/heads/$NONPROD_BRANCH"
+            else
+              git push -u "$REMOTE" "HEAD:refs/heads/$NONPROD_BRANCH"
+            fi
+          }
+
+          if ! push_with_lease; then
+            echo "::notice:: Push rejected (stale lease). Refetching and retrying once…"
             git fetch --prune --no-tags "$REMOTE" \
               "+refs/heads/$DEFAULT_BRANCH:refs/remotes/$REMOTE/$DEFAULT_BRANCH" \
               "+refs/heads/$NONPROD_BRANCH:refs/remotes/$REMOTE/$NONPROD_BRANCH" || true
 
-            # -------------------------
-            # 2) Ensure NON-PROD exists
-            # -------------------------
-            if git ls-remote --exit-code "$REMOTE" "refs/heads/$NONPROD_BRANCH" >/dev/null 2>&1; then
-              git switch -C "$NONPROD_BRANCH" "$REMOTE/$NONPROD_BRANCH"
-            else
-              git switch -C "$NONPROD_BRANCH" "$REMOTE/$DEFAULT_BRANCH"
-              git push -u "$REMOTE" "HEAD:refs/heads/$NONPROD_BRANCH" || true
-            fi
-
-            # -------------------------
-            # 3) On NON-PROD, overlay ONLY template paths from latest MAIN
-            #    (no rebase/merge of unrelated files)
-            # -------------------------
-
-            # Always restore from the (freshly fetched) remote main tip
+            # Re-overlay in case main moved
             MAIN_SRC="refs/remotes/$REMOTE/$DEFAULT_BRANCH"
-
-            # Replace current template paths in index+worktree with versions from main
-            # This brings over exactly those files/dirs and nothing else.
             git restore --source="$MAIN_SRC" --staged --worktree -- "${TEMPLATE_PATHS[@]}" || true
 
-            # Commit only if those paths actually changed
-            if ! git diff --quiet -- "${TEMPLATE_PATHS[@]}"; then
+            # IMPORTANT FIX here too:
+            if ! git diff --cached --quiet -- "${TEMPLATE_PATHS[@]}"; then
               git commit -m "chore(templates): sync from ${DEFAULT_BRANCH} ($(git rev-parse --short "$MAIN_SRC")) [skip ci]"
-            else
-              echo "No template deltas to apply on $NONPROD_BRANCH."
             fi
 
-            # -------------------------
-            # 4) Publish NON-PROD safely with an explicit lease
-            # -------------------------
-
-            # Compute lease against the remote tip we *just* fetched
             OLD_TIP="$(git rev-parse "refs/remotes/$REMOTE/$NONPROD_BRANCH" 2>/dev/null || echo "")"
+            push_with_lease
+          fi
 
-            push_with_lease() {
-              if [ -n "$OLD_TIP" ]; then
-                git push --force-with-lease="refs/heads/$NONPROD_BRANCH:$OLD_TIP" "$REMOTE" "HEAD:refs/heads/$NONPROD_BRANCH"
-              else
-                # First publish (no lease to check)
-                git push -u "$REMOTE" "HEAD:refs/heads/$NONPROD_BRANCH"
-              fi
-            }
-
-            if ! push_with_lease; then
-              echo "::notice:: Push rejected (stale lease). Refetching and retrying once…"
-              git fetch --prune --no-tags "$REMOTE" \
-                "+refs/heads/$DEFAULT_BRANCH:refs/remotes/$REMOTE/$DEFAULT_BRANCH" \
-                "+refs/heads/$NONPROD_BRANCH:refs/remotes/$REMOTE/$NONPROD_BRANCH" || true
-
-              # Re-overlay in case main advanced within the retry window
-              MAIN_SRC="refs/remotes/$REMOTE/$DEFAULT_BRANCH"
-              git restore --source="$MAIN_SRC" --staged --worktree -- "${TEMPLATE_PATHS[@]}" || true
-              if ! git diff --quiet -- "${TEMPLATE_PATHS[@]}"; then
-                git commit -m "chore(templates): sync from ${DEFAULT_BRANCH} ($(git rev-parse --short "$MAIN_SRC")) [skip ci]"
-              fi
-
-              OLD_TIP="$(git rev-parse "refs/remotes/$REMOTE/$NONPROD_BRANCH" 2>/dev/null || echo "")"
-              push_with_lease
-            fi
-
-            echo "::notice:: ${NONPROD_BRANCH} now has the latest template files from ${DEFAULT_BRANCH} (only ${TEMPLATE_PATHS[*]} were changed)."
+          echo "::notice:: ${NONPROD_BRANCH} now has the latest template files from ${DEFAULT_BRANCH} (only ${TEMPLATE_PATHS[*]} were changed)."
 
 
 
