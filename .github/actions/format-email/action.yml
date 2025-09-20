@@ -170,338 +170,243 @@ runs:
       if: ${{ inputs.target_env == 'test' && inputs.publishable == 'true' && inputs.xml_path != '' }}
       shell: python
       run: |
-            from pathlib import Path
-            import xml.etree.ElementTree as ET
-            import html, re, datetime, json
+              from pathlib import Path
+              import xml.etree.ElementTree as ET
+              import html, re, json, datetime
 
-            XML_PATH = r"""${{ inputs.xml_path }}"""
-            OUT = Path("test.html")
-            OUT.parent.mkdir(parents=True, exist_ok=True)
+              XML_PATH = r"""${{ inputs.xml_path }}"""
+              OUT = Path("email/TestResults.html")
+              OUT.parent.mkdir(parents=True, exist_ok=True)
 
-            # ---------- helpers ----------
-            def as_int(v):
-                try: return int(v)
-                except: return 0
-            def as_float(v):
-                try: return float(v)
-                except: return 0.0
+              # ---------- small helpers ----------
+              def i(v, d=0):
+                  try: return int(v)
+                  except: return d
+              def f(v, d=0.0):
+                  try: return float(v)
+                  except: return d
+              def esc(s):
+                  return html.escape(s if s is not None else "")
+              def autolink(text: str) -> str:
+                  # escape then linkify http(s)://... (keep it minimal)
+                  e = esc(text)
+                  return re.sub(r'https?://[^\s<>\]]+', lambda m: f'<a href="{esc(m.group(0))}" target="_blank" style="color:#1d4ed8;text-decoration:none;">{esc(m.group(0))}</a>', e)
+              def status_of(tc):
+                  # prefer attribute if present, else infer from child tags
+                  s = (tc.attrib.get("status") or "").strip()
+                  if s: return s
+                  if tc.find("failure") is not None: return "Failed"
+                  if tc.find("error")   is not None: return "Error"
+                  if tc.find("skipped") is not None: return "Skipped"
+                  return "Passed"
+              def pretty_json_if_possible(text: str):
+                  # whole text JSON?
+                  t = text.strip()
+                  for cand in (t, t.strip('`')):
+                      try:
+                          obj = json.loads(cand)
+                          return json.dumps(obj, indent=2, ensure_ascii=False)
+                      except Exception:
+                          pass
+                  # Robot logs [...] after phrase
+                  idx = text.find("Robot logs")
+                  if idx != -1:
+                      tail = text[idx:]
+                      lb, rb = tail.find('['), tail.rfind(']')
+                      if lb != -1 and rb != -1 and rb > lb:
+                          js = tail[lb:rb+1]
+                          try:
+                              obj = json.loads(js)
+                              return (text[:idx+lb] + "\n" + json.dumps(obj, indent=2, ensure_ascii=False) + "\n" + tail[rb+1:])
+                          except Exception:
+                              pass
+                  return None  # not JSON
 
-            def autolink(txt: str) -> str:
-                # escape first, then linkify http(s)://... sequences
-                esc = html.escape(txt)
-                return re.sub(
-                    r'https?://[^\s<>\]]+',
-                    lambda m: f'<a href="{html.escape(m.group(0))}" target="_blank" style="color:#1d4ed8;text-decoration:none;">{html.escape(m.group(0))}</a>',
-                    esc
-                )
+              # ---------- parse XML (generic) ----------
+              root = ET.parse(XML_PATH).getroot()
+              # all suites anywhere (covers <testsuites> nesting)
+              suites = root.findall(".//testsuite") or ([root] if root.tag == "testsuite" else [])
+              all_cases = root.findall(".//testcase")
 
-            def try_pretty_json_block(s: str) -> str:
-                """
-                Try to pretty-print notable JSON blocks inside the string:
-                - If the whole string is JSON, pretty-print it.
-                - Else, if it contains 'Robot logs' ... [ ... ], pretty-print the bracketed part.
-                - Else, try to find the first top-level JSON object/array and pretty-print it.
-                On failure, return the original text escaped+autolinked.
-                """
-                # whole-string JSON?
-                for candidate in (s.strip(), s.strip().strip('`')):
-                    try:
-                        obj = json.loads(candidate)
-                        pretty = json.dumps(obj, indent=2, ensure_ascii=False)
-                        return f"<pre style=\"{PRE}\">{html.escape(pretty)}</pre>"
-                    except Exception:
-                        pass
+              # totals (support common attrs; tolerate missing ones)
+              tot_tests = sum(i(s.attrib.get("tests")) for s in suites) or (len(all_cases) if suites else 0)
+              tot_fail  = sum(i(s.attrib.get("failures")) for s in suites)
+              tot_err   = sum(i(s.attrib.get("errors")) for s in suites)
+              tot_skip  = sum(i(s.attrib.get("skipped") or s.attrib.get("disabled")) for s in suites)
+              tot_cxl   = sum(i(s.attrib.get("cancelled")) for s in suites)
+              tot_time  = sum(f(s.attrib.get("time")) for s in suites) or sum(f(tc.attrib.get("time")) for tc in all_cases)
+              if not tot_tests and all_cases:  # compute from cases if suite counts absent
+                  for tc in all_cases:
+                      if tc.find("skipped") is not None: tot_skip += 1
+                      elif tc.find("failure") is not None: tot_fail += 1
+                      elif tc.find("error") is not None: tot_err += 1
+                  tot_tests = len(all_cases)
+              passed = max(tot_tests - tot_fail - tot_err - tot_skip - tot_cxl, 0)
 
-                # "Robot logs ... [ ... ]" pattern (UiPath)
-                if "Robot logs" in s:
-                    # find the first bracketed JSON after 'Robot logs'
-                    idx = s.find("Robot logs")
-                    tail = s[idx:]
-                    lb = tail.find('[')
-                    rb = tail.rfind(']')
-                    if lb != -1 and rb != -1 and rb > lb:
-                        json_str = tail[lb:rb+1].strip()
-                        try:
-                            obj = json.loads(json_str)
-                            pretty = json.dumps(obj, indent=2, ensure_ascii=False)
-                            # build composed text: everything before JSON, pretty JSON, then after JSON
-                            before = s[:idx+lb].rstrip()
-                            after = tail[rb+1:]
-                            parts = []
-                            if before.strip():
-                                parts.append(f"<pre style=\"{PRE}\">{autolink(before)}</pre>")
-                            parts.append(f"<pre style=\"{PRE}\">{html.escape(pretty)}</pre>")
-                            if after.strip():
-                                parts.append(f"<pre style=\"{PRE}\">{autolink(after)}</pre>")
-                            return "\n".join(parts)
-                        except Exception:
-                            pass
+              # map suites -> direct child cases (keeps association without needing getparent)
+              suite_sections = []
+              for s in suites:
+                  scases = s.findall("./testcase")  # direct children only = most typical
+                  meta = {
+                      "Name":      s.attrib.get("name",""),
+                      "Package":   s.attrib.get("package",""),
+                      "Hostname":  s.attrib.get("hostname",""),
+                      "ID":        s.attrib.get("id",""),
+                      "Timestamp": s.attrib.get("timestamp",""),
+                      "Tests":     s.attrib.get("tests",""),
+                      "Failures":  s.attrib.get("failures",""),
+                      "Errors":    s.attrib.get("errors",""),
+                      "Skipped":   s.attrib.get("skipped") or s.attrib.get("disabled",""),
+                      "Cancelled": s.attrib.get("cancelled",""),
+                      "Time":      s.attrib.get("time",""),
+                  }
+                  suite_sections.append((s, scases, meta, s.findtext("system-out") or ""))
 
-                # first JSON object/array anywhere (simple heuristic)
-                m = re.search(r'(\{.*\}|\[.*\])', s, flags=re.DOTALL)
-                if m:
-                    json_str = m.group(1)
-                    try:
-                        obj = json.loads(json_str)
-                        pretty = json.dumps(obj, indent=2, ensure_ascii=False)
-                        before = s[:m.start()]
-                        after = s[m.end():]
-                        return (
-                            (f"<pre style=\"{PRE}\">{autolink(before)}</pre>" if before.strip() else "") +
-                            f"<pre style=\"{PRE}\">{html.escape(pretty)}</pre>" +
-                            (f"<pre style=\"{PRE}\">{autolink(after)}</pre>" if after.strip() else "")
-                        )
-                    except Exception:
-                        pass
+              # ---------- inline style tokens (compact) ----------
+              BODY="font-family:Arial,Helvetica,sans-serif;margin:20px;color:#0f172a"
+              H1="margin:0 0 8px 0;font-size:20px"; H2="margin:20px 0 8px 0;font-size:18px"; H3="margin:12px 0 8px 0;font-size:16px"
+              SUB="color:#475569;font-size:12px;margin:0 0 16px 0"
+              WRAP="overflow-x:auto"; BOX="border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin:12px 0"
+              TAB="border-collapse:separate;border-spacing:0;width:100%;min-width:900px;border:1px solid #e5e7eb"
+              TH="background:#f8fafc;border-bottom:1px solid #e5e7eb;text-align:left;padding:8px 10px;font-weight:700;font-size:13px;white-space:nowrap"
+              TD="border-top:1px solid #e5e7eb;padding:8px 10px;vertical-align:top;font-size:13px"
+              TDN=TD+";white-space:nowrap"
+              PRE="background:#0b1020;color:#e6edf3;padding:12px;border-radius:8px;line-height:1.35;font-size:12px;white-space:pre-wrap"
+              PILL="border:1px solid #e5e7eb;border-radius:999px;padding:6px 10px;font-weight:700"
+              OK=PILL+";background:#dcfce7;color:#166534;border-color:#bbf7d0"
+              FAIL=PILL+";background:#fee2e2;color:#991b1b;border-color:#fecaca"
+              ERR=PILL+";background:#fee2e2;color:#991b1b;border-color:#fecaca"
+              SKP=PILL+";background:#ffedd5;color:#92400e;border-color:#fed7aa"
+              CXL=PILL+";background:#ffe4e6;color:#9f1239;border-color:#fecdd3"
+              TIM=PILL+";background:#e0f2fe;color:#075985;border-color:#bae6fd"
 
-                # fallback: raw text
-                return f"<pre style=\"{PRE}\">{autolink(s)}</pre>"
+              def pill(text, cls): return f'<span style="{cls}">{esc(text)}</span>'
+              def pill_status(s):
+                  s1=(s or "").strip().capitalize()
+                  cls=TIM
+                  if s1=="Passed": cls=OK
+                  elif s1=="Failed": cls=FAIL
+                  elif s1=="Error": cls=ERR
+                  elif s1=="Skipped": cls=SKP
+                  return pill(s1, cls)
 
-            # ---------- inline style tokens ----------
-            BODY = "font-family:Arial,Helvetica,sans-serif;margin:20px;color:#0f172a"
-            H1   = "margin:0 0 8px 0;font-size:20px"
-            H2   = "margin:20px 0 8px 0;font-size:18px"
-            H3   = "margin:16px 0 8px 0;font-size:16px"
-            SUB  = "color:#475569;font-size:12px;margin:0 0 16px 0"
+              # ---------- summary ----------
+              when = datetime.datetime.utcnow().isoformat(timespec="seconds")+"Z"
+              summary = (
+                f'<h1 style="{H1}">JUnit Test Results</h1>'
+                f'<p style="{SUB}">Generated: {esc(when)}</p>'
+                f'<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 16px 0">'
+                f'{pill(f"✅ Passed: {passed}", OK)}'
+                f'{pill(f"❌ Failures: {tot_fail}", FAIL)}'
+                f'{pill(f"🧨 Errors: {tot_err}", ERR)}'
+                f'{pill(f"⚠️ Skipped: {tot_skip}", SKP)}'
+                f'{pill(f"⛔ Cancelled: {tot_cxl}", CXL)}'
+                f'{pill(f"⏱ Time: {tot_time:.2f}s", TIM)}'
+                f'</div>'
+              )
 
-            BOX  = "border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin:12px 0"
-            PILLS_WRAP = "display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 16px 0"
-            PILL = "border:1px solid #e5e7eb;border-radius:999px;padding:6px 10px;font-weight:700"
-            OK   = PILL + ";background:#dcfce7;color:#166534;border-color:#bbf7d0"
-            FAIL = PILL + ";background:#fee2e2;color:#991b1b;border-color:#fecaca"
-            ERR  = PILL + ";background:#fee2e2;color:#991b1b;border-color:#fecaca"
-            SKP  = PILL + ";background:#ffedd5;color:#92400e;border-color:#fed7aa"
-            CXL  = PILL + ";background:#ffe4e6;color:#9f1239;border-color:#fecdd3"
-            TIM  = PILL + ";background:#e0f2fe;color:#075985;border-color:#bae6fd"
+              # ---------- all testcases table ----------
+              # include failure/error/skipped details column (if present)
+              def detail_cell(tc):
+                  parts=[]
+                  for tag in ("failure","error","skipped"):
+                      n=tc.find(tag)
+                      if n is not None:
+                          msg = n.attrib.get("message","")
+                          txt = n.text or ""
+                          block = (msg + ("\n" if msg and txt else "") + txt).strip()
+                          if block:
+                              pj = pretty_json_if_possible(block)
+                              parts.append(f"<div><b>{tag.capitalize()}</b></div>" + (f"<pre style='{PRE}'>{esc(pj)}</pre>" if pj is not None else f"<pre style='{PRE}'>{autolink(block)}</pre>"))
+                          else:
+                              parts.append(f"<div><b>{tag.capitalize()}</b></div>")
+                  return "".join(parts) or ""
 
-            WRAP = "overflow-x:auto"
-            TAB  = "border-collapse:separate;border-spacing:0;width:100%;min-width:900px;border:1px solid #e5e7eb"
-            TH   = "background:#f8fafc;border-bottom:1px solid #e5e7eb;text-align:left;padding:8px 10px;font-weight:700;font-size:13px;white-space:nowrap"
-            TD   = "border-top:1px solid #e5e7eb;padding:8px 10px;vertical-align:top;font-size:13px"
-            TDN  = TD + ";white-space:nowrap"
-            PRE  = "background:#0b1020;color:#e6edf3;padding:12px;border-radius:8px;line-height:1.35;font-size:12px;white-space:pre-wrap"
+              case_rows = "\n".join(
+                  f"<tr>"
+                  f"<td style='{TDN}'>{pill_status(status_of(tc))}</td>"
+                  f"<td style='{TD}'>{esc(tc.attrib.get('classname',''))}</td>"
+                  f"<td style='{TD}'>{esc(tc.attrib.get('name',''))}</td>"
+                  f"<td style='{TDN}'>{esc(tc.attrib.get('time',''))}</td>"
+                  f"<td style='{TD}'>{detail_cell(tc)}</td>"
+                  f"</tr>"
+                  for tc in all_cases
+              )
+              case_table = f"""
+              <div style="{WRAP}">
+                <table role="table" aria-label="All Testcases" style="{TAB}">
+                  <thead>
+                    <tr>
+                      <th style="{TH}">Status</th>
+                      <th style="{TH}">Class</th>
+                      <th style="{TH}">Name</th>
+                      <th style="{TH}">Time</th>
+                      <th style="{TH}">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {case_rows}
+                  </tbody>
+                </table>
+              </div>"""
 
-            def status_pill(status):
-                s = (status or "").strip().capitalize()
-                style = TIM
-                if s == "Passed":  style = OK
-                elif s == "Failed": style = FAIL
-                elif s == "Error":  style = ERR
-                elif s == "Skipped":style = SKP
-                return f'<span style="{style}">{html.escape(s)}</span>'
+              # ---------- per-suite sections ----------
+              suite_html=[]
+              for idx,(s,scases,meta,slog) in enumerate(suite_sections,1):
+                  meta_rows="".join(f"<tr><td style='{TD}'><b>{esc(k)}</b></td><td style='{TD}'>{esc(v)}</td></tr>" for k,v in meta.items())
+                  # suite log (pretty JSON if possible)
+                  pj = pretty_json_if_possible(slog)
+                  s_log_html = (f"<pre style='{PRE}'>{esc(pj)}</pre>" if pj is not None else f"<pre style='{PRE}'>{autolink(slog)}</pre>")
+                  suite_html.append(
+                    f"<div style='{BOX}'>"
+                    f"<h3 style='{H3}'>Suite #{idx}: {esc(meta['Name'])}</h3>"
+                    f"<div style='{WRAP}'><table style='{TAB}'><tbody>{meta_rows}</tbody></table></div>"
+                    f"<h3 style='{H3}'>Suite Log</h3>{s_log_html}"
+                    f"</div>"
+                  )
+              suites_block = "".join(suite_html) or f"<div style='{BOX}'><p>No suites.</p></div>"
 
-            # ---------- parse XML ----------
-            root = ET.parse(XML_PATH).getroot()
-            suites = root.findall(".//testsuite") or ([root] if root.tag == "testsuite" else [])
+              # ---------- per-testcase sections (logs) ----------
+              tc_html=[]
+              for ti, tc in enumerate(all_cases,1):
+                  cname=tc.attrib.get("classname",""); tname=tc.attrib.get("name",""); ttime=tc.attrib.get("time",""); st=status_of(tc)
+                  tlog = tc.findtext("system-out") or ""
+                  pj = pretty_json_if_possible(tlog)
+                  t_log_html = (f"<pre style='{PRE}'>{esc(pj)}</pre>" if pj is not None else f"<pre style='{PRE}'>{autolink(tlog)}</pre>")
+                  meta_rows = (
+                    f"<tr><td style='{TD}'><b>Status</b></td><td style='{TD}'>{pill_status(st)}</td></tr>"
+                    f"<tr><td style='{TD}'><b>Class</b></td><td style='{TD}'>{esc(cname)}</td></tr>"
+                    f"<tr><td style='{TD}'><b>Name</b></td><td style='{TD}'>{esc(tname)}</td></tr>"
+                    f"<tr><td style='{TD}'><b>Time</b></td><td style='{TD}'>{esc(ttime)}</td></tr>"
+                  )
+                  # include failure/error/skipped blocks in the per-testcase detail too
+                  extra = detail_cell(tc)
+                  if extra:
+                      extra = f"<h3 style='{H3}'>Details</h3>{extra}"
+                  tc_html.append(
+                    f"<div style='{BOX}'>"
+                    f"<h3 style='{H3}'>Testcase #{ti}: {esc((cname+'.'+tname).strip('.'))}</h3>"
+                    f"<div style='{WRAP}'><table style='{TAB}'><tbody>{meta_rows}</tbody></table></div>"
+                    f"{extra}"
+                    f"<h3 style='{H3}'>Testcase Log</h3>{t_log_html}"
+                    f"</div>"
+                  )
+              tcs_block = "".join(tc_html) or f"<div style='{BOX}'><p>No testcases.</p></div>"
 
-            # totals
-            total_tests = sum(as_int(s.attrib.get("tests")) for s in suites)
-            total_fail  = sum(as_int(s.attrib.get("failures")) for s in suites)
-            total_err   = sum(as_int(s.attrib.get("errors")) for s in suites)
-            total_skip  = sum(as_int(s.attrib.get("skipped") or s.attrib.get("disabled")) for s in suites)
-            total_cxl   = sum(as_int(s.attrib.get("cancelled")) for s in suites)
-            total_time  = sum(as_float(s.attrib.get("time")) for s in suites)
-
-            # fallback if suites omitted 'tests'
-            if total_tests == 0:
-                all_cases = root.findall(".//testcase")
-                total_tests = len(all_cases)
-                for tc in all_cases:
-                    if tc.find("skipped") is not None: total_skip += 1
-                    elif tc.find("failure") is not None: total_fail += 1
-                    elif tc.find("error")   is not None: total_err  += 1
-                total_time = sum(as_float(tc.attrib.get("time")) for tc in all_cases)
-            passed = max(total_tests - total_fail - total_err - total_skip - total_cxl, 0)
-
-            # collect testcases (all)
-            cases = []
-            for tc in root.findall(".//testcase"):
-                status = (tc.attrib.get("status") or "").strip()
-                if not status:
-                    status = "Failed" if tc.find("failure") is not None else \
-                            "Error"  if tc.find("error")   is not None else \
-                            "Skipped" if tc.find("skipped") is not None else \
-                            "Passed"
-                cases.append({
-                    "suite": tc.getparent().attrib.get("name") if hasattr(tc, "getparent") else "",  # lxml has getparent; stdlib doesn't—left blank
-                    "class": tc.attrib.get("classname",""),
-                    "name":  tc.attrib.get("name",""),
-                    "time":  tc.attrib.get("time",""),
-                    "status": status,
-                    "log":   tc.findtext("system-out") or ""
-                })
-
-            # stdlib ET doesn't have getparent; derive suite name via walk:
-            # map suite -> its testcases
-            suite_to_cases = []
-            for s in suites:
-                scases = []
-                for tc in s.findall(".//testcase"):
-                    scases.append(tc)
-                suite_to_cases.append((s, scases))
-
-            # ---------- build HTML ----------
-            pills_html = "".join([
-                f'<span style="{OK}">✅ Passed: {passed}</span>',
-                f'<span style="{FAIL}">❌ Failures: {total_fail}</span>',
-                f'<span style="{ERR}">🧨 Errors: {total_err}</span>',
-                f'<span style="{SKP}">⚠️ Skipped: {total_skip}</span>',
-                f'<span style="{CXL}">⛔ Cancelled: {total_cxl}</span>',
-                f'<span style="{TIM}">⏱ Time: {total_time:.2f}s</span>',
-            ])
-
-            # Global testcase table
-            case_rows = "\n".join(
-                f"<tr>"
-                f"<td style='{TDN}'>{status_pill((tc.attrib.get('status') or '').strip() or ('Failed' if tc.find('failure') is not None else 'Error' if tc.find('error') is not None else 'Skipped' if tc.find('skipped') is not None else 'Passed'))}</td>"
-                f"<td style='{TD}'>{html.escape(tc.attrib.get('classname',''))}</td>"
-                f"<td style='{TD}'>{html.escape(tc.attrib.get('name',''))}</td>"
-                f"<td style='{TDN}'>{html.escape(tc.attrib.get('time',''))}</td>"
-                f"</tr>"
-                for tc in root.findall(".//testcase")
-            )
-            case_table = f"""
-            <div style="{WRAP}">
-              <table role="table" aria-label="All Testcases" style="{TAB}">
-                <thead>
-                  <tr>
-                    <th style="{TH}">Status</th>
-                    <th style="{TH}">Class</th>
-                    <th style="{TH}">Name</th>
-                    <th style="{TH}">Time</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {case_rows}
-                </tbody>
-              </table>
-            </div>"""
-
-            # Per-suite sections (metadata + suite system-out + suite-local table)
-            suite_sections = []
-            for si, (s, scases) in enumerate(suite_to_cases, 1):
-                sname   = s.attrib.get("name","")
-                spkg    = s.attrib.get("package","")
-                shost   = s.attrib.get("hostname","")
-                sid     = s.attrib.get("id","")
-                stime   = s.attrib.get("time","")
-                stests  = s.attrib.get("tests","")
-                sfail   = s.attrib.get("failures","")
-                serr    = s.attrib.get("errors","")
-                sskip   = s.attrib.get("skipped") or s.attrib.get("disabled") or ""
-                scxl    = s.attrib.get("cancelled") or ""
-                stamp   = s.attrib.get("timestamp","")
-                slog    = s.findtext("system-out") or ""
-
-                # suite meta table
-                meta_rows = "".join([
-                  f"<tr><td style='{TD}'><b>Name</b></td><td style='{TD}'>{html.escape(sname)}</td></tr>",
-                  f"<tr><td style='{TD}'><b>Package</b></td><td style='{TD}'>{html.escape(spkg)}</td></tr>",
-                  f"<tr><td style='{TD}'><b>Hostname</b></td><td style='{TD}'>{html.escape(shost)}</td></tr>",
-                  f"<tr><td style='{TD}'><b>ID</b></td><td style='{TD}'>{html.escape(sid)}</td></tr>",
-                  f"<tr><td style='{TD}'><b>Timestamp</b></td><td style='{TD}'>{html.escape(stamp)}</td></tr>",
-                  f"<tr><td style='{TD}'><b>Tests</b></td><td style='{TD}'>{html.escape(stests)}</td></tr>",
-                  f"<tr><td style='{TD}'><b>Failures</b></td><td style='{TD}'>{html.escape(sfail)}</td></tr>",
-                  f"<tr><td style='{TD}'><b>Errors</b></td><td style='{TD}'>{html.escape(serr)}</td></tr>",
-                  f"<tr><td style='{TD}'><b>Skipped</b></td><td style='{TD}'>{html.escape(sskip)}</td></tr>",
-                  f"<tr><td style='{TD}'><b>Cancelled</b></td><td style='{TD}'>{html.escape(scxl)}</td></tr>",
-                  f"<tr><td style='{TD}'><b>Time</b></td><td style='{TD}'>{html.escape(stime)}</td></tr>",
-                ])
-
-                scase_rows = "\n".join(
-                    f"<tr>"
-                    f"<td style='{TDN}'>{status_pill((tc.attrib.get('status') or '').strip() or ('Failed' if tc.find('failure') is not None else 'Error' if tc.find('error') is not None else 'Skipped' if tc.find('skipped') is not None else 'Passed'))}</td>"
-                    f"<td style='{TD}'>{html.escape(tc.attrib.get('classname',''))}</td>"
-                    f"<td style='{TD}'>{html.escape(tc.attrib.get('name',''))}</td>"
-                    f"<td style='{TDN}'>{html.escape(tc.attrib.get('time',''))}</td>"
-                    f"</tr>"
-                    for tc in scases
-                )
-                scase_table = f"""
-                <div style="{WRAP}">
-                  <table role="table" aria-label="Suite Testcases" style="{TAB}">
-                    <thead>
-                      <tr><th style="{TH}">Status</th><th style="{TH}">Class</th><th style="{TH}">Name</th><th style="{TH}">Time</th></tr>
-                    </thead>
-                    <tbody>{scase_rows}</tbody>
-                  </table>
-                </div>
-                """
-
-                suite_log_html = try_pretty_json_block(slog) if slog != "" else f"<pre style=\"{PRE}\"></pre>"
-
-                suite_sections.append(f"""
-                <div style="{BOX}">
-                  <h3 style="{H3}">Suite #{si}: {html.escape(sname)}</h3>
-                  <div style="{WRAP}">
-                    <table style="{TAB}">
-                      <tbody>{meta_rows}</tbody>
-                    </table>
-                  </div>
-                  <h3 style="{H3}">Suite Log</h3>
-                  {suite_log_html}
-                  <h3 style="{H3}">Suite Testcases</h3>
-                  {scase_table}
-                </div>
-                """)
-
-            # Per-testcase sections (each with its system-out)
-            tc_sections = []
-            for ti, tc in enumerate(root.findall(".//testcase"), 1):
-                cname = tc.attrib.get("classname","")
-                tname = tc.attrib.get("name","")
-                ttime = tc.attrib.get("time","")
-                status = (tc.attrib.get("status") or "").strip() or ("Failed" if tc.find("failure") is not None else "Error" if tc.find("error") is not None else "Skipped" if tc.find("skipped") is not None else "Passed")
-                tlog = tc.findtext("system-out") or ""
-                tc_sections.append(f"""
-                <div style="{BOX}">
-                  <h3 style="{H3}">Testcase #{ti}: {html.escape(cname+'.'+tname).strip('.')}</h3>
-                  <div style="{WRAP}">
-                    <table style="{TAB}">
-                      <tbody>
-                        <tr><td style="{TD}"><b>Status</b></td><td style="{TD}">{status_pill(status)}</td></tr>
-                        <tr><td style="{TD}"><b>Class</b></td><td style="{TD}">{html.escape(cname)}</td></tr>
-                        <tr><td style="{TD}"><b>Name</b></td><td style="{TD}">{html.escape(tname)}</td></tr>
-                        <tr><td style="{TD}"><b>Time</b></td><td style="{TD}">{html.escape(ttime)}</td></tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  <h3 style="{H3}">Testcase Log</h3>
-                  {try_pretty_json_block(tlog) if tlog != "" else f"<pre style='{PRE}'></pre>"}
-                </div>
-                """)
-
-            when = datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z"
-
-            html_doc = f"""<!doctype html>
-            <html>
-              <head><meta charset="utf-8"></head>
+              # ---------- write file ----------
+              html_doc = f"""<!doctype html>
+              <html><head><meta charset="utf-8"></head>
               <body style="{BODY}">
-                <h1 style="{H1}">JUnit Test Results</h1>
-                <p style="{SUB}">Generated: {html.escape(when)}</p>
-
-                <div style="{PILLS_WRAP}">
-                  <span style="{OK}">✅ Passed: {passed}</span>
-                  <span style="{FAIL}">❌ Failures: {total_fail}</span>
-                  <span style="{ERR}">🧨 Errors: {total_err}</span>
-                  <span style="{SKP}">⚠️ Skipped: {total_skip}</span>
-                  <span style="{CXL}">⛔ Cancelled: {total_cxl}</span>
-                  <span style="{TIM}">⏱ Time: {total_time:.2f}s</span>
-                </div>
-
+                {summary}
                 <h2 style="{H2}">All Testcases</h2>
                 {case_table}
-
                 <h2 style="{H2}">Suites</h2>
-                {''.join(suite_sections) or '<div style="'+BOX+'"><p>No suites.</p></div>'}
-
+                {suites_block}
                 <h2 style="{H2}">Testcases (Detailed)</h2>
-                {''.join(tc_sections) or '<div style="'+BOX+'"><p>No testcases.</p></div>'}
-              </body>
-            </html>"""
-
-            OUT.write_text(html_doc, encoding="utf-8")
-            print(f"Wrote {OUT}")
+                {tcs_block}
+              </body></html>"""
+              OUT.write_text(html_doc, encoding="utf-8")
+              print(f"Wrote {OUT}")
 
 
 
