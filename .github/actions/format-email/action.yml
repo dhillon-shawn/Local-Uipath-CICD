@@ -175,7 +175,7 @@ runs:
         import html, sys
 
         xml_path = r"""${{ inputs.xml_path }}"""
-        out = Path("email/TestResults.html")
+        out = Path("test.html")
         out.parent.mkdir(parents=True, exist_ok=True)
 
         # Parse
