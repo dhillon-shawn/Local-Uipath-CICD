@@ -70,7 +70,13 @@ jobs:
   CLI:
     runs-on: [self-hosted,X64 ,Windows ,tosca-runner]
     needs: [setup]
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
     steps:
+      - name: Checkout exact source ref (exclude .github)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
 
       - name: auth
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
@@ -98,10 +104,6 @@ jobs:
                 secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
                 scopes: ${{ env.scope }}
 
-      - name: Checkout exact source ref (exclude .github)
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.source_ref }}
 
 
       - name: Ensure .NET 8 SDK (cached, no admin needed)
@@ -157,24 +159,13 @@ jobs:
         run: |
           nuget.exe install UiPath.CLI.Windows -Version 25.4.9337.28376 -OutputDirectory packages -Source https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json
           
-      - name: Write nuget.config (Local feed first, then official sources)
+      - name: Write nuget.config 
         shell: powershell
         run: |
-          @'
-          <?xml version="1.0" encoding="utf-8"?>
-          <configuration>
-            <packageSources>
-              <clear />
-              <add key="UiPath-Marketplace" value="https://gallery.uipath.com/api/v3/index.json" />
-              <add key="Official"           value="https://pkgs.dev.azure.com/uipath/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json" />
-            </packageSources>
-          </configuration>
-          '@ | Set-Content -Path '${{ github.workspace }}\nuget.config' -Encoding UTF8
-
           $uipcli = (Get-Command "packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe").Source
           Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
 
-        
+
       - name: restore
         shell: powershell
         if: false
@@ -315,7 +306,7 @@ jobs:
 
   DEPLOY:
     runs-on: [self-hosted,Linux ,X64, wsi, aws ,akteaws ]
-    needs: [setup, resolve-dependencies, CLI   ]
+    needs: [setup, CLI   ]
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.setup.outputs.deployment_matrix) }}
@@ -378,10 +369,10 @@ jobs:
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/cd@main
         with:
           full_folder_name:  "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
-          base_folder_name:  "${{ needs.resolve-dependencies.outputs.base_folder_name }}"
-          fid:          ${{ needs.resolve-dependencies.outputs.fid }}
+          base_folder_name:  "${{ steps.folder.outputs.base_folder_name }}"
+          fid:          ${{ steps.folder.outputs.fid }}
           target_env:   ${{ matrix.env }}
-          version:      ${{ needs.resolve-dependencies.outputs.version }}
+          version:      ${{ needs.CLI.outputs.version }}
           pid:          ${{ needs.setup.outputs.pid }}
           or_url:       ${{ env.OR_URL }}
           token:        $TOKEN
