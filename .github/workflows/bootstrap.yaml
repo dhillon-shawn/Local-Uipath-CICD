@@ -64,110 +64,79 @@ jobs:
         run: |
           set -euo pipefail
 
-          git clone --depth=1 "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository_owner }}/${repo}"
+          git clone --filter=blob:none --depth=1000 "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository_owner }}/${repo}"
           cd "$(basename "$repo")"
 
           git config --global --add safe.directory "$(pwd)"
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          REPO_SLUG="${{ github.repository_owner }}/${repo}"
+          REMOTE="origin"
+          DEFAULT_BRANCH="${default_branch}"
+          NONPROD_BRANCH="${non_branch}"
 
-          # -------------------------
-          # Update default branch
-          # -------------------------
-          git switch "${default_branch}"
-          git pull --ff-only origin "${default_branch}"
+          # Fetch everything we might need (ignore if some branches don't exist yet)
+          git fetch --prune --no-tags "$REMOTE" "+refs/heads/*:refs/remotes/$REMOTE/*" || true
 
-          mkdir -p .github/workflows
-          cp "$GITHUB_WORKSPACE/templates/Issues/issue.yml"             .github/workflows/
-          cp -r "$GITHUB_WORKSPACE/templates/Issues/ISSUE_TEMPLATE"     .github/
-          cp "$GITHUB_WORKSPACE/templates/PRs/pull_request_template.md" .github/
-          cp -r "$GITHUB_WORKSPACE/templates/PRs/PULL_REQUEST_TEMPLATE" .github/
-          cp "$GITHUB_WORKSPACE/templates/CICD.yml"                     .github/workflows/
-          cp "$GITHUB_WORKSPACE/templates/.gitignore"                   .
-          cp "$GITHUB_WORKSPACE/templates/nuget.config"                 .
+          # Helper: copy & stage templates
+          sync_templates() {
+            mkdir -p .github/workflows
 
-          git add .github
-          if ! git diff --cached --quiet -- .github; then
-            git commit -m "update .github on ${default_branch} [skip cicd]"
-            if ! git push origin "${default_branch}"; then
-              echo "::notice:: push to ${default_branch} blocked (protected?) – continuing."
+            cp "$GITHUB_WORKSPACE/templates/Issues/issue.yml"             .github/workflows/
+            cp -r "$GITHUB_WORKSPACE/templates/Issues/ISSUE_TEMPLATE"     .github/
+            cp "$GITHUB_WORKSPACE/templates/PRs/pull_request_template.md" .github/
+            cp -r "$GITHUB_WORKSPACE/templates/PRs/PULL_REQUEST_TEMPLATE" .github/
+            cp "$GITHUB_WORKSPACE/templates/CICD.yml"                     .github/workflows/
+            cp "$GITHUB_WORKSPACE/templates/.gitignore"                   .
+            cp "$GITHUB_WORKSPACE/templates/nuget.config"                 .
+
+            # Stage BOTH .github and root files to avoid dirty tree later
+            git add .github .gitignore nuget.config
+          }
+
+          # 1) Update default branch (main)
+          git switch -C "$DEFAULT_BRANCH" "$REMOTE/$DEFAULT_BRANCH"
+
+          sync_templates
+          UPDATED_ON_MAIN=0
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(templates): sync .github, .gitignore, nuget.config [skip cicd]"
+            if git push "$REMOTE" "HEAD:refs/heads/$DEFAULT_BRANCH"; then
+              UPDATED_ON_MAIN=1
+            else
+              echo "::notice:: push to $DEFAULT_BRANCH blocked (protected?) – continuing."
             fi
           else
             git reset -q
-            echo "No .github changes on ${default_branch}."
+            echo "No template changes for $DEFAULT_BRANCH."
           fi
 
-          # -------------------------
-          #  Fetch refs
-          # -------------------------
-          git fetch --prune --no-tags origin \
-            "+refs/heads/${default_branch}:refs/remotes/origin/${default_branch}"
+          # Clean worktree before switching
+          git reset --hard HEAD
+          git clean -fd
 
-          # Try to fetch non-prod if it exists; ignore failure if it doesn't yet
-          git fetch --prune --no-tags origin \
-            "+refs/heads/${non_branch}:refs/remotes/origin/${non_branch}" || true
-
-          # If repository is shallow, deepen so rebase has enough history
-          if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
-            git fetch --prune --no-tags --deepen=1000 origin "${default_branch}" || true
-            git fetch --prune --no-tags --deepen=1000 origin "${non_branch}" || true
-          fi
-
-          DEFAULT_SRC="origin/${default_branch}"
-          DEFAULT_SHA="$(git rev-parse ${DEFAULT_SRC})"
-          
-          if [[ -f "./project.json" ]]; then
-            PID="$(jq -er '.name' ./project.json)"
-            echo "PID=$PID" >> "$GITHUB_ENV"
-            echo "Project ID: $PID"
-          fi
-
-          # -------------------------
-          # Ensure non-prod exists, rebase onto main, overlay ONLY .github, push
-          # -------------------------
-
-          # Fetch refs
-          git fetch --prune --no-tags origin \
-            "+refs/heads/${default_branch}:refs/remotes/origin/${default_branch}"
-          git fetch --prune --no-tags origin \
-            "+refs/heads/${non_branch}:refs/remotes/origin/${non_branch}" || true
-
-          DEFAULT_SRC="origin/${default_branch}"
-
-          # Create or base local non-prod
-          if git ls-remote --exit-code origin "refs/heads/${non_branch}" >/dev/null 2>&1; then
-            # remote exists
-            git switch -C "${non_branch}" "origin/${non_branch}"
+          # 2) Ensure non-prod exists locally (create from main if missing remotely)
+          if git ls-remote --exit-code "$REMOTE" "refs/heads/$NONPROD_BRANCH" >/dev/null 2>&1; then
+            git switch -C "$NONPROD_BRANCH" "$REMOTE/$NONPROD_BRANCH"
           else
-            # remote missing: start from main (will publish later)
-            git switch -C "${non_branch}" "${DEFAULT_SRC}"
+            git switch -C "$NONPROD_BRANCH" "$REMOTE/$DEFAULT_BRANCH"
+            # publish branch (ok if protected/restricted)
+            git push -u "$REMOTE" "HEAD:refs/heads/$NONPROD_BRANCH" || true
           fi
 
-          # If shallow, grab more history so rebase works
-          if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
-            git fetch --no-tags --deepen=1000 origin "${default_branch}" || true
-            git fetch --no-tags --deepen=1000 origin "${non_branch}" || true
+          # 3) Rebase non-prod onto latest main so histories align
+          git fetch --prune --no-tags "$REMOTE" "+refs/heads/$DEFAULT_BRANCH:refs/remotes/$REMOTE/$DEFAULT_BRANCH"
+          if ! git rebase --rebase-merges "$REMOTE/$DEFAULT_BRANCH"; then
+            echo "::warning:: Rebase had conflicts; aborting and attempting a regular merge."
+            git rebase --abort || true
+            git merge --no-edit --no-ff "$REMOTE/$DEFAULT_BRANCH"
           fi
 
-          # Rebase non-prod onto main (keep dev work; ensures “not behind”)
-          git rebase --rebase-merges "${DEFAULT_SRC}"
 
-          # Overlay ONLY .github from main (remove extras, then restore exact tree)
-          git rm -r --quiet --ignore-unmatch .github || true
-          git restore --source="${DEFAULT_SRC}" --staged --worktree -- .github
+          # 5) Push non-prod (rebased or merged)
+          git push --force-with-lease "$REMOTE" "HEAD:refs/heads/$NONPROD_BRANCH"
 
-          # Commit only if .github differs from HEAD
-          if ! git diff --quiet HEAD -- .github; then
-            git commit -m "sync with ${default_branch} ($(git rev-parse --short ${DEFAULT_SRC})) [skip cicd]"
-          fi
-
-          # Publish (force since we rebased; also sets upstream)
-          git push --force -u origin HEAD:"refs/heads/${non_branch}"
-
-          echo "::notice:: ${non_branch} is up to date with ${default_branch}; only .github was changed."
-
+          echo "::notice:: Templates synced. ${NONPROD_BRANCH} now contains ${DEFAULT_BRANCH} + any non-prod commits; no duplicate template commits."
 
 
 
