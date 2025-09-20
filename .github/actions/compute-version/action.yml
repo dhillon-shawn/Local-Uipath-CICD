@@ -39,7 +39,6 @@ runs:
       env:
         INPUT_VERSION: ${{ env.LATEST_VERSION }}
       run: |
-        # extract first numeric core anywhere (strips prefixes like v/, refs/tags/, etc.)
         CORE=$(printf '%s\n' "$INPUT_VERSION" \
           | LC_ALL=C grep -Eo '[[:digit:]]+(\.[[:digit:]]+)*([+-][[:alnum:].-]+)?' \
           | head -n1)
@@ -77,8 +76,6 @@ runs:
       run: |
         COMMIT_MSG="$(git log -1 --pretty=%B 2>/dev/null || true)"
         ONE_LINE="$(printf '%s' "$COMMIT_MSG" | tr -d '\r' | tr '\n' ' ')"
-
-        # Extract the EXACT text between the first OPEN and next CLOSE (no normalization)
         EXTRACT=$(
           printf '%s\n' "$ONE_LINE" | awk -v o="$OPEN" -v c="$CLOSE" '{
             n=split($0,a,""); inside=0; buf="";
@@ -91,10 +88,9 @@ runs:
           }'
         )
 
-        # Trim spaces
         EXTRACT_TRIMMED="$(printf '%s' "$EXTRACT" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
 
-        # must contain at least one digit dot digit (escape the dot; be locale-stable)
+        # must contain at least one digit dot digit
         if printf '%s' "$EXTRACT_TRIMMED" | LC_ALL=C grep -Eq '[[:digit:]]+\.[[:digit:]]+'; then
           COMMIT_VERSION_EXACT="$EXTRACT_TRIMMED"
         else

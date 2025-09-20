@@ -44,7 +44,6 @@ runs:
         
         FULLY_QUALIFIED="${{ inputs.FOLDER_NAME }}"
 
-        # Strip a single trailing slash (if any), then take text after the last slash.
         trimmed="${FULLY_QUALIFIED%/}"
         folder="${trimmed##*/}"
 

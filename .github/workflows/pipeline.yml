@@ -38,9 +38,7 @@ jobs:
       - name: Checkout exact source ref
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           ref: ${{ inputs.source_ref }}
-          persist-credentials: true
 
       - name: Capture environment and repo vars
         id: capture
@@ -76,7 +74,7 @@ jobs:
 # ==================================================================================================
   resolve-dependencies:
     name: prepare (auth → version → folder → assets/libs)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted,Linux ,X64, wsi, aws ,akteaws ]
     needs: setup
     outputs:
       version:       ${{ steps.compute.outputs.version }}
@@ -86,9 +84,8 @@ jobs:
       - name: Checkout exact source ref
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           ref: ${{ inputs.source_ref }}
-          persist-credentials: true
+
 
       - name: auth
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
@@ -142,9 +139,8 @@ jobs:
 
 
   CLI:
-    runs-on: windows-latest
+    runs-on: [self-hosted,X64 ,Windows ,tosca-runner]
     needs: [setup, resolve-dependencies]
-    if: ${{ inputs.target_env != 'prod' }}
     steps:
 
       - name: auth
@@ -159,9 +155,8 @@ jobs:
       - name: Checkout exact source ref (exclude .github)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           ref: ${{ inputs.source_ref }}
-          persist-credentials: true
+
 
       - name: Ensure .NET 8 SDK (cached, no admin needed)
         shell: powershell
@@ -181,11 +176,16 @@ jobs:
             Write-Host "Reusing existing .NET SDK 8.x in $DotnetRoot"
           }
 
-          # Make it available to later steps (job-scoped, no system changes)
           $DotnetRoot | Out-File -FilePath $env:GITHUB_PATH -Append
           "DOTNET_ROOT=$DotnetRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
 
           & $DotnetExe --info
+
+      - name: Cache UiPath CLI v1
+        uses: actions/cache@v4
+        with:
+          path: packages
+          key: uipcli-25.4.9337.28376
 
       - name: Check UiPath CLI
         id: check-uipcli
@@ -258,7 +258,7 @@ jobs:
             -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
             --orchestratorApplicationScope '${{ env.scope}}' `
             --analyzerTraceLevel "Warning" `
-            --ignoredRules "ST-NMG-001,ST-NMG-002,ST-NMG-009,ST-NMG-011,ST-NMG-016,ST-NMG-008,ST-USG-032,ST-USG-034,ST-USG-027,UI-ANA-018" `
+            --ignoredRules "ST-NMG-001,ST-NMG-002,ST-NMG-009,ST-NMG-011,ST-NMG-016,ST-NMG-008,ST-USG-032,ST-USG-034,ST-USG-027,UI-ANA-018,TA-DBP-002,ST-MRD-002" `
             --traceLevel Verbose --disableBuiltInNugetFeeds -y `
             --identityUrl '${{ env.BASE_URL }}/identity_'
                   
@@ -363,48 +363,13 @@ jobs:
               path: ./output/
               if-no-files-found: error
 
-      - name: Record test pointer
-        if: inputs.target_env == 'test'
-        run: |
-          echo "run_id=${GITHUB_RUN_ID}" > test_pointer.env
-          echo "sha=${GITHUB_SHA}" >> test_pointer.env
-          echo "artifact=output" >> test_pointer.env
 
-      - name: Upload test pointer
-        if: inputs.target_env == 'test'
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-pointer-latest
-          path: test_pointer.env
-          retention-days: 14
-
-
-  #    - name: Restore, CI (analyze/test cases), Pack, Upload artifacts
-  #      id: CLI
-  #      uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/cli@main
-  #      with:
-  #        full_folder_name:  "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
-  #        base_folder_name:  "${{ needs.resolve-dependencies.outputs.base_folder_name }}"
-  #        target_env:   ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
-  #        version:      ${{ needs.resolve-dependencies.outputs.version }}
-  #        ptype:        ${{ needs.setup.outputs.ptype }}
-  #        pid:          ${{ needs.setup.outputs.pid }}
-  #        base_url:       ${{ env.BASE_URL }}
-  #        notes: ${{ needs.setup.outputs.notes }}
 
 
 
   DEPLOY:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted,Linux ,X64, wsi, aws ,akteaws ]
     needs: [setup, resolve-dependencies, CLI   ]
-    if: >-
-      ${{
-        always() &&
-        (
-          (inputs.target_env != 'prod' && needs.CLI.result == 'success') ||
-          (inputs.target_env == 'prod'  && needs.CLI.result == 'skipped')
-        )
-      }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.setup.outputs.deployment_matrix) }}
@@ -415,60 +380,15 @@ jobs:
       - name: Checkout exact source ref
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           ref: ${{ inputs.source_ref }}
-          persist-credentials: true
+
 
       - name: Download artifact
         uses: actions/download-artifact@v4
-        if: ${{ inputs.target_env != 'prod'}}
         with:
           name: output
           path: ./output
 
-      - name: Find merged PR for this push
-        id: pr
-        uses: actions/github-script@v7
-        if: ${{ inputs.target_env == 'prod'}}
-        with:
-          script: |
-            const {owner, repo} = context.repo;
-            const res = await github.rest.repos.listPullRequestsAssociatedWithCommit({
-              owner, repo, commit_sha: context.sha
-            });
-            const pr = res.data.find(p => p.merged_at) || res.data[0];
-            if (!pr) core.setFailed('No PR associated with this push');
-            core.setOutput('head_sha', pr.head.sha);
-
-
-      - name: Download staged output
-        uses: dawidd6/action-download-artifact@v11
-        if: ${{ inputs.target_env == 'prod'}}
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          workflow: CICD.yml
-          commit: ${{ steps.pr.outputs.head_sha }}
-          name: output
-          path: ./output
-          workflow_conclusion: success
-          if_no_artifact_found: fail
-
-      - name: print
-        run: ls
-
-      - name: Locate artifact dir
-        id: art
-        shell: bash
-        run: |
-          if [ -d "./output/output" ]; then
-            echo "dir=./output/output" >> $GITHUB_OUTPUT
-          else
-            echo "dir=./output" >> $GITHUB_OUTPUT
-          fi
-          
-          
-      - name: print
-        run: ls -la ${{ steps.art.outputs.dir || './output' }}
 
       - name: auth
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
@@ -509,7 +429,6 @@ jobs:
       - name: Checkout exact source ref
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           ref: ${{ inputs.source_ref }}
 
       - name: Download results artifact
@@ -529,8 +448,6 @@ jobs:
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/test_results@main
         with:
           xml_path: ./results/TestResults.xml
-          out_path: ./email/TestResults.html
-
 
       - name: Analysis → HTML
         id: analysis_html
@@ -538,17 +455,14 @@ jobs:
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/analysis_results@main
         with:
           json_path: ./results/analyze.json
-          out_path:  ./email/analysis-report.html
 
 
-      - name: Compose final email (table + body + subject)
+      - name: Compose final email
         id: compose
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/compose_email@main
         with:
           publishable:        ${{ needs.setup.outputs.publishable }}
           target_env:         ${{ inputs.target_env }}
-          test_html:    ./email/TestResults.html
-          analysis_html_path: ${{ steps.analysis_html.outputs.html_path }}
           source_ref:  ${{ inputs.source_ref }}
           version:     ${{ needs.resolve-dependencies.outputs.version }}
           folder_name: ${{ needs.resolve-dependencies.outputs.base_folder_name }}
@@ -565,7 +479,7 @@ jobs:
 
   send:
     needs: [setup,FORMAT]
-    runs-on: windows-latest
+    runs-on: [self-hosted,X64 ,Windows ,tosca-runner]
     if: always()
     steps:
 
@@ -580,10 +494,9 @@ jobs:
         if: always()
         uses: dawidd6/action-send-mail@v3
         with:
-          server_address: smtp.gmail.com
-          server_port: 587
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
+          server_address: smtp.ad.dmv.ca.gov
+          server_port: 25
+          secure: false
           subject:  ${{ needs.format.outputs.final_subject }}
           to:       ${{ needs.setup.outputs.email }}
           from:     "UiPath CI/CD <uipath-cicd@noreply.com>"

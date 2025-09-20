@@ -1,0 +1,290 @@
+name: "UiPath → HTML → Final Email (Node-only)"
+description: "Render UiPath analyze.json and/or JUnit XML to HTML and compose a final email. No pwsh/bash. Works on Ubuntu & Windows."
+
+inputs:
+  # choose which body to embed in the email
+  target_env:
+    description: "'test' (use JUnit) or 'dev' (use analyze)."
+    required: true
+    default: dev
+
+  # optional sources (provide one or both)
+  json_path:
+    description: "Path to UiPath analyze.json (utf-8/utf-16)."
+    required: false
+    default: ""
+  xml_path:
+    description: "Path to JUnit XML."
+    required: false
+    default: ""
+
+  # status/meta for the header + subject
+  cd_status:
+    description: "Deployment job result (success|failure|cancelled)."
+    required: false
+    default: ""
+  source_ref:
+    description: "Source git ref / SHA."
+    required: false
+    default: ""
+  version:
+    description: "Version label."
+    required: false
+    default: ""
+  folder_name:
+    description: "Folder display name."
+    required: false
+    default: ""
+  project_id:
+    description: "Project identifier."
+    required: false
+    default: ""
+  migrate:
+    description: "Migration flag text."
+    required: false
+    default: ""
+
+outputs:
+  html:
+    description: "Path to composed final HTML email."
+    value: ${{ steps.compose.outputs.html }}
+  subject:
+    description: "Computed email subject."
+    value: ${{ steps.compose.outputs.subject }}
+  attach_path:
+    description: "Path to body HTML used inside the email."
+    value: ${{ steps.compose.outputs.attach_path }}
+  overall:
+    description: "Overall result derived from cd_status (success|failure)."
+    value: ${{ steps.compose.outputs.overall }}
+  analysis_html_path:
+    description: "If generated, path to Analyzer HTML."
+    value: ./email/analysis-report.html
+  junit_html_path:
+    description: "If generated, path to JUnit HTML."
+    value: ./email/TestResults.html
+
+runs:
+  using: "composite"
+  steps:
+    - name: Ensure Node available
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+
+    # ---------- analyze.json → HTML (Node) ----------
+    - name: Build Analyzer HTML (if json_path provided)
+      if: ${{ inputs.json_path != '' }}
+      uses: actions/github-script@v7
+      env:
+        IN:  ${{ inputs.json_path }}
+        OUT: ./email/analysis-report.html
+      with:
+        script: |
+          const fs = require('fs');
+          const path = require('path');
+
+          const inPath  = process.env.IN || '';
+          const outPath = process.env.OUT || './email/analysis-report.html';
+          const esc = s => String(s ?? '')
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+            .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+            .replace(/'/g,'&#39;').replace(/`/g,'&#96;');
+
+          const sevMeta = {
+            1: { name:'Error',   icon:'❌', row:'#fff1f2' },
+            2: { name:'Warning', icon:'⚠️', row:'#fff7ed' },
+            3: { name:'Info',    icon:'ℹ️', row:'#eff6ff' },
+          };
+
+          const raw = JSON.parse(fs.readFileSync(inPath, 'utf8'));
+          const list = Array.isArray(raw) ? raw : (raw.Results || raw.results || []);
+          const rows = list.map(x => ({
+            sev: Number(x.ErrorSeverity ?? 3) || 3,
+            code: String(x.ErrorCode ?? ''),
+            rule: String(x.RuleName ?? ''),
+            activity: String(x.ActivityDisplayName ?? ''),
+            desc: String(x.Description ?? ''),
+            rec: String(x.Recommendation ?? ''),
+          }));
+          const totals = { 1:0, 2:0, 3:0 }; rows.forEach(r => totals[r.sev] = (totals[r.sev]||0)+1);
+          rows.sort((a,b) => (a.sev - b.sev) || a.rule.localeCompare(b.rule));
+
+          const css = {
+            body: 'margin:20px;font-family:Arial,Helvetica,sans-serif;color:#0f172a;background:#ffffff;',
+            h1: 'margin:0 0 8px 0;font-size:20px;',
+            sub: 'margin:0 0 12px 0;color:#475569;font-size:12px;',
+            pills: 'display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 16px 0;',
+            pill: (bg,fg,bd)=>`border:1px solid ${bd};border-radius:999px;padding:6px 10px;font-weight:700;background:${bg};color:${fg};`,
+            wrap: 'overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch;',
+            table: 'border-collapse:separate;border-spacing:0;width:100%;min-width:720px;border:1px solid #e5e7eb;',
+            th: 'background:#f8fafc;border-bottom:1px solid #e5e7eb;text-align:left;padding:8px 10px;font-weight:700;font-size:13px;white-space:nowrap;',
+            td: 'border-top:1px solid #e5e7eb;padding:8px 10px;vertical-align:top;font-size:13px;',
+            tdSev: 'white-space:nowrap;width:200px;',
+          };
+
+          const rowsArr = [];
+          for (const r of rows) {
+            const s = sevMeta[r.sev] || sevMeta[3];
+            const sevCell = (s.icon + ' ' + s.name + (r.code ? ' — ' + esc(r.code) : ''));
+            rowsArr.push(
+              '<tr style="background:', s.row, ';">',
+                '<td style="', css.td, css.tdSev, '">', sevCell, '</td>',
+                '<td style="', css.td, '">', esc(r.rule), '</td>',
+                '<td style="', css.td, '">', esc(r.activity), '</td>',
+                '<td style="', css.td, '">', esc(r.desc).replace(/\r?\n/g,'<br>'), '</td>',
+                '<td style="', css.td, '">', esc(r.rec).replace(/\r?\n/g,'<br>'), '</td>',
+              '</tr>'
+            );
+          }
+          const rowsHtml = rowsArr.join('');
+          const when = new Date().toISOString();
+
+          const html = `<!doctype html>
+          <html>
+            <body style="${css.body}">
+              <h1 style="${css.h1}">UiPath Analyzer Report</h1>
+              <p style="${css.sub}">Generated: ${esc(when)}</p>
+              <div style="${css.pills}">
+                <span style="${css.pill('#fee2e2','#991b1b','#fecaca')}">❌ Errors: ${totals[1]||0}</span>
+                <span style="${css.pill('#ffedd5','#92400e','#fed7aa')}">⚠️ Warnings: ${totals[2]||0}</span>
+                <span style="${css.pill('#dbeafe','#1e40af','#bfdbfe')}">ℹ️ Info: ${totals[3]||0}</span>
+              </div>
+              <div style="${css.wrap}">
+                <table style="${css.table}" role="table" aria-label="Analyzer Results">
+                  <thead>
+                    <tr>
+                      <th style="${css.th}">Severity / Code</th>
+                      <th style="${css.th}">Rule</th>
+                      <th style="${css.th}">Activity</th>
+                      <th style="${css.th}">Description</th>
+                      <th style="${css.th}">Recommendation</th>
+                    </tr>
+                  </thead>
+                  <tbody>${rowsHtml}</tbody>
+                </table>
+              </div>
+            </body>
+          </html>`;
+
+          fs.mkdirSync(path.dirname(outPath), { recursive: true });
+          fs.writeFileSync(outPath, html, 'utf8');
+          core.info(`Analyzer HTML → ${outPath}`);
+
+
+    - name: Build JUnit HTML (if xml_path provided)
+      if: ${{ inputs.xml_path != '' }}
+      uses: actions/github-script@v7
+      env:
+        XML_IN:  ${{ inputs.xml_path }}
+        OUT:     ./email/TestResults.html
+      with:
+        script: |
+          const { execSync } = require('child_process');
+          const fs = require('fs');
+          const path = require('path');
+
+          const xml = process.env.XML_IN || '';
+          const out = process.env.OUT || './email/TestResults.html';
+
+          fs.mkdirSync(path.dirname(out), { recursive: true });
+          // junit-viewer is a small Node CLI that renders JUnit XML → HTML
+          execSync(`npx -y junit-viewer --results "${xml}" --save "${out}"`, { stdio: 'inherit', shell: true });
+
+          // Optional: trim tiny footer (keep it simple)
+          try {
+            const s = fs.readFileSync(out, 'utf8').replace(/Generated by junit-viewer/gi, '');
+            fs.writeFileSync(out, s, 'utf8');
+          } catch {}
+
+          core.info(`JUnit HTML → ${out}`);
+
+    # ---------- Compose final email ----------
+    - name: Compose final email
+      id: compose
+      uses: actions/github-script@v7
+      env:
+        TARGET_ENV:   ${{ inputs.target_env }}
+        CD_STATUS:    ${{ inputs.cd_status }}
+        SOURCE_REF:   ${{ inputs.source_ref }}
+        VERSION:      ${{ inputs.version }}
+        FOLDER_NAME:  ${{ inputs.folder_name }}
+        PROJECT_ID:   ${{ inputs.project_id }}
+        MIGRATE:      ${{ inputs.migrate }}
+      with:
+        script: |
+          const fs = require('fs');
+          const path = require('path');
+
+          const TEST_PATH = './email/TestResults.html';
+          const ANALYSIS_PATH = './email/analysis-report.html';
+
+          const env = (process.env.TARGET_ENV || 'dev').toLowerCase();
+          const bodyPath = (env === 'test') ? TEST_PATH : ANALYSIS_PATH;
+
+          const extractBody = (html) => {
+            const m = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(html);
+            return (m ? m[1] : html);
+          };
+
+          // If the chosen body isn't there, make a tiny placeholder — minimal logic
+          try { fs.statSync(bodyPath); } catch {
+            fs.mkdirSync(path.dirname(bodyPath), { recursive: true });
+            fs.writeFileSync(bodyPath, '<!doctype html><html><body><p>No content found.</p></body></html>', 'utf8');
+          }
+
+          const inner = extractBody(fs.readFileSync(bodyPath, 'utf8')).replace(/<script[\s\S]*?<\/script>/gi, '');
+
+          const repo   = process.env.GITHUB_REPOSITORY || '';
+          const runId  = process.env.GITHUB_RUN_ID || '';
+          const runUrl = (repo && runId) ? `https://github.com/${repo}/actions/runs/${runId}` : '';
+
+          const cd = (process.env.CD_STATUS || '').toLowerCase();
+          const overall = (cd === 'success') ? 'success' : 'failure';
+          const ok = (overall === 'success');
+          const ICON = ok ? '✅' : '❌';
+          const COLOR = ok ? '#2e7d32' : '#c62828';
+          const WORD = ok ? 'Successful' : 'Failed';
+
+          const subjectPrefix = (env === 'test') ? 'UiPath Test Report'
+                                : (env === 'dev') ? 'UiPath Analysis Report'
+                                : 'UiPath Report';
+          const subject = `${subjectPrefix} - ${repo} #${process.env.GITHUB_RUN_NUMBER || ''}`;
+
+          const row = (k, v) => v ? `<tr><td style="padding:8px;border:1px solid #ddd;"><strong>${k}</strong></td><td style="padding:8px;border:1px solid #ddd;">${v}</td></tr>` : '';
+
+          const statusHtml =
+            `<h2 style="color:${COLOR};margin:0 0 12px 0;">${ICON} Deployment ${WORD} — ${env}</h2>` +
+            `<table style="border-collapse:collapse;width:100%;margin-bottom:16px;">` +
+              row('Repository:', repo) +
+              row('Run:', runUrl ? `<a href="${runUrl}" target="_blank" style="color:#1d4ed8;text-decoration:none;">${runUrl}</a>` : '') +
+              row('Source ref:', process.env.SOURCE_REF || '') +
+              row('Version:',    process.env.VERSION || '') +
+              row('Folder:',     process.env.FOLDER_NAME || '') +
+              row('Project ID:', process.env.PROJECT_ID || '') +
+              row('Migrate:',    process.env.MIGRATE || '') +
+              row('CD Status:',  process.env.CD_STATUS || '') +
+              row('Overall:',    overall) +
+            `</table>`;
+
+          const button = runUrl
+            ? `<p style="margin-top:20px;"><a href="${runUrl}" style="background-color:#007acc;color:#ffffff;padding:10px 15px;text-decoration:none;border-radius:5px;display:inline-block;">View Workflow Details</a></p>`
+            : '';
+
+          const finalHtml = [
+            '<!doctype html><html>',
+            '<body style="font-family:Arial,Helvetica,sans-serif;margin:20px;color:#0f172a;">',
+            statusHtml,
+            inner,
+            button,
+            '</body></html>'
+          ].join('').replace(/>\s+</g, '>\r\n<');
+
+          const outPath = './email/final-email.html';
+          fs.mkdirSync(path.dirname(outPath), { recursive: true });
+          fs.writeFileSync(outPath, finalHtml, 'utf8');
+
+          core.setOutput('html', outPath);
+          core.setOutput('subject', subject);
+          core.setOutput('overall', overall);
+          core.setOutput('attach_path', bodyPath);

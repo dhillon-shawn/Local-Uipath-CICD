@@ -35,12 +35,16 @@ runs:
           UIPATH,${{ inputs.secret_id }}
         parse-json-secrets: false
 
+
+
+
     - name: Map vars and fetch token
       id: token
       uses: actions/github-script@v7
       env:
         TARGET_ENV: ${{ inputs.target_env }}
         SCOPE: ${{ inputs.scopes }}
+        ACTIONS_STEP_info: true
       with:
         script: |
           try {
@@ -66,18 +70,18 @@ runs:
             
 
             const tokenUrl = `${BASE_URL.replace(/\/+$/,'')}/identity_/connect/token`;
-            core.debug(`Token URL: ${tokenUrl}`);
-            core.debug(`Scope: ${process.env.SCOPE}`);
+            core.info(`Token URL: ${tokenUrl}`);
+            core.info(`Scope: ${process.env.SCOPE}`);
 
             const params = new URLSearchParams();
             params.set('grant_type', 'client_credentials');
             params.set('client_id', APP_ID);
             params.set('client_secret', APP_SECRET);
+       
           } catch (err) {
             core.setFailed(`Token step threw: ${err && err.message ? err.message : String(err)}`);
           }
-          
-          
+
     - name: Get Auth Token
       id: get-token
       if: runner.os == 'Linux'
