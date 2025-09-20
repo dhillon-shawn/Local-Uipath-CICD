@@ -175,7 +175,7 @@ runs:
           import html, re, json, datetime
 
           XML_PATH = r"""${{ inputs.xml_path }}"""
-          OUT = Path("email/TestResults.html")
+          OUT = Path("test.html")
           OUT.parent.mkdir(parents=True, exist_ok=True)
 
           # ---------- small helpers ----------
