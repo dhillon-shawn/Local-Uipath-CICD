@@ -189,7 +189,7 @@ jobs:
         uses: ./.github/actions/format-email
         id: compose
         with:
-          target_env: test
+          target_env: dev
           publishable: true
           json_path: results/analyze.json
           xml_path: results/test.xml
