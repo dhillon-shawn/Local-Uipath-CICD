@@ -74,7 +74,7 @@ runs:
 
     # ---------- analyze.json → HTML (Node) ----------
     - name: Build Analyzer HTML (if json_path provided)
-      if: ${{ inputs.json_path != '' }}
+      if: ${{ inputs.target_env == 'dev' && hashFiles('results/analyze.json') != '' }}
       uses: actions/github-script@v7
       env:
         IN:  ${{ inputs.json_path }}
@@ -173,7 +173,7 @@ runs:
 
 
     - name: Build JUnit HTML (if xml_path provided)
-      if: ${{ inputs.xml_path != '' }}
+      if: ${{ inputs.target_env == 'test' &&  needs.setup.outputs.publishable == 'true' && hashFiles('results/TestResults.xml') != '' }}
       uses: actions/github-script@v7
       env:
         XML_IN:  ${{ inputs.xml_path }}

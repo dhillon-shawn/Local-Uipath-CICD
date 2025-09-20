@@ -142,7 +142,7 @@ jobs:
       - name: Write test XML (bash)
         shell: bash
         run: |
-          mkdir -p tmp
+          mkdir -p results
           cat > results/test.xml <<'XML'
           <?xml version="1.0" encoding="utf-8"?>
           <testsuites>
@@ -161,7 +161,7 @@ jobs:
             </testsuite>
           </testsuites>
           XML
-          echo "Wrote $(wc -c < tmp/sample.xml) bytes to results/test.xml"
+          echo "Wrote $(wc -c < results/test.xml) bytes to results/test.xml"
           
 
           
@@ -172,8 +172,9 @@ jobs:
         id: compose
         with:
           target_env: dev
+          publishable: true
           json_path: results/analyze.json
-          xml_path: reulsts/test.xml
+          xml_path: results/test.xml
           cd_status: success
           source_ref: ${{ github.sha }}
           version: v1.2.3
