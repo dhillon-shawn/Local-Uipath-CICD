@@ -85,17 +85,14 @@ jobs:
             cp "$GITHUB_WORKSPACE/templates/PRs/pull_request_template.md" .github/
             cp -r "$GITHUB_WORKSPACE/templates/PRs/PULL_REQUEST_TEMPLATE" .github/
             cp "$GITHUB_WORKSPACE/templates/CICD.yml"                     .github/workflows/
-
-            # NEW: add root files
             cp "$GITHUB_WORKSPACE/templates/.gitignore"                   .
             cp "$GITHUB_WORKSPACE/templates/nuget.config"                 .
 
-            # Stage and commit only if .github/.gitignore/nuget.config changed
             git add .github .gitignore nuget.config
             if ! git diff --cached --quiet -- .github .gitignore nuget.config; then
-              git commit -m "update .github, .gitignore, nuget.config on ${default_branch} [skip cicd]"
+              git commit -m "update .github, .gitignore, nuget.config on ${default_branch} [skip ci]"
               if ! git push origin "${default_branch}"; then
-                echo "::notice:: push to ${default_branch} blocked (protected?) – continuing."
+                echo "::notice:: push to ${default_branch} blocked – continuing."
               fi
             else
               git reset -q
@@ -108,7 +105,7 @@ jobs:
             git fetch --prune --no-tags origin \
               "+refs/heads/${default_branch}:refs/remotes/origin/${default_branch}"
 
-            # Try to fetch non-prod if it exists; ignore failure if it doesn't yet
+            # Try to fetch non-prod 
             git fetch --prune --no-tags origin \
               "+refs/heads/${non_branch}:refs/remotes/origin/${non_branch}" || true
 
@@ -131,7 +128,6 @@ jobs:
             # Ensure non-prod exists, rebase onto main, overlay ONLY .github, .gitignore, nuget.config, push
             # -------------------------
 
-            # Fetch refs (redundant-safe)
             git fetch --prune --no-tags origin \
               "+refs/heads/${default_branch}:refs/remotes/origin/${default_branch}"
             git fetch --prune --no-tags origin \
@@ -139,12 +135,11 @@ jobs:
 
             DEFAULT_SRC="origin/${default_branch}"
 
-            # Create or base local non-prod
             if git ls-remote --exit-code origin "refs/heads/${non_branch}" >/dev/null 2>&1; then
               # remote exists
               git switch -C "${non_branch}" "origin/${non_branch}"
             else
-              # remote missing: start from main (will publish later)
+              # remote missing: start from main 
               git switch -C "${non_branch}" "${DEFAULT_SRC}"
             fi
 
@@ -158,7 +153,7 @@ jobs:
             git rebase --rebase-merges "${DEFAULT_SRC}"
 
             # Overlay ONLY .github, .gitignore, and nuget.config from main
-            # - remove existing ones first to ensure an exact overlay
+            # - remove existing ones so we can update
             git rm -r --quiet --ignore-unmatch .github || true
             git rm --quiet --ignore-unmatch .gitignore nuget.config || true
             git restore --source="${DEFAULT_SRC}" --staged --worktree -- .github .gitignore nuget.config
@@ -168,7 +163,7 @@ jobs:
               git commit -m "sync with ${default_branch} ($(git rev-parse --short ${DEFAULT_SRC})) [skip cicd]"
             fi
 
-            # Publish (force since we rebased; also sets upstream)
+            # Publish, sets upstream)
             git push --force -u origin HEAD:"refs/heads/${non_branch}"
 
             echo "::notice:: ${non_branch} is up to date with ${default_branch}; only .github, .gitignore, and nuget.config were changed."
