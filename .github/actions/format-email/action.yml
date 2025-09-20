@@ -170,186 +170,162 @@ runs:
       if: ${{ inputs.target_env == 'test' && inputs.publishable == 'true' && inputs.xml_path != '' }}
       shell: python
       run: |
-                from pathlib import Path
-                import xml.etree.ElementTree as ET
-                import html, re, datetime
+                        from pathlib import Path
+                        import xml.etree.ElementTree as ET
+                        import html, re, datetime
 
-                XML_PATH = r"""${{ inputs.xml_path }}"""
-                OUT = Path("test.html")
-                OUT.parent.mkdir(parents=True, exist_ok=True)
+                        XML_PATH = r"""${{ inputs.xml_path }}"""
+                        OUT = Path("email/TestResults.html")
+                        OUT.parent.mkdir(parents=True, exist_ok=True)
 
-                # --- helpers ---
-                def as_int(v, d=0):
-                    try: return int(v)
-                    except: return d
-                def as_float(v, d=0.0):
-                    try: return float(v)
-                    except: return d
-                def autolink(txt: str) -> str:
-                    # make http(s)://... clickable
-                    def repl(m):
-                        url = m.group(0)
-                        safe = html.escape(url)
-                        return f'<a href="{safe}" target="_blank" style="color:#1d4ed8;text-decoration:none;">{safe}</a>'
-                    return re.sub(r'https?://[^\s<>\]]+', repl, html.escape(txt))
-                def truncate(text: str, limit_chars=4000, limit_lines=120):
-                    # limit by lines first, then chars; add ellipsis if truncated
-                    lines = text.splitlines()
-                    truncated = False
-                    if len(lines) > limit_lines:
-                        lines = lines[:limit_lines]; truncated = True
-                    text2 = "\n".join(lines)
-                    if len(text2) > limit_chars:
-                        text2 = text2[:limit_chars]; truncated = True
-                    return text2 + ("\n… [truncated]" if truncated else "")
+                        def as_int(v):
+                            try: return int(v)
+                            except: return 0
+                        def as_float(v):
+                            try: return float(v)
+                            except: return 0.0
+                        def autolink(txt: str) -> str:
+                            # escape first, then linkify http(s)://... sequences
+                            esc = html.escape(txt)
+                            return re.sub(
+                                r'https?://[^\s<>\]]+',
+                                lambda m: f'<a href="{m.group(0)}" target="_blank" style="color:#1d4ed8;text-decoration:none;">{html.escape(m.group(0))}</a>',
+                                esc
+                            )
 
-                # --- parse ---
-                root = ET.parse(XML_PATH).getroot()
-                suites = root.findall(".//testsuite") or ([root] if root.tag == "testsuite" else [])
+                        root = ET.parse(XML_PATH).getroot()
+                        suites = root.findall(".//testsuite") or ([root] if root.tag == "testsuite" else [])
 
-                # totals (support UiPath "cancelled")
-                total_tests = sum(as_int(s.attrib.get("tests")) for s in suites)
-                total_fail  = sum(as_int(s.attrib.get("failures")) for s in suites)
-                total_err   = sum(as_int(s.attrib.get("errors")) for s in suites)
-                total_skip  = sum(as_int(s.attrib.get("skipped") or s.attrib.get("disabled")) for s in suites)
-                total_cxl   = sum(as_int(s.attrib.get("cancelled")) for s in suites)
-                total_time  = sum(as_float(s.attrib.get("time")) for s in suites)
+                        total_tests = sum(as_int(s.attrib.get("tests")) for s in suites)
+                        total_fail  = sum(as_int(s.attrib.get("failures")) for s in suites)
+                        total_err   = sum(as_int(s.attrib.get("errors")) for s in suites)
+                        total_skip  = sum(as_int(s.attrib.get("skipped") or s.attrib.get("disabled")) for s in suites)
+                        total_cxl   = sum(as_int(s.attrib.get("cancelled")) for s in suites)
+                        total_time  = sum(as_float(s.attrib.get("time")) for s in suites)
 
-                # fallback if tests missing
-                if not total_tests:
-                    cases = root.findall(".//testcase")
-                    total_tests = len(cases)
-                    for tc in cases:
-                        if tc.find("skipped") is not None: total_skip += 1
-                        elif tc.find("failure") is not None: total_fail += 1
-                        elif tc.find("error")   is not None: total_err  += 1
-                    total_time = sum(as_float(tc.attrib.get("time")) for tc in cases)
+                        # Fallback if suites omitted 'tests' — not a skip, just computing totals.
+                        if total_tests == 0:
+                            cases = root.findall(".//testcase")
+                            total_tests = len(cases)
+                            for tc in cases:
+                                if tc.find("skipped") is not None: total_skip += 1
+                                elif tc.find("failure") is not None: total_fail += 1
+                                elif tc.find("error")   is not None: total_err  += 1
+                                # cancelled not standard at testcase level; keeping suite value
+                            total_time = sum(as_float(tc.attrib.get("time")) for tc in cases)
+                        passed = max(total_tests - total_fail - total_err - total_skip - total_cxl, 0)
 
-                passed = max(total_tests - total_fail - total_err - total_skip - total_cxl, 0)
+                        # Collect testcases (include ALL, even passes, and ALL logs)
+                        cases = []
+                        for tc in root.findall(".//testcase"):
+                            status = (tc.attrib.get("status") or "").strip()
+                            if not status:
+                                status = "Failed" if tc.find("failure") is not None else \
+                                        "Error"  if tc.find("error")   is not None else \
+                                        "Skipped" if tc.find("skipped") is not None else \
+                                        "Passed"
+                            cases.append({
+                                "status": status,
+                                "class": tc.attrib.get("classname",""),
+                                "name": tc.attrib.get("name",""),
+                                "time": tc.attrib.get("time",""),
+                                "log": tc.findtext("system-out") or ""
+                            })
 
-                # collect cases (+ derive status for rows)
-                rows = []
-                for tc in root.findall(".//testcase"):
-                    name = tc.attrib.get("name","")
-                    classname = tc.attrib.get("classname","")
-                    t = tc.attrib.get("time","")
-                    status = (tc.attrib.get("status") or "").strip()  # UiPath puts "Passed"
-                    if not status:
-                        if   tc.find("failure") is not None: status = "Failed"
-                        elif tc.find("error")   is not None: status = "Error"
-                        elif tc.find("skipped") is not None: status = "Skipped"
-                        else: status = "Passed"
-                    rows.append({
-                        "status": status,
-                        "class": classname,
-                        "name": name,
-                        "time": t,
-                        "log": (tc.findtext("system-out") or "")
-                    })
+                        # Suite-level logs (include ALL, even empty)
+                        suite_logs = [ (i+1, s.findtext("system-out") or "") for i, s in enumerate(suites) ]
 
-                # suite-level logs (often summary)
-                suite_logs = []
-                for s in suites:
-                    so = s.findtext("system-out") or ""
-                    if so.strip():
-                        suite_logs.append(so)
+                        # Inline style snippets
+                        body_style = "font-family:Arial,Helvetica,sans-serif;margin:20px;color:#0f172a"
+                        h1_style = "margin:0 0 8px 0;font-size:20px"
+                        sub_style = "color:#475569;font-size:12px;margin:0 0 16px 0"
+                        pills_wrap = "display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 16px 0"
+                        pill_base = "border:1px solid #e5e7eb;border-radius:999px;padding:6px 10px;font-weight:700"
+                        pill_ok = pill_base + ";background:#dcfce7;color:#166534;border-color:#bbf7d0"
+                        pill_fail = pill_base + ";background:#fee2e2;color:#991b1b;border-color:#fecaca"
+                        pill_err = pill_base + ";background:#fee2e2;color:#991b1b;border-color:#fecaca"
+                        pill_skp = pill_base + ";background:#ffedd5;color:#92400e;border-color:#fed7aa"
+                        pill_cxl = pill_base + ";background:#ffe4e6;color:#9f1239;border-color:#fecdd3"
+                        pill_time = pill_base + ";background:#e0f2fe;color:#075985;border-color:#bae6fd"
 
-                # --- HTML ---
-                CSS = """
-                body{font-family:Arial,Helvetica,sans-serif;margin:20px;color:#0f172a}
-                h1{margin:0 0 8px 0;font-size:20px}
-                .sub{color:#475569;font-size:12px;margin:0 0 16px 0}
-                .pills{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 16px 0}
-                .pill{border:1px solid #e5e7eb;border-radius:999px;padding:6px 10px;font-weight:700}
-                .ok{background:#dcfce7;color:#166534;border-color:#bbf7d0}
-                .fail{background:#fee2e2;color:#991b1b;border-color:#fecaca}
-                .err{background:#fee2e2;color:#991b1b;border-color:#fecaca}
-                .skp{background:#ffedd5;color:#92400e;border-color:#fed7aa}
-                .cxl{background:#ffe4e6;color:#9f1239;border-color:#fecdd3}
-                .time{background:#e0f2fe;color:#075985;border-color:#bae6fd}
-                table{border-collapse:separate;border-spacing:0;width:100%;min-width:720px;border:1px solid #e5e7eb}
-                th{background:#f8fafc;border-bottom:1px solid #e5e7eb;text-align:left;padding:8px 10px;font-weight:700;font-size:13px;white-space:nowrap}
-                td{border-top:1px solid #e5e7eb;padding:8px 10px;vertical-align:top;font-size:13px}
-                .nowrap{white-space:nowrap}
-                pre{background:#0b1020;color:#e6edf3;padding:12px;border-radius:8px;line-height:1.35;font-size:12px;white-space:pre-wrap}
-                """
+                        table_wrap = "overflow-x:auto"
+                        table_style = "border-collapse:separate;border-spacing:0;width:100%;min-width:720px;border:1px solid #e5e7eb"
+                        th_style = "background:#f8fafc;border-bottom:1px solid #e5e7eb;text-align:left;padding:8px 10px;font-weight:700;font-size:13px;white-space:nowrap"
+                        td_style = "border-top:1px solid #e5e7eb;padding:8px 10px;vertical-align:top;font-size:13px"
+                        td_nowrap = td_style + ";white-space:nowrap"
+                        pre_style = "background:#0b1020;color:#e6edf3;padding:12px;border-radius:8px;line-height:1.35;font-size:12px;white-space:pre-wrap"
 
-                def pill(text, cls): return f'<span class="pill {cls}">{text}</span>'
-                pills = "".join([
-                    pill(f"✅ Passed: {passed}", "ok"),
-                    pill(f"❌ Failures: {total_fail}", "fail"),
-                    pill(f"🧨 Errors: {total_err}", "err"),
-                    pill(f"⚠️ Skipped: {total_skip}", "skp"),
-                    pill(f"⛔ Cancelled: {total_cxl}", "cxl"),
-                    pill(f"⏱ Time: {total_time:.2f}s", "time"),
-                ])
+                        def status_pill(s):
+                            s1 = (s or "").strip().capitalize()
+                            style = pill_time
+                            if s1 == "Passed": style = pill_ok
+                            elif s1 == "Failed": style = pill_fail
+                            elif s1 == "Error": style = pill_err
+                            elif s1 == "Skipped": style = pill_skp
+                            return f'<span style="{style}">{html.escape(s1 or "")}</span>'
 
-                # testcase table (show all, since you want passes too)
-                def status_cell(s):
-                    s = (s or "").strip().capitalize()
-                    cls = "ok" if s=="Passed" else "fail" if s=="Failed" else "err" if s=="Error" else "skp" if s=="Skipped" else "time"
-                    return f'<span class="pill {cls}">{html.escape(s)}</span>'
+                        pills_html = "".join([
+                            f'<span style="{pill_ok}">✅ Passed: {passed}</span>',
+                            f'<span style="{pill_fail}">❌ Failures: {total_fail}</span>',
+                            f'<span style="{pill_err}">🧨 Errors: {total_err}</span>',
+                            f'<span style="{pill_skp}">⚠️ Skipped: {total_skip}</span>',
+                            f'<span style="{pill_cxl}">⛔ Cancelled: {total_cxl}</span>',
+                            f'<span style="{pill_time}">⏱ Time: {total_time:.2f}s</span>',
+                        ])
 
-                case_rows = "\n".join(
-                    f"<tr>"
-                    f"<td class='nowrap'>{status_cell(r['status'])}</td>"
-                    f"<td>{html.escape(r['class'])}</td>"
-                    f"<td>{html.escape(r['name'])}</td>"
-                    f"<td class='nowrap'>{html.escape(r['time'])}</td>"
-                    f"</tr>"
-                    for r in rows
-                )
-                case_table = f"""
-                <div style="overflow-x:auto">
-                  <table role="table" aria-label="JUnit Testcases">
-                    <thead>
-                      <tr><th>Status</th><th>Class</th><th>Name</th><th>Time</th></tr>
-                    </thead>
-                    <tbody>
-                      {case_rows}
-                    </tbody>
-                  </table>
-                </div>"""
+                        # Testcase table (all cases)
+                        case_rows = "\n".join(
+                            f"<tr>"
+                            f"<td style='{td_nowrap}'>{status_pill(c['status'])}</td>"
+                            f"<td style='{td_style}'>{html.escape(c['class'])}</td>"
+                            f"<td style='{td_style}'>{html.escape(c['name'])}</td>"
+                            f"<td style='{td_nowrap}'>{html.escape(c['time'])}</td>"
+                            f"</tr>"
+                            for c in cases
+                        )
+                        case_table = f"""
+                        <div style="{table_wrap}">
+                          <table role="table" aria-label="JUnit Testcases" style="{table_style}">
+                            <thead>
+                              <tr>
+                                <th style="{th_style}">Status</th>
+                                <th style="{th_style}">Class</th>
+                                <th style="{th_style}">Name</th>
+                                <th style="{th_style}">Time</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {case_rows}
+                            </tbody>
+                          </table>
+                        </div>"""
 
-                # logs
-                log_sections = []
+                        # Logs: include ALL (even empty)
+                        log_sections = []
+                        for idx, log in suite_logs:
+                            log_sections.append(f'<h3 style="margin-top:16px">Suite Log #{idx}</h3><pre style="{pre_style}">{autolink(log)}</pre>')
+                        for c in cases:
+                            hdr = f"{c['class']}.{c['name']}".strip(".")
+                            log_sections.append(f'<h3 style="margin-top:16px">Testcase Log — {html.escape(hdr)}</h3><pre style="{pre_style}">{autolink(c["log"])}</pre>')
 
-                # suite-level
-                for i, log in enumerate(suite_logs, 1):
-                    trimmed = truncate(log)
-                    log_sections.append(f"<h3>Suite Log #{i}</h3><pre>{autolink(trimmed)}</pre>")
+                        logs_html = "\n".join(log_sections)
 
-                # testcase-level (only include if non-empty; limit to first N to keep email small)
-                MAX_TC_LOGS = 25
-                tc_count = 0
-                for r in rows:
-                    if not r["log"].strip(): continue
-                    tc_count += 1
-                    if tc_count > MAX_TC_LOGS:
-                        log_sections.append("<p><em>… additional testcase logs omitted for brevity</em></p>")
-                        break
-                    trimmed = truncate(r["log"])
-                    hdr = f"{r['class']}.{r['name']}".strip(".")
-                    log_sections.append(f"<h3>Testcase Log — {html.escape(hdr)}</h3><pre>{autolink(trimmed)}</pre>")
+                        when = datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+                        html_doc = f"""<!doctype html>
+                        <html>
+                          <head><meta charset="utf-8"></head>
+                          <body style="{body_style}">
+                            <h1 style="{h1_style}">JUnit Test Results</h1>
+                            <p style="{sub_style}">Generated: {html.escape(when)}</p>
+                            <div style="{pills_wrap}">{pills_html}</div>
+                            {case_table}
+                            <h2 style="margin-top:20px">Logs</h2>
+                            {logs_html}
+                          </body>
+                        </html>"""
 
-                logs_html = "\n".join(log_sections) if log_sections else "<p>No logs present.</p>"
-
-                when = datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z"
-                doc = f"""<!doctype html>
-                <html>
-                  <head><meta charset="utf-8"><style>{CSS}</style></head>
-                  <body>
-                    <h1>JUnit Test Results</h1>
-                    <p class="sub">Generated: {html.escape(when)}</p>
-                    <div class="pills">{pills}</div>
-                    {case_table}
-                    <h2 style="margin-top:20px">Logs</h2>
-                    {logs_html}
-                  </body>
-                </html>"""
-
-                OUT.write_text(doc, encoding="utf-8")
-                print(f"Wrote {OUT}")
+                        OUT.write_text(html_doc, encoding="utf-8")
+                        print(f"Wrote {OUT}")
 
 
 
