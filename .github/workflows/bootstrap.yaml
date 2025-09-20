@@ -71,7 +71,7 @@ jobs:
             git config user.name  "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
 
-            TEMPLATE_PATHS=(.github .gitignore nuget.config)
+            REPO_SLUG="${{ github.repository_owner }}/${repo}"
 
             # -------------------------
             # Update default branch
@@ -88,27 +88,25 @@ jobs:
             cp "$GITHUB_WORKSPACE/templates/.gitignore"                   .
             cp "$GITHUB_WORKSPACE/templates/nuget.config"                 .
 
-            # ✅ Stage BOTH .github and root files so main carries the full change
-            git add -A -- "${TEMPLATE_PATHS[@]}"
-            if ! git diff --cached --quiet -- "${TEMPLATE_PATHS[@]}"; then
-              git commit -m "chore(templates): sync .github, .gitignore, nuget.config [skip ci]"
+            git add .github
+            if ! git diff --cached --quiet -- .github; then
+              git commit -m "update .github on ${default_branch} [skip cicd]"
               if ! git push origin "${default_branch}"; then
                 echo "::notice:: push to ${default_branch} blocked (protected?) – continuing."
               fi
             else
               git reset -q
-              echo "No template changes on ${default_branch}."
+              echo "No .github changes on ${default_branch}."
             fi
-
-            # Keep tree clean before switching/rebasing
-            git reset --hard HEAD
-            git clean -fd
 
             # -------------------------
             #  Fetch refs
             # -------------------------
             git fetch --prune --no-tags origin \
-              "+refs/heads/${default_branch}:refs/remotes/origin/${default_branch}" \
+              "+refs/heads/${default_branch}:refs/remotes/origin/${default_branch}"
+
+            # Try to fetch non-prod if it exists; ignore failure if it doesn't yet
+            git fetch --prune --no-tags origin \
               "+refs/heads/${non_branch}:refs/remotes/origin/${non_branch}" || true
 
             # If repository is shallow, deepen so rebase has enough history
@@ -118,46 +116,57 @@ jobs:
             fi
 
             DEFAULT_SRC="origin/${default_branch}"
+            DEFAULT_SHA="$(git rev-parse ${DEFAULT_SRC})"
+            
+            if [[ -f "./project.json" ]]; then
+              PID="$(jq -er '.name' ./project.json)"
+              echo "PID=$PID" >> "$GITHUB_ENV"
+              echo "Project ID: $PID"
+            fi
 
             # -------------------------
-            # Ensure non-prod exists, rebase onto main
+            # Ensure non-prod exists, rebase onto main, overlay ONLY .github, push
             # -------------------------
+
+            # Fetch refs
+            git fetch --prune --no-tags origin \
+              "+refs/heads/${default_branch}:refs/remotes/origin/${default_branch}"
+            git fetch --prune --no-tags origin \
+              "+refs/heads/${non_branch}:refs/remotes/origin/${non_branch}" || true
+
+            DEFAULT_SRC="origin/${default_branch}"
+
+            # Create or base local non-prod
             if git ls-remote --exit-code origin "refs/heads/${non_branch}" >/dev/null 2>&1; then
+              # remote exists
               git switch -C "${non_branch}" "origin/${non_branch}"
             else
+              # remote missing: start from main (will publish later)
               git switch -C "${non_branch}" "${DEFAULT_SRC}"
-              git push -u origin "HEAD:refs/heads/${non_branch}" || true
             fi
 
-            # Rebase non-prod onto main (keeps history aligned)
-            if ! git rebase --rebase-merges "${DEFAULT_SRC}"; then
-              echo "::warning:: Rebase had conflicts; aborting and attempting a regular merge."
-              git rebase --abort || true
-              git merge --no-edit --no-ff "${DEFAULT_SRC}"
+            # If shallow, grab more history so rebase works
+            if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
+              git fetch --no-tags --deepen=1000 origin "${default_branch}" || true
+              git fetch --no-tags --deepen=1000 origin "${non_branch}" || true
             fi
 
-            # -------------------------
-            # Overlay ONLY templates from main (.github + root files)
-            # -------------------------
-            git restore --source="${DEFAULT_SRC}" --staged --worktree -- "${TEMPLATE_PATHS[@]}" || true
+            # Rebase non-prod onto main (keep dev work; ensures “not behind”)
+            git rebase --rebase-merges "${DEFAULT_SRC}"
 
-            # Commit only if those paths differ from HEAD (index vs HEAD)
-            if ! git diff --cached --quiet -- "${TEMPLATE_PATHS[@]}"; then
-              git commit -m "chore(templates): sync from ${default_branch} ($(git rev-parse --short ${DEFAULT_SRC})) [skip ci]"
+            # Overlay ONLY .github from main (remove extras, then restore exact tree)
+            git rm -r --quiet --ignore-unmatch .github || true
+            git restore --source="${DEFAULT_SRC}" --staged --worktree -- .github
+
+            # Commit only if .github differs from HEAD
+            if ! git diff --quiet HEAD -- .github; then
+              git commit -m "sync with ${default_branch} ($(git rev-parse --short ${DEFAULT_SRC})) [skip cicd]"
             fi
 
-            # -------------------------
-            # Publish non-prod safely (explicit lease)
-            # -------------------------
-            LEASE_SHA="$(git rev-parse "refs/remotes/origin/${non_branch}" 2>/dev/null || echo "")"
-            if [ -n "$LEASE_SHA" ]; then
-              # Force-with-lease ensures we only overwrite if remote is still at LEASE_SHA
-              git push --force-with-lease="refs/heads/${non_branch}:${LEASE_SHA}" origin "HEAD:refs/heads/${non_branch}"
-            else
-              git push -u origin "HEAD:refs/heads/${non_branch}"
-            fi
+            # Publish (force since we rebased; also sets upstream)
+            git push --force -u origin HEAD:"refs/heads/${non_branch}"
 
-            echo "::notice:: ${non_branch} is aligned with ${default_branch}; only ${TEMPLATE_PATHS[*]} were changed."
+            echo "::notice:: ${non_branch} is up to date with ${default_branch}; only .github was changed."
 
 
       - name: protect non-prod
