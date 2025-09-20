@@ -171,7 +171,7 @@ jobs:
         uses: ./.github/actions/format
         id: compose
         with:
-          target_env: dev
+          target_env: test
           publishable: true
           json_path: results/analyze.json
           xml_path: results/test.xml
