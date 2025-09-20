@@ -159,7 +159,7 @@ jobs:
         run: |
           nuget.exe install UiPath.CLI.Windows -Version 25.4.9337.28376 -OutputDirectory packages -Source https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json
           
-      - name: Write nuget.config 
+      - name: Write nuget.config
         shell: powershell
         run: |
           $uipcli = (Get-Command "packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe").Source
@@ -381,7 +381,7 @@ jobs:
 
 
   send:
-    needs: [setup, resolve-dependencies, DEPLOY]
+    needs: [setup, CLI, DEPLOY]
     runs-on: [self-hosted,X64 ,Windows ,tosca-runner]
     if: always()
     steps:
@@ -403,8 +403,8 @@ jobs:
           xml_path: results/test.xml
           cd_status: ${{ needs.DEPLOY.result }}
           source_ref: ${{ github.sha }}
-          version:  ${{ needs.resolve-dependencies.outputs.version }}
-          folder_name: ${{ needs.resolve-dependencies.outputs.base_folder_name }}
+          version:   ${{ needs.CLI.outputs.version }}
+          folder_name: ${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}
           project_id: ${{ needs.setup.outputs.pid }}
           migrate:  ${{ needs.setup.outputs.migrate }}
 
@@ -415,9 +415,9 @@ jobs:
           server_address: smtp.ad.dmv.ca.gov
           server_port: 25
           secure: false
-          subject:  ${{ needs.format.outputs.final_subject }}
+          subject:  ${{ steps.compose.outputs.subject }}
           to:       ${{ needs.setup.outputs.email }}
           from:     "UiPath CI/CD <uipath-cicd@noreply.com>"
-          html_body: file://${{ needs.format.outputs.final_html }}
+          html_body: file://${{ steps.compose.outputs.html }}
           convert_markdown: false
 
