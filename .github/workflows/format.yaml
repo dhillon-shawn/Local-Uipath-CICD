@@ -185,7 +185,7 @@ jobs:
         continue-on-error: true
 
       - name: Compose Analysis Email
-        uses: ./.github/actions/format
+        uses: ./.github/actions/format-email
         id: compose
         with:
           target_env: dev
