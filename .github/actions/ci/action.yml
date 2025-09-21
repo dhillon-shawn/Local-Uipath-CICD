@@ -55,6 +55,7 @@ runs:
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
+        if: ${{ always() && !cancelled() }}
         with:
           name: results
           path: ./results/*
