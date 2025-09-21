@@ -167,5 +167,5 @@ runs:
           core.info('--- Decide target env (end) ---');
 
           core.setOutput('target_env', targetEnv);
-          core.setOutput('skip', skip ? 'true' : 'false');
+          core.setOutput('skip', skip);
           core.setOutput('source_ref', sourceRef);
