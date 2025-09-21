@@ -31,7 +31,8 @@ runs:
           const owner = context.repo.owner;
           const repo  = context.repo.repo;
 
-          const ref = context.ref || ''; // refs/heads/<branch>
+          // refs/heads/<branch>
+          const ref = context.ref || '';
           const refName = ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref;
 
           let targetEnv = '';
@@ -41,48 +42,30 @@ runs:
             const action = context.payload.action;
             const pr = context.payload.pull_request;
             const isDraft = !!pr?.draft;
+            const baseRef = pr?.base?.ref;
 
-            if (action === 'ready_for_review') {
-              // Transition to test when draft → RfR
+            // 1) Skip PRs not targeting the default branch
+            if (baseRef && defaultBranch && baseRef !== defaultBranch) {
+              skip = true;
+            } else if (action === 'ready_for_review') {
+              // Draft -> Ready for review flips to test
               targetEnv = 'test';
             } else if (action === 'opened' || action === 'reopened' || action === 'synchronize') {
               if (isDraft) {
-                // Keep drafts in dev, but SKIP PR-triggered runs while draft
-                // (push runs will still fire and set dev below)
+                // While draft: keep env "dev" but skip PR-triggered run
                 targetEnv = 'dev';
                 skip = true;
               } else {
-                // Non-draft PR events use test (includes synchronize after RfR)
+                // Non-draft PR events run as test
                 targetEnv = 'test';
               }
             } else {
-              // Any other PR action not relevant
+              // Any other PR action: ignore
               skip = true;
             }
           } else if (eventName === 'push') {
-            if (refName.startsWith('feature/') || refName.startsWith('hotfix/')) {
-              // Check for an open PR on this branch
-              const prs = await github.rest.pulls.list({
-                owner, repo, head: `${owner}:${refName}`, state: 'open'
-              });
-              const pr = prs.data[0];
-
-              if (pr) {
-                if (pr.draft) {
-                  // Draft PR exists → still run push as dev
-                  targetEnv = 'dev';
-                  skip = false;
-                } else {
-                  // Non-draft PR exists → skip push (PR 'synchronize' will run as test)
-                  targetEnv = 'test'; // informational
-                  skip = true;
-                }
-              } else {
-                // No PR → dev on push
-                targetEnv = 'dev';
-              }
-            } else if (refName === defaultBranch) {
-              // Merge to default → prod unless merged PR was from hotfix/*
+            if (refName === defaultBranch) {
+              // 2) Allow merges to default: prod unless merged PR was from hotfix/*
               const afterSha = context.payload.after || context.sha;
               let isHotfix = false;
               try {
@@ -97,8 +80,28 @@ runs:
                 core.info(`Could not inspect associated PRs: ${e.message}`);
               }
               targetEnv = isHotfix ? 'hotfix' : 'prod';
+            } else if (refName.startsWith('feature/') || refName.startsWith('hotfix/')) {
+              // 3) Only allow pushes to feature/* or hotfix/*; others are skipped
+              // If a PR exists:
+              const prs = await github.rest.pulls.list({
+                owner, repo, head: `${owner}:${refName}`, state: 'open'
+              });
+              const pr = prs.data[0];
+              if (pr) {
+                if (pr.draft) {
+                  // Draft PR exists → still run push as dev
+                  targetEnv = 'dev';
+                } else {
+                  // Non-draft PR exists → skip push; PR synchronize will run as test
+                  targetEnv = 'test'; // informational
+                  skip = true;
+                }
+              } else {
+                // No PR → dev on push
+                targetEnv = 'dev';
+              }
             } else {
-              // Any other branch → do nothing
+              // 4) Skip pushes that are not to feature/* or hotfix/* (except default branch handled above)
               skip = true;
             }
           } else {
