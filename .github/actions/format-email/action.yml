@@ -87,20 +87,26 @@ runs:
             3: { name:'Info',    icon:'ℹ️', row:'#eff6ff', bar:'#2563eb' },
           };
 
-          // trim trailing/inline “Learn more” link (MD or HTML)
+          // Remove trailing "learn more" links (MD/HTML)
           const stripLink = (s) => String(s || '')
             .replace(/\s*\[learn more\.?\]\([^)]+\)/gi, '')
             .replace(/\s*<a\b[^>]*>\s*learn more\.?\s*<\/a>/gi, '');
 
-          // collapse "Expand to see details" descriptions to empty
-          const cleanDesc = (s) => {
-            const raw = String(s ?? '');
-            return /^expand to see details$/i.test(raw.trim()) ? '' : raw;
-          };
+          // If description is "Expand to see details", blank it
+          const cleanDesc = (s) => /^expand to see details$/i.test(String(s ?? '').trim()) ? '' : String(s ?? '');
 
           const raw = JSON.parse(fs.readFileSync(inPath, 'utf8'));
           const list = Array.isArray(raw) ? raw : (raw.Results || raw.results || []);
 
+          // ---------- filename helpers ----------
+          const norm = p => String(p || '').replace(/[\\/]+/g, '/'); // normalize to forward slashes
+          const base = p => {
+            if (!p) return '(Project-wide)';
+            const parts = norm(p).split('/').filter(Boolean);
+            return parts.length ? parts[parts.length - 1] : '(Project-wide)';
+          };
+
+          // ---------- prepare rows ----------
           const rows = list.map(x => ({
             sev: Number(x.ErrorSeverity ?? 3) || 3,
             code: String(x.ErrorCode ?? ''),
@@ -108,32 +114,21 @@ runs:
             activity: String(x.ActivityDisplayName ?? ''),
             desc: cleanDesc(x.Description),
             rec: stripLink(x.Recommendation),
-            fullPath: x.FilePath == null ? null : String(x.FilePath)
+            shortPath: base(x.FilePath)
           }));
 
-          // ---------- filename-only grouping ----------
-          const norm = p => String(p || '').replace(/[\\/]+/g, '\\'); // normalize to backslashes
-          const filenameOnly = p => {
-            if (!p) return '(Project-wide)';
-            const parts = norm(p).split('\\').filter(Boolean);
-            return parts.length ? parts[parts.length - 1] : '(Project-wide)';
-          };
-
-          rows.forEach(r => r.shortPath = filenameOnly(r.fullPath));
-
-          // ---------- totals and sorting ----------
+          // Totals
           const totals = { 1:0, 2:0, 3:0 };
           rows.forEach(r => totals[r.sev] = (totals[r.sev] || 0) + 1);
 
-          // Sort rows within each file: by severity, then rule
+          // Sort rows inside each file group
           const rowSort = (a,b) => (a.sev - b.sev) || a.rule.localeCompare(b.rule);
 
-          // Group by shortPath (filename)
+          // Group by filename
           const groups = new Map();
           for (const r of rows.sort(rowSort)) {
-            const key = r.shortPath;
-            if (!groups.has(key)) groups.set(key, []);
-            groups.get(key).push(r);
+            if (!groups.has(r.shortPath)) groups.set(r.shortPath, []);
+            groups.get(r.shortPath).push(r);
           }
 
           // ---------- styles ----------
@@ -189,30 +184,32 @@ runs:
               </table>
             </div>`;
 
-          // ---------- build HTML ----------
+          // ---------- header ordering ----------
+          const priorityOrder = ['(project-wide)','project.json', 'main.xaml', 'process.xaml'];
+          const baseLower = (name) => base(name).toLowerCase(); 
+          const priorityIndex = (name) => {
+            const n = baseLower(name);
+            const i = priorityOrder.indexOf(n);
+            return i === -1 ? 999 : i;
+          };
+
           const when = new Date().toISOString();
 
           let content = '';
           if (rows.length === 0) {
             content = '<p>No analyzer results found.</p>';
           } else {
-            const priorityOrder = ['project.json', 'Main.xaml', 'Process.xaml', '(Project-wide)', 'fake'];
-            const priorityIndex = (name) => {
-              const i = priorityOrder.indexOf(String(name).toLowerCase());
-              return i === -1 ? 999 : i;
-            };
-
             const keys = Array.from(groups.keys()).sort((a,b) => {
               const pa = priorityIndex(a);
               const pb = priorityIndex(b);
               if (pa !== pb) return pa - pb;
-              return a.localeCompare(b);
+              return a.localeCompare(b, undefined, { sensitivity: 'base' });
             });
 
             const parts = [];
             for (const key of keys) {
               parts.push(
-                '<h2 style="', css.h2, '">', esc(key), '</h2>',
+                '<h2 style="', css.h2, '">', esc(base(key)), '</h2>',
                 renderTable(renderTableRows(groups.get(key)))
               );
             }
@@ -238,6 +235,7 @@ runs:
           fs.mkdirSync(path.dirname(outPath), { recursive: true });
           fs.writeFileSync(outPath, html, 'utf8');
           core.info(`Analyzer HTML -> ${outPath}`);
+
 
 
 
