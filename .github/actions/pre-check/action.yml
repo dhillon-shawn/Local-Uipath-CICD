@@ -42,16 +42,21 @@ runs:
 
             if (baseRef !== defaultBranch) {
               skip = true;
-            } else if (isDraft) {
-              targetEnv = 'dev';
-            } else if (['opened','reopened','ready_for_review','synchronize'].includes(action)) {
+            } else if (action === 'ready_for_review') {
               targetEnv = 'test';
+            } else if (['opened','reopened','synchronize'].includes(action)) {
+              if (isDraft) {
+                skip = true;           // while draft, ignore PR runs
+              } else {
+                targetEnv = 'test';
+              }
             } else {
               skip = true;
             }
+
           } else if (event === 'push') {
             if (refName === defaultBranch) {
-              // Merge to default → prod unless merged PR head was hotfix/*
+              // Merge to default: prod unless merged PR head was hotfix/*
               const afterSha = context.payload.after || context.sha;
               let isHotfix = false;
               try {
@@ -60,22 +65,23 @@ runs:
                 if (pr?.head?.ref?.startsWith('hotfix/')) isHotfix = true;
               } catch {}
               targetEnv = isHotfix ? 'hotfix' : 'prod';
+
             } else if (refName.startsWith('feature/') || refName.startsWith('hotfix/')) {
-              // If a PR exists, run dev on draft; skip on non-draft
+              // If a PR is open for this branch: run dev when draft, skip when non-draft
               const prs = await github.rest.pulls.list({ owner, repo, head: `${owner}:${refName}`, state: 'open' });
               const pr = prs.data[0];
               if (!pr) {
                 targetEnv = 'dev';
               } else if (pr.draft) {
                 targetEnv = 'dev';
-                skip = false;       // <-- run pushes while PR is draft
               } else {
-                targetEnv = 'test'; // informational
-                skip = true;        // skip push when PR is non-draft
+                skip = true;            // non-draft PR open → let PR 'synchronize' handle test
               }
+
             } else {
               skip = true;
             }
+
           } else {
             skip = true;
           }
