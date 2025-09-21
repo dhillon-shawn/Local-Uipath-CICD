@@ -1,0 +1,18 @@
+name: Create branch for labeled issues
+on:
+  issues:
+    types: [opened, labeled, assigned]  # 'assigned' supports the default "auto" mode
+
+permissions:
+  contents: write
+  issues: read
+  pull-requests: write
+
+jobs:
+  create_branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Issue Branch
+        uses: robvanderleek/create-issue-branch@v1.9.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

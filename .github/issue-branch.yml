@@ -1,0 +1,11 @@
+branches:
+  - label: feature
+    skip: false
+    name: default                   # branch off your repository default branch
+    prefix: "feature/issue-${issue.number}-"
+  - label: hotfix
+    skip: false
+    name: default
+    prefix: "hotfix/issue-${issue.number}-"
+  - label: '*'
+    skip: true
