@@ -92,6 +92,12 @@ runs:
             .replace(/\s*\[learn more\.?\]\([^)]+\)/gi, '')
             .replace(/\s*<a\b[^>]*>\s*learn more\.?\s*<\/a>/gi, '');
 
+          // collapse "Expand to see details" descriptions to empty
+          const cleanDesc = (s) => {
+            const raw = String(s ?? '');
+            return /^expand to see details$/i.test(raw.trim()) ? '' : raw;
+          };
+
           const raw = JSON.parse(fs.readFileSync(inPath, 'utf8'));
           const list = Array.isArray(raw) ? raw : (raw.Results || raw.results || []);
 
@@ -100,7 +106,7 @@ runs:
             code: String(x.ErrorCode ?? ''),
             rule: String(x.RuleName ?? ''),
             activity: String(x.ActivityDisplayName ?? ''),
-            desc: String(x.Description ?? ''),
+            desc: cleanDesc(x.Description),
             rec: stripLink(x.Recommendation),
             fullPath: x.FilePath == null ? null : String(x.FilePath)
           }));
@@ -190,10 +196,16 @@ runs:
           if (rows.length === 0) {
             content = '<p>No analyzer results found.</p>';
           } else {
-            // Sort headers: project-wide first, then alphabetical by filename
+            const priorityOrder = ['project.json', 'Main.xaml', 'Process.xaml', '(project-wide)', 'fake'];
+            const priorityIndex = (name) => {
+              const i = priorityOrder.indexOf(String(name).toLowerCase());
+              return i === -1 ? 999 : i;
+            };
+
             const keys = Array.from(groups.keys()).sort((a,b) => {
-              if (a === '(Project-wide)') return -1;
-              if (b === '(Project-wide)') return 1;
+              const pa = priorityIndex(a);
+              const pb = priorityIndex(b);
+              if (pa !== pb) return pa - pb;
               return a.localeCompare(b);
             });
 
