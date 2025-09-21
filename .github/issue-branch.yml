@@ -1,16 +1,77 @@
-branches:
-  - label: feature
-    skip: false
-    mode: immediate
-    prefix: feature/
-    autoLinkIssue: true
-    autoCloseIssue: true
-    autoDeleteBranch: true
-    copyIssueDescriptionToPR: true
-    copyIssueLabelsToPR: true
-    copyIssueAssigneeToPR: true
-    copyIssueProjectsToPR: true
-  - label: bug
-    skip: false
-    name: bug
+# .github/issue-branch.yml
+# Docs list these keys: mode, silent, branchName, defaultBranch, branches[*],
+# openPR/openDraftPR, prTarget, skip/skipBranch, autoCloseIssue, autoDeleteBranch,
+# copyIssue*ToPR, copyPullRequestTemplateToPR, prSkipCI, conventionalPrTitles, conventionalStyle, commentMessage.
 
+# When to create the branch:
+# - "auto": on assignment (default)
+# - "immediate": as soon as the issue is opened
+# - "chatops": when someone comments /cib or /create-issue-branch
+mode: 'immediate' # change to 'immediate' if you want it right when issues are opened
+
+# Leave a comment on the issue after branch creation
+silent: false
+
+
+
+# Branch naming:
+# We prefix with "feature/" and then "<issue-number>-<issue-title (first 60 chars)>".
+# The action sanitizes the title; slicing is supported, but case conversion is not.
+branchName: 'feature/${issue.number}-${issue.title[0,60]}'
+
+
+
+# Copy issue attributes onto the PR
+copyIssueDescriptionToPR: true
+copyIssueLabelsToPR: true
+copyIssueAssigneeToPR: true
+copyIssueMilestoneToPR: true
+# If you use Projects (classic/projects), this works when running as a GitHub Action:
+copyIssueProjectsToPR: true
+
+# If you keep a PR template at .github/pull_request_template.md, copy it into the new PR
+copyPullRequestTemplateToPR: true
+
+# The empty commit used to open the PR can trigger CI; skip it if your CI allows
+prSkipCI: true
+
+# Auto-close the issue when the PR for its branch is merged, and delete the branch when the issue closes
+autoCloseIssue: true
+autoDeleteBranch: true
+
+# Conventional PR titles (e.g., "fix: #123 bug title") derived from labels
+conventionalPrTitles: true
+# Choose: semver (default) | semver-no-gitmoji | gitmoji
+conventionalStyle: semver-no-gitmoji
+
+# Customize the comment posted on the issue after creation
+commentMessage: '✅ Created branch `${branchName}` from `${defaultBranch}` and opened a draft PR.'
+
+# Label-based overrides (first match wins)
+branches:
+  # Bugs → "bugfix/" prefix, branch off develop, PR targets hotfix
+  - label: bug
+    prefix: bugfix/
+    name: develop
+
+
+  # Enhancements → "feature/" prefix from develop, PR into develop
+  - label: enhancement
+    prefix: feature/
+    name: develop
+
+
+  # Docs → "docs/" prefix from main
+  - label: docs
+    prefix: docs/
+    name: main
+
+  # Releases: open a PR from develop -> release, but don't create a new issue branch
+  - label: release
+    name: develop
+    prTarget: release
+    skipBranch: true
+
+  # Fallback for everything else → "feature/" prefix (uses defaultBranch)
+  - label: '*'
+    prefix: feature/
