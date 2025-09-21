@@ -15,6 +15,7 @@ branches:
   - label: feature
     prefix: feature/
     name: feature
+    prTarget: ${defaultBranch}
 
   - label: hotfix
     prefix: hotfix/
