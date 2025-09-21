@@ -2,9 +2,6 @@ name: Pipeline Caller
 
 on:
   push:
-    branches:
-      - '**'
-
     paths-ignore:
       - '.github/**'
   pull_request:
@@ -33,7 +30,7 @@ jobs:
 
   pipeline:
     needs: pre-check
-    if: ${{ !fromJSON(needs['pre-check'].outputs.skip || 'false') }}
+    if: ${{ !fromJSON(needs.pre-check.outputs.skip || 'false') }}
     uses: dhillon-shawn/Local-Uipath-CICD/.github/workflows/pipeline.yml@main
     secrets: inherit
     with:

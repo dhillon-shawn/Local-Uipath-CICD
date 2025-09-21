@@ -57,6 +57,14 @@ outputs:
 runs:
   using: "composite"
   steps:
+
+    - name: Download results artifact
+      uses: actions/download-artifact@v4
+      with:
+          name: results
+          path: ./results
+      continue-on-error: true
+
     - name: Ensure Node available
       uses: actions/setup-node@v4
       with:

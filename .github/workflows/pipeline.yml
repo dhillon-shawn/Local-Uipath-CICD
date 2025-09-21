@@ -32,7 +32,7 @@ jobs:
 
       vars: ${{ steps.capture.outputs.vars }}
 
-      notes: ${{ steps.notes.outputs.release_text }}
+      notes: ${{ steps.setup.outputs.notes }}
 
       version:       ${{ steps.compute.outputs.version }}
       base_folder_name:   ${{ steps.folder.outputs.base_folder_name }}
@@ -51,9 +51,6 @@ jobs:
           echo '${{ toJSON(vars) }}' >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
-  #    - name: Print vars
-  #      run: echo "${{ steps.capture.outputs.vars_json }}"
-
       - name: Pipeline Setup (Parse+Set)
         id: setup
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/setup@main
@@ -62,15 +59,6 @@ jobs:
           source_ref:  ${{ inputs.source_ref }}
           vars:        ${{ steps.capture.outputs.vars_json }}
 
-      - name: create and format release notes
-        id: notes
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/release_notes@main
-
-
-      - name: PRINT NOTES
-        run: |
-                echo "NOTES: ${{ steps.notes.outputs.release_text }}"
-                
       - name: auth
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
         with:
@@ -120,69 +108,6 @@ jobs:
         with:
           ref: ${{ inputs.source_ref }}
 
-      - name: Ensure .NET 8 SDK (cached, no admin needed)
-        shell: powershell
-        run: |
-          $DotnetRoot = Join-Path $env:USERPROFILE '.dotnet'
-          $SdkGlob    = Join-Path (Join-Path $DotnetRoot 'sdk') '8.0.*'
-          $DotnetExe  = Join-Path $DotnetRoot 'dotnet.exe'
-
-          $has8 = (Test-Path $DotnetExe) -and (Get-ChildItem $SdkGlob -Directory -ErrorAction SilentlyContinue)
-
-          if (-not $has8) {
-            Write-Host "Installing .NET SDK 8.x to $DotnetRoot"
-            $Installer = Join-Path $env:RUNNER_TEMP 'dotnet-install.ps1'
-            Invoke-WebRequest -UseBasicParsing https://dot.net/v1/dotnet-install.ps1 -OutFile $Installer
-            powershell -NoProfile -ExecutionPolicy Bypass -File $Installer -Channel 8.0 -InstallDir $DotnetRoot -Quality GA
-          } else {
-            Write-Host "Reusing existing .NET SDK 8.x in $DotnetRoot"
-          }
-
-          $DotnetRoot | Out-File -FilePath $env:GITHUB_PATH -Append
-          "DOTNET_ROOT=$DotnetRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-          & $DotnetExe --info
-
-      - name: Cache UiPath CLI v1
-        uses: actions/cache@v4
-        with:
-          path: packages
-          key: uipcli-25.4.9337.28376
-
-      - name: Check UiPath CLI
-        id: check-uipcli
-        shell: powershell
-        run: |
-          $cmd = Get-Command packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe -ErrorAction SilentlyContinue
-          if ($cmd) {
-            "has_uipcli=true"  >> $env:GITHUB_OUTPUT
-            Write-Host "Found uipcli in $((Split-Path $cmd.Source -Parent))"
-          } else {
-            "has_uipcli=false" >> $env:GITHUB_OUTPUT
-            Write-Host "uipcli not found on PATH"
-          }
-            
-      - name: Setup NuGet CLI
-        if: steps.check-uipcli.outputs.has_uipcli != 'true'
-        shell: cmd
-        run: |
-          curl.exe -o nuget.exe -L https://dist.nuget.org/win-x86-commandline/latest/nuget.exe
-      - name: Install UiPath CLI
-        if: steps.check-uipcli.outputs.has_uipcli != 'true'
-        shell: cmd
-        run: |
-          nuget.exe install UiPath.CLI.Windows -Version 25.4.9337.28376 -OutputDirectory packages -Source https://uipath.pkgs.visualstudio.com/Public.Feeds/_packaging/UiPath-Official/nuget/v3/index.json
-          
-      - name: Write nuget.config
-        shell: powershell
-        run: |
-          $uipcli = (Get-Command "packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe").Source
-          Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
-
-      - name: Create Results DIR
-        shell: powershell
-        run: New-Item -Path "./results" -ItemType Directory -Force | Out-Null
-
       - name: auth
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
         with:
@@ -191,44 +116,16 @@ jobs:
                 aws_region: "us-west-2"
                 secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
                 scopes: ${{ env.scope }}
-                
-      - name: analyze
-        if: inputs.target_env == 'dev'
-        shell: powershell
-        run: |
-          packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package analyze '${{ github.workspace }}\project.json' `
-            --resultPath '${{ runner.temp }}\analyze.json' `
-            --orchestratorUrl '${{ env.BASE_URL }}/' `
-            --orchestratorTenant '${{ env.TENANT }}' `
-            -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
-            --orchestratorApplicationScope '${{ env.scope}}' `
-            --analyzerTraceLevel "Warning" `
-            --ignoredRules "ST-NMG-001,ST-NMG-002,ST-NMG-009,ST-NMG-011,ST-NMG-016,ST-NMG-008,ST-USG-032,ST-USG-034,ST-USG-027,UI-ANA-018,TA-DBP-002,ST-MRD-002,TA-DBP-003" `
-            --traceLevel Verbose --disableBuiltInNugetFeeds -y `
-            --identityUrl '${{ env.BASE_URL }}/identity_'
-                  
-          cat ${{ runner.temp }}\analyze.json
-          New-Item -ItemType Directory -Force -Path '.\results' | Out-Null
-          Copy-Item '${{ runner.temp }}\analyze.json' '.\results\analyze.json' -Force
-          
-          
-      - name: test
-        if: ${{ inputs.target_env == 'test' && needs.setup.outputs.publishable == 'true' }}
-        shell: powershell
-        run: |
-          New-Item -Path "${{ runner.temp }}\test.xml" -ItemType File
-          packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe test run `
-            '${{ env.BASE_URL }}/' '${{ env.TENANT }}' `
-            -P '${{ github.workspace }}\project.json' --out "junit" --r '${{ runner.temp }}\test.xml' `
-            -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
-            --applicationScope '${{ env.scope}}' --attachRobotLogs `
-            -o '${{ needs.setup.outputs.base_folder_name }}' `
-            --traceLevel Verbose --disableBuiltInNugetFeeds -y `
-            --identityUrl '${{ env.BASE_URL }}/identity_'
-                  
-          cat ${{ runner.temp }}\test.xml
-          New-Item -ItemType Directory -Force -Path '.\results' | Out-Null
-          Copy-Item '${{ runner.temp }}\test.xml' '.\results\test.xml' -Force
+
+      - name: Test
+        if: ((  needs.setup.outputs.publishable  == 'true')  && inputs.target_env == 'test') || inputs.target_env == 'dev'
+        id: CI
+        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/ci@main
+        with:
+          folder_name:  "${{ needs.setup.outputs.base_folder_name }}"
+          target_env:   ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
+          publishable: ${{ needs.setup.outputs.publishable}}
+
 
       - name: auth
         if: inputs.target_env != 'dev'
@@ -240,74 +137,13 @@ jobs:
                 secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
                 scopes: ${{ env.scope }}
 
-      - name: stage for pack
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $stage = Join-Path $env:RUNNER_TEMP 'uipack-stage'
-          if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
-          New-Item -ItemType Directory -Path $stage | Out-Null
-
-          robocopy "${{ github.workspace }}" "$stage" /MIR `
-            /XD '.git' '.github' 'output' 'results' '.nuget-cache' '.nuget-http' '.nuget' 'packages' 'nuget.exe' `
-            /XF '*.nupkg' 'nuget.config'
-
-          $rc = $LASTEXITCODE
-          if ($rc -ge 8) { throw "robocopy failed with exit $rc" } else { Write-Host "robocopy exit $rc (OK)"; exit 0 }
-
-      - name: pack
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $stage = Join-Path $env:RUNNER_TEMP 'uipack-stage'
-          $proj  = Join-Path $stage 'project.json'
-          if (-not (Test-Path $proj)) { throw "Staged project.json not found at $proj" }
-                  
-          $stageOut = Join-Path $stage 'output'
-          $repoOut  = Join-Path $env:GITHUB_WORKSPACE 'output'
-          New-Item -ItemType Directory -Force -Path $stageOut | Out-Null
-          New-Item -ItemType Directory -Force -Path $repoOut  | Out-Null
-
-          packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package pack "$proj" `
-            --output "$stageOut" `
-            --outputType '${{ needs.setup.outputs.ptype }}' `
-            -v '${{ needs.setup.outputs.version }}' `
-            --repositoryUrl 'https://github.com/${{ github.repository }}' `
-            --repositoryBranch '${{ github.ref_name }}' `
-            --repositoryCommit '${{ github.sha }}' `
-            --repositoryType 'git' `
-            --projectUrl 'https://project/url.com' `
-            --releaseNotes '${{ needs.setup.outputs.notes }}' `
-            --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
-            --libraryOrchestratorTenant '${{ env.TENANT }}' `
-            -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
-            --libraryOrchestratorApplicationScope '${{ env.scope }}' `
-            --libraryIdentityUrl '${{ env.BASE_URL }}/identity_' `
-            --disableBuiltInNugetFeeds `
-            --traceLevel 'Verbose' -y 
-                    
-          Get-ChildItem "$stageOut" -Filter '*.nupkg' | ForEach-Object {
-            Copy-Item $_.FullName $repoOut -Force
-            Write-Host "Packaged: $($_.Name) -> $repoOut"
-          }
-            
-
-      - name: Upload artifact
-        if: ((${{ needs.setup.outputs.publishable }} == 'true')  && inputs.target_env == 'test') || inputs.target_env == 'dev'
-        uses: actions/upload-artifact@v4
+      - name: Package
+        id: Pack
+        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/pack@main
         with:
-          name: results
-          path: ./results/*
-        continue-on-error: true
-
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-              name: output
-              path: ./output/
-              if-no-files-found: error
-
+          ptype: ${{ needs.setup.outputs.ptype }}
+          version: ${{ needs.setup.outputs.version }}
+          release_notes: ${{ needs.setup.outputs.notes }}
 
 
 
@@ -326,14 +162,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.source_ref }}
-
-
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: output
-          path: ./output
-
 
       - name: auth
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
@@ -366,14 +194,6 @@ jobs:
     runs-on: windows-latest
     if: ${{ always() && !cancelled() }}
     steps:
-
-      - name: Download results artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: results
-          path: ./results
-        continue-on-error: true
-
       - name: Compose Analysis Email
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/format-email@main
         id: compose

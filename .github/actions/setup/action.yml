@@ -46,6 +46,9 @@ outputs:
         description: ""
         value:             ${{ steps.pr.outputs.MIGRATE }}
 
+      notes:
+        description: ""
+        value:             ${{ steps.format.outputs.release_text }}
 
 
 
@@ -162,3 +165,95 @@ runs:
             *) echo "Unknown target_env: ${{ inputs.target_env }}" >&2; exit 1 ;;
           esac
           echo "DEPLOYMENT_MATRIX={\"env\":$envs}" >> "$GITHUB_OUTPUT"
+
+      - name: Collect
+        id: collect
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const repo = context.repo;
+            const serverUrl = process.env.GITHUB_SERVER_URL;
+            const actor = context.actor;
+            const topN = (arr, n = 50) => (arr || []).slice(0, n);
+
+            if (context.eventName === 'push') {
+              const head = context.sha;
+              const base = context.payload.before;
+
+              const commit = await github.rest.repos.getCommit({ ...repo, ref: head });
+              const message = commit.data.commit.message;
+
+              let diff_url, files = [], files_count = 0;
+              if (base && !/^0+$/.test(base)) {
+                const cmp = await github.rest.repos.compareCommits({ ...repo, base, head });
+                diff_url = cmp.data.html_url;
+                files = (cmp.data.files || []).map(f => f.filename);
+                files_count = cmp.data.files?.length || 0;
+              } else {
+                diff_url = `${serverUrl}/${repo.owner}/${repo.repo}/commit/${head}`;
+                files = (commit.data.files || []).map(f => f.filename);
+                files_count = commit.data.files?.length || 0;
+              }
+
+              core.setOutput('notes', JSON.stringify({
+                actor, message, diff_url, files: topN(files), files_count
+              }));
+
+            } else if (context.eventName === 'pull_request') {
+              const pr = context.payload.pull_request;
+              const prNumber = pr.number;
+              const headSha = pr.head.sha;
+
+              // PR opened -> title; synchronize -> latest commit message
+              let message = pr.title;
+              if (context.payload.action !== 'opened') {
+                const c = await github.rest.repos.getCommit({ ...repo, ref: headSha });
+                message = c.data.commit.message;
+              }
+
+              const diff_url = `${pr.html_url}/files`;
+              const filesArr = await github.paginate(
+                github.rest.pulls.listFiles,
+                { ...repo, pull_number: prNumber, per_page: 100 }
+              );
+              const files = filesArr.map(f => f.filename);
+
+              core.setOutput('notes', JSON.stringify({
+                actor, message, diff_url, files: topN(files), files_count: files.length
+              }));
+
+            } else {
+              core.setOutput('notes', JSON.stringify({
+                actor, message: 'ERROR', diff_url: '', files: [], files_count: 0
+              }));
+            }
+
+      - name: Format release text
+        id: format
+        uses: actions/github-script@v7
+        env:
+            NOTES: ${{ steps.collect.outputs.notes }}
+        with:
+          script: |
+            const notes = JSON.parse(process.env.NOTES || '{}');
+
+            const collapse = s => (s || '').replace(/\s+/g, ' ').trim();
+            const actor = notes.actor || '';
+            const message = collapse(notes.message || '');
+            const diffUrl = notes.diff_url || '';
+
+            const allFiles = Array.isArray(notes.files) ? notes.files : [];
+            const filesCount = Number(notes.files_count ?? allFiles.length);
+            const maxShow = 10; 
+            const shown = allFiles.slice(0, maxShow);
+            const more = Math.max(0, filesCount - shown.length);
+
+            const filesPart = shown.length
+              ? shown.join(', ') + (more > 0 ? ` … (+${more} more)` : '')
+              : 'none';
+
+            const out =
+              `${actor} - message: ${message} - files changed: ${filesPart} - ` +
+              `number files changed: ${filesCount} - diff url: ${diffUrl}`;
+
+            core.setOutput('release_text', out);
