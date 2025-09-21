@@ -416,7 +416,7 @@ jobs:
         env:
           REPO: ${{ inputs.repo_name }}
         run: |
-            payload='{"default_workflow_permissions":"write","can_approve_pull_request_reviews":false}'
+            payload='{"default_workflow_permissions":"write","can_approve_pull_request_reviews":true}'
 
             response=$(curl -sS -X PUT \
               -H "Authorization: Bearer ${GH_TOKEN}" \
