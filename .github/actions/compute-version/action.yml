@@ -37,6 +37,7 @@ runs:
       env:
         INPUT_VERSION: ${{ env.LATEST_VERSION }}
       run: |
+        echo "Latest Version: $INPUT_VERSION"
         CORE=$(printf '%s\n' "$INPUT_VERSION" \
           | LC_ALL=C grep -Eo '[[:digit:]]+(\.[[:digit:]]+)*([+-][[:alnum:].-]+)?' \
           | head -n1)
@@ -64,6 +65,7 @@ runs:
 
         NEW_VERSION="${MAJOR}.${NEW_MINOR}.${NEW_PATCH}"
         echo "NEW_VERSION=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+        echo "Version: $NEW_VERSION"
 
 
 
