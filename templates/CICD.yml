@@ -33,7 +33,7 @@ jobs:
 
   pipeline:
     needs: pre-check
-    if: ${{ needs.pre-check.outputs.skip != 'true' }}
+     if: ${{ !fromJSON(needs.pre-check.outputs.skip || 'false') }}
     uses: dhillon-shawn/Local-Uipath-CICD/.github/workflows/pipeline.yml@main
     secrets: inherit
     with:
