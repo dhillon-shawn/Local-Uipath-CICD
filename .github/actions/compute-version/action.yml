@@ -17,7 +17,7 @@ runs:
       id: get_latest_version
       shell: powershell
       run: |
-          $url = ("{0}/odata/Processes/UiPath.Server.Configuration.OData.GetProcessVersions(processId='{1}')" -f $env:OR_URL, "${{ inputs.pid }}")) +
+          $url = ("{0}/odata/Processes/UiPath.Server.Configuration.OData.GetProcessVersions(processId='{1}')" -f $env:OR_URL, "${{ inputs.pid }}") +
                 "?`$orderby=Version%20desc&`$top=1&`$select=Version"
 
           $resp = Invoke-RestMethod -Method Get -Headers @{ Authorization = "Bearer $env:TOKEN" } -Uri $url
