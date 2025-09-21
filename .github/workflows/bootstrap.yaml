@@ -200,6 +200,8 @@ jobs:
 
 
       - name: Scavenge Folder
+        env:
+          OR_TOKEN: $TOKEN
         if: inputs.folder_name == ''
         run: |
             echo "Iterating through folder checking releases for a Process ID (${{ env.PID }}) match"
