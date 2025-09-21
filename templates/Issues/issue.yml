@@ -1,12 +1,10 @@
 name: Create branch for labeled issues
 on:
   issues:
-    types: [opened, labeled, assigned]  # 'assigned' supports the default "auto" mode
+    types: [opened]
 
 permissions:
-  contents: write
-  issues: read
-  pull-requests: write
+  write-all
 
 jobs:
   create_branch:
@@ -33,6 +31,6 @@ jobs:
                   numOfAssignee: 1
 
       - name: Create Issue Branch
-        uses: robvanderleek/create-issue-branch@v1.9.0
+        uses: robvanderleek/create-issue-branch@main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
