@@ -183,6 +183,15 @@ jobs:
         shell: powershell
         run: New-Item -Path "./results" -ItemType Directory -Force | Out-Null
 
+      - name: auth
+        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
+        with:
+                target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
+                role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
+                aws_region: "us-west-2"
+                secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
+                scopes: ${{ env.scope }}
+                
       - name: analyze
         if: inputs.target_env == 'dev'
         shell: powershell
