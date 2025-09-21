@@ -4,9 +4,9 @@ on:
   workflow_call:
     inputs:
       target_env: { type: string, required: true }
-      from_sha:   { type: string, required: false }
+      sha:   { type: string, required: false }
       rc_tag:     { type: string, required: false }
-      pr_number:  { type: string, required: false }
+      pr_num:  { type: string, required: false }
 
     secrets: {}
 env:
