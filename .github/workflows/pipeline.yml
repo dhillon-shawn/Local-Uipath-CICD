@@ -47,7 +47,7 @@ jobs:
       - name: Capture environment and repo vars
         id: capture
         run: |
-          echo "vars_json<<EOF" >> "$GITHUB_OUTPUT"
+          echo "vars<<EOF" >> "$GITHUB_OUTPUT"
           echo '${{ toJSON(vars) }}' >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
@@ -347,7 +347,7 @@ jobs:
           pid:          ${{ needs.setup.outputs.pid }}
           or_url:       ${{ env.OR_URL }}
           token:        $TOKEN
-          
+
 
 
 
