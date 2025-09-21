@@ -22,7 +22,7 @@ jobs:
       pid:                  ${{ steps.setup.outputs.PID }}
       ptype:                ${{ steps.setup.outputs.ptype }}
       entry_point:          ${{ steps.setup.outputs.entry_point }}
-      deployment_matrix:          ${{ steps.setup.outputs.deployment_matrix }}
+      deployment_matrix:    ${{ steps.setup.outputs.deployment_matrix }}
       email:                ${{ steps.setup.outputs.EMAIL }}
       publishable:          ${{ steps.setup.outputs.PUBLISHABLE }}
 
@@ -33,6 +33,10 @@ jobs:
       vars: ${{ steps.capture.outputs.vars_json }}
 
       notes: ${{ steps.notes.outputs.release_text }}
+
+      version:       ${{ steps.compute.outputs.version }}
+      base_folder_name:   ${{ steps.folder.outputs.base_folder_name }}
+      fid: ${{ steps.folder.outputs.fid }}
 
     steps:
       - name: Checkout exact source ref
@@ -66,22 +70,11 @@ jobs:
       - name: PRINT NOTES
         run: |
                 echo "NOTES: ${{ steps.notes.outputs.release_text }}"
-
-  CLI:
-    runs-on: windows-latest
-    needs: [setup]
-    outputs:
-      version: ${{ steps.compute.outputs.version }}
-    steps:
-      - name: Checkout exact source ref
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.source_ref }}
-
+                
       - name: auth
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
         with:
-                target_env: 'dev'
+                target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
                 role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
                 aws_region: "us-west-2"
                 secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
@@ -92,19 +85,40 @@ jobs:
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/compute-version@main
         with:
           target_env:         ${{ inputs.target_env }}
-          pid:                ${{ needs.setup.outputs.pid }}
+          pid:                ${{ steps.setup.outputs.pid }}
 
-      - name: auth
-        if: ${{ inputs.target_env != 'dev' }}
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
+      - id: folder
+        name: Resolve / create folder
+        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/ensure-folder@main
         with:
-                target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
-                role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
-                aws_region: "us-west-2"
-                secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
-                scopes: ${{ env.scope }}
+          target_env:         ${{ inputs.target_env }}
+          pid:                ${{ steps.setup.outputs.pid }}
+          or_url:             ${{ env.OR_URL }}
+          token:              $TOKEN
+          dev_rid:            ${{ fromJSON(steps.capture.outputs.vars).DEV_RID }}
+          bot_rid:            ${{ fromJSON(steps.capture.outputs.vars).BOT_RID }}
+          mid:                ${{ fromJSON(steps.capture.outputs.vars).MID }}
+          bot_uid:            ${{ fromJSON(steps.capture.outputs.vars).BOT_UID }}
+          dev_uid:            ${{ fromJSON(steps.capture.outputs.vars).DEV_UID }}
+          FOLDER_NAME:        "${{ fromJSON(steps.capture.outputs.vars).FOLDER_NAME }}"
 
 
+      - name: Ensure assets (only on first promote / prod merge)
+        if: ${{ steps.setup.outputs.migrate == 'true' }}
+        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/migrate-assets@main
+        with:
+          source_base_url:          ${{ env.BASE_URL }}
+          TARGET_OR_URL:             ${{ env.OR_URL }}
+          token:              $TOKEN
+
+  CLI:
+    runs-on: windows-latest
+    needs: [setup]
+    steps:
+      - name: Checkout exact source ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
 
       - name: Ensure .NET 8 SDK (cached, no admin needed)
         shell: powershell
@@ -165,21 +179,6 @@ jobs:
           $uipcli = (Get-Command "packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe").Source
           Copy-Item '${{ github.workspace }}\nuget.config' -Destination (Split-Path $uipcli -Parent) -Force
 
-
-      - name: restore
-        shell: powershell
-        if: false
-        run: |
-          packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package restore '${{ github.workspace }}' `
-            --restoreFolder "$env:NUGET_PACKAGES" `
-            --nugetConfigFilePath '${{ github.workspace }}\nuget.config' `
-            --libraryOrchestratorUrl '${{ env.BASE_URL }}/' `
-            --libraryOrchestratorTenant '${{ env.TENANT }}' `
-            -A '${{ env.ORG }}' -I '${{ env.APP_ID }}' -S '${{ env.APP_SECRET }}' `
-            --libraryOrchestratorApplicationScope '${{ env.scope }}' `
-            --disableBuiltInNugetFeeds `
-            --libraryIdentityUrl '${{ env.BASE_URL }}/identity_' `
-            -y --traceLevel "Verbose"
       - name: Create Results DIR
         shell: powershell
         run: New-Item -Path "./results" -ItemType Directory -Force | Out-Null
@@ -208,13 +207,13 @@ jobs:
         if: ${{ inputs.target_env == 'test' && needs.setup.outputs.publishable == 'true' }}
         shell: powershell
         run: |
-          New-Item -Path "${{ runner.temp }}\TestResults.xml" -ItemType File
+          New-Item -Path "${{ runner.temp }}\test.xml" -ItemType File
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe test run `
             '${{ env.BASE_URL }}/' '${{ env.TENANT }}' `
             -P '${{ github.workspace }}\project.json' --out "junit" --r '${{ runner.temp }}\test.xml' `
             -A '${{ env.ORG }}' -I '${{env.APP_ID  }}' -S '${{env.APP_SECRET}}' `
             --applicationScope '${{ env.scope}}' --attachRobotLogs `
-            -o '${{ needs.resolve-dependencies.outputs.base_folder_name }}' `
+            -o '${{ needs.setup.outputs.base_folder_name }}' `
             --traceLevel Verbose --disableBuiltInNugetFeeds -y `
             --identityUrl '${{ env.BASE_URL }}/identity_'
                   
@@ -263,7 +262,7 @@ jobs:
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package pack "$proj" `
             --output "$stageOut" `
             --outputType '${{ needs.setup.outputs.ptype }}' `
-            -v '${{ steps.compute.outputs.version }}' `
+            -v '${{ needs.setup.outputs.version }}' `
             --repositoryUrl 'https://github.com/${{ github.repository }}' `
             --repositoryBranch '${{ github.ref_name }}' `
             --repositoryCommit '${{ github.sha }}' `
@@ -336,50 +335,20 @@ jobs:
                 secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
                 scopes: ${{ env.scope }}
 
-
-
-
-      - id: folder
-        name: Resolve / create folder
-        if: matrix.env == ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/ensure-folder@main
-        with:
-          target_env:         ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
-          pid:                ${{ needs.setup.outputs.pid }}
-          or_url:             ${{ env.OR_URL }}
-          token:              $TOKEN
-          dev_rid:            ${{ fromJSON(needs.setup.outputs.vars).DEV_RID }}
-          bot_rid:            ${{ fromJSON(needs.setup.outputs.vars).BOT_RID }}
-          mid:                ${{ fromJSON(needs.setup.outputs.vars).MID }}
-          bot_uid:            ${{ fromJSON(needs.setup.outputs.vars).BOT_UID }}
-          dev_uid:            ${{ fromJSON(needs.setup.outputs.vars).DEV_UID }}
-          FOLDER_NAME:        "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
-
-
-      - name: Ensure assets
-        if: ${{ needs.setup.outputs.migrate == 'true' && (
-            (inputs.target_env == 'hotfix' && matrix.env == 'prod') ||
-            (inputs.target_env != 'hotfix' && matrix.env == inputs.target_env)
-            ) }}
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/migrate-assets@main
-        with:
-          source_base_url:          ${{ env.BASE_URL }}
-          TARGET_OR_URL:             ${{ env.OR_URL }}
-          token:              $TOKEN
-
       - name: Deploy
         id: CD
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/cd@main
         with:
           full_folder_name:  "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
-          base_folder_name:  "${{ steps.folder.outputs.base_folder_name }}"
-          fid:          ${{ steps.folder.outputs.fid }}
+          base_folder_name:  "${{ needs.setup.outputs.base_folder_name }}"
+          fid:          ${{ needs.setup.outputs.fid }}
           target_env:   ${{ matrix.env }}
-          version:      ${{ needs.CLI.outputs.version }}
+          version:      ${{ needs.setup.outputs.version }}
           pid:          ${{ needs.setup.outputs.pid }}
           or_url:       ${{ env.OR_URL }}
           token:        $TOKEN
-          entry_point: ${{needs.setup.outputs.entry_point}}
+          
+
 
 
 
@@ -406,7 +375,7 @@ jobs:
           xml_path: results/test.xml
           cd_status: ${{ needs.DEPLOY.result }}
           source_ref: ${{ github.sha }}
-          version:   ${{ needs.CLI.outputs.version }}
+          version:   ${{ needs.setup.outputs.version }}
           folder_name: ${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}
           project_id: ${{ needs.setup.outputs.pid }}
           migrate:  ${{ needs.setup.outputs.migrate }}

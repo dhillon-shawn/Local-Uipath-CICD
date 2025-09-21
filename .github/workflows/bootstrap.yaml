@@ -60,7 +60,6 @@ jobs:
         env:
           repo: ${{ inputs.repo_name }}
           default_branch: ${{ steps.get_default.outputs.DEFAULT_BRANCH }}
-          non_branch: non-prod
         run: |
             set -euo pipefail
 
@@ -124,50 +123,7 @@ jobs:
               echo "Project ID: $PID"
             fi
 
-            # -------------------------
-            # Ensure non-prod exists, rebase onto main, overlay ONLY .github, .gitignore, nuget.config, push
-            # -------------------------
-
-            git fetch --prune --no-tags origin \
-              "+refs/heads/${default_branch}:refs/remotes/origin/${default_branch}"
-            git fetch --prune --no-tags origin \
-              "+refs/heads/${non_branch}:refs/remotes/origin/${non_branch}" || true
-
-            DEFAULT_SRC="origin/${default_branch}"
-
-            if git ls-remote --exit-code origin "refs/heads/${non_branch}" >/dev/null 2>&1; then
-              # remote exists
-              git switch -C "${non_branch}" "origin/${non_branch}"
-            else
-              # remote missing: start from main 
-              git switch -C "${non_branch}" "${DEFAULT_SRC}"
-            fi
-
-            # If shallow, grab more history so rebase works
-            if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
-              git fetch --no-tags --deepen=1000 origin "${default_branch}" || true
-              git fetch --no-tags --deepen=1000 origin "${non_branch}" || true
-            fi
-
-            # Rebase non-prod onto main (keep dev work; ensures “not behind”)
-            git rebase --rebase-merges "${DEFAULT_SRC}"
-
-            # Overlay ONLY .github, .gitignore, and nuget.config from main
-            # - remove existing ones so we can update
-            git rm -r --quiet --ignore-unmatch .github || true
-            git rm --quiet --ignore-unmatch .gitignore nuget.config || true
-            git restore --source="${DEFAULT_SRC}" --staged --worktree -- .github .gitignore nuget.config
-
-            # Commit only if any of these paths differ from HEAD
-            if ! git diff --quiet HEAD -- .github .gitignore nuget.config; then
-              git commit -m "sync with ${default_branch} ($(git rev-parse --short ${DEFAULT_SRC})) [skip cicd]"
-            fi
-
-            # Publish, sets upstream)
-            git push --force -u origin HEAD:"refs/heads/${non_branch}"
-
-            echo "::notice:: ${non_branch} is up to date with ${default_branch}; only .github, .gitignore, and nuget.config were changed."
-
+    
 
       - name: protect non-prod
         env:

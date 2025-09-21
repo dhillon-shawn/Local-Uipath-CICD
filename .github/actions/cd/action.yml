@@ -10,7 +10,7 @@ inputs:
   or_url: { required: true, description: "" }
   token: { required: true, description: "" }
   target_env: { required: true, description: "" }
-  entry_point: { required: true, description: "" }
+
 
 runs:
   using: composite

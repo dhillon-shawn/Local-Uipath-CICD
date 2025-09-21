@@ -1,0 +1,43 @@
+name: Link PR to issue based on branch name
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  link-issue:
+    if: startsWith(github.head_ref, 'feature/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pr = context.payload.pull_request;
+
+            const m = pr.head.ref.match(/^feature\/(\d+)-/);
+            if (!m) {
+              core.info('Branch name did not match feature/<number>-*, skipping.');
+              return;
+            }
+
+            const issueNumber = m[1];
+            const keywordLine = `Closes #${issueNumber}`;
+
+            let body = pr.body || '';
+
+
+            if (!body.includes(keywordLine)) {
+              body = `${body ? body + '\n\n' : ''}${keywordLine}`.trim();
+              await github.rest.pulls.update({
+                owner, repo,
+                pull_number: pr.number,
+                body,
+              });
+              core.info(`Appended "${keywordLine}" to PR body.`);
+            } else {
+              core.info('PR body already contains closing keyword, nothing to do.');
+            }
