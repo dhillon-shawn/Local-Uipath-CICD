@@ -18,5 +18,6 @@ branches:
   - label: hotfix
     prefix: hotfix/
     name: hotfix
+    prTarget: main
 
 
