@@ -19,7 +19,8 @@ silent: false
 # The action sanitizes the title; slicing is supported, but case conversion is not.
 branchName: 'feature/${issue.number}-${issue.title[0,60]}'
 
-
+# Automatically open a draft PR for the new branch
+openDraftPR: true
 
 # Copy issue attributes onto the PR
 copyIssueDescriptionToPR: true
@@ -53,13 +54,13 @@ branches:
   - label: bug
     prefix: bugfix/
     name: develop
-
+    prTarget: main
 
   # Enhancements → "feature/" prefix from develop, PR into develop
   - label: enhancement
     prefix: feature/
     name: develop
-
+    prTarget: develop
 
   # Docs → "docs/" prefix from main
   - label: docs
