@@ -379,7 +379,7 @@ jobs:
           set -e
 
           payload='{"name":"feature","color":"1f6feb","description":"New feature or enhancement"}'
-          response=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+          response=$(curl -sS  -X POST \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             -H "Content-Type: application/json" \
@@ -389,7 +389,7 @@ jobs:
           echo "response: $response"
           
           payload='{"name":"hotfix","color":"d73a4a","description":"Urgent production fix"}'
-          response=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+          response=$(curl -sS  -X POST \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             -H "Content-Type: application/json" \
@@ -399,7 +399,7 @@ jobs:
           echo "response: $response"
 
           payload='{"name":"misc","color":"8b949e","description":"Chores / docs / other"}'
-          response=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+          response=$(curl -sS  -X POST \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             -H "Content-Type: application/json" \
