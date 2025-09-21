@@ -8,9 +8,7 @@ on:
   pull_request:
     types: [ready_for_review, closed]
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}
-  cancel-in-progress: true
+
 
 permissions:
   write-all

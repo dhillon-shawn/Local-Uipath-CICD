@@ -3,19 +3,11 @@ name: Central Pipeline
 on:
   workflow_call:
     inputs:
-      target_env:
-        type: string
-        required: true
-      sha:
-        type: string
-        required: true
-      pr_num:
-        type: number
-        required: true
+      target_env: { type: string, required: true }
+      from_sha:   { type: string, required: false }
+      rc_tag:     { type: string, required: false }
+      pr_number:  { type: string, required: false }
 
-      rc_tag:
-        type: string
-        required: true
     secrets: {}
 env:
   scope: "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines.Read OR.Monitoring OR.Robots.Read OR.Settings.Read OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Users.Read"
