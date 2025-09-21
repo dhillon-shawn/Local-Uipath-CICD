@@ -1,7 +1,5 @@
 name: "Pre-check"
-description: "Decide target_env, sha, and rc_tag based on event"
-
-
+description: "Decide target_env, sha, rc_tag, pr_num"
 outputs:
   target_env:
     value: ${{ steps.decide.outputs.target_env }}
@@ -15,8 +13,6 @@ outputs:
   pr_num:
     value: ${{ steps.decide.outputs.pr_num }}
     description: ""
-
-
 runs:
   using: "composite"
   steps:
@@ -24,19 +20,13 @@ runs:
       uses: actions/github-script@v7
       with:
         script: |
-          const out = {
-            target_env: '',
-            from_sha: '',
-            rc_tag: '',
-            pr_number: '',
-          };
+          const out = { target_env: '', sha: '', rc_tag: '', pr_num: '' };
 
           const branchFromRef = (ref) => (ref || '').replace('refs/heads/','');
           const isFeature = (ref) => branchFromRef(ref).startsWith('feature/');
           const isHotfix  = (ref) => branchFromRef(ref).startsWith('hotfix/');
 
           if (context.eventName === 'push') {
-            // Pushes only happen for feature/** in your dispatcher
             const branch = branchFromRef(process.env.GITHUB_REF);
             const { owner, repo } = context.repo;
             const prs = await github.paginate(github.rest.pulls.list, {
@@ -45,13 +35,11 @@ runs:
             const pr = prs.find(p => !p.draft);
 
             if (pr) {
-              // Ready-for-review PR exists → test path (dev+test later), update RC on pipeline
               out.target_env = 'test';
               out.sha = context.sha;
-              out.rc_tag = `rc-pr-${pr.number}`;
-              out.pr_number = String(pr.number);
+              out.pr_num = String(pr.number);
+              out.rc_tag = `rc-pr-${out.pr_num}`;
             } else {
-              // No PR or draft PR → dev only
               out.target_env = 'dev';
               out.sha = context.sha;
             }
@@ -62,29 +50,24 @@ runs:
             const headRef = pr.head.ref;
 
             if (context.payload.action === 'ready_for_review') {
-              // Rebuild from PR head, deploy dev+test, and (pipeline) update RC
               out.target_env = 'test';
               out.sha = pr.head.sha;
-              out.rc_tag = `rc-pr-${pr.number}`;
-              out.pr_number = String(pr.number);
+              out.pr_num = String(pr.number);
+              out.rc_tag = `rc-pr-${out.pr_num}`;
             }
 
             if (context.payload.action === 'closed') {
               if (!pr.merged) {
-                // Closed without merge → no work
                 out.target_env = '';
               } else if (isFeature(`refs/heads/${headRef}`)) {
-                // Feature merged → promote previously built RC (no rebuild)
                 out.target_env = 'prod';
-                out.sha = ''; // pipeline will download RC by tag
-                out.rc_tag = `rc-pr-${pr.number}`;
-                out.pr_number = String(pr.number);
+                out.sha = ''; // pipeline will fetch RC by tag
+                out.pr_num = String(pr.number);
+                out.rc_tag = `rc-pr-${out.pr_num}`;
               } else if (isHotfix(`refs/heads/${headRef}`)) {
-                // Hotfix merged → rebuild from merge commit and deploy to hotfix env
                 out.target_env = 'hotfix';
                 out.sha = context.payload.pull_request.merge_commit_sha || '';
               } else {
-                // Other branches: ignore
                 out.target_env = '';
               }
             }
@@ -94,4 +77,18 @@ runs:
           core.setOutput('sha', out.sha);
           core.setOutput('rc_tag', out.rc_tag);
           core.setOutput('pr_num', out.pr_num);
+
+          // Log to the job output
+          console.log('pre-check decision:', out);
+
+          // Log to the step summary for easy scan in UI
+          const summary = [
+            '### Pre-check decision',
+            `- event: \`${context.eventName}\` / action: \`${context.payload?.action || ''}\``,
+            `- target_env: \`${out.target_env}\``,
+            `- sha: \`${out.sha}\``,
+            `- pr_num: \`${out.pr_num}\``,
+            `- rc_tag: \`${out.rc_tag}\``,
+          ].join('\n');
+          await core.summary.addRaw(summary).write();
 

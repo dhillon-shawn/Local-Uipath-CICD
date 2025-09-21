@@ -16,8 +16,6 @@ on:
       rc_tag:
         type: string
         required: true
-
-
     secrets: {}
 env:
   scope: "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines.Read OR.Monitoring OR.Robots.Read OR.Settings.Read OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Users.Read"
@@ -51,7 +49,7 @@ jobs:
       - name: Checkout exact source ref
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.source_ref }}
+          ref: ${{ inputs.sha }}
 
       - name: Capture environment and repo vars
         id: capture
@@ -65,7 +63,7 @@ jobs:
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/setup@main
         with:
           target_env: ${{ inputs.target_env }}
-          source_ref: ${{ inputs.source_ref }}
+          source_ref: ${{ inputs.sha }}
           vars: ${{ steps.capture.outputs.vars_json }}
 
       - name: auth
@@ -114,7 +112,7 @@ jobs:
       - name: Checkout exact source ref
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.source_ref }}
+          ref: ${{ inputs.sha }}
 
       - name: auth
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
@@ -165,7 +163,7 @@ jobs:
       - name: Checkout exact source ref
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.source_ref }}
+          ref: ${{ inputs.sha }}
 
       - name: auth
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
