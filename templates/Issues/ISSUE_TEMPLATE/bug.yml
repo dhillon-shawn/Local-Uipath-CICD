@@ -2,15 +2,21 @@ name: Bug Template
 description: File a bug report.
 title: "[Bug]: "
 labels: ["bug"]
-projects: ["ca-dmv/16" ]
-type: "Bug"
-assignees: 
+#projects: ["ca-dmv/16" ]
+#type: "Bug"
+assignees:
   - $default-assignee
 body:
-  - type: markdown
+  - type: dropdown
+    id: auto_branch
     attributes:
-      value: |
-        Bug report - fill out what's relevant
+      label: Auto-create feature branch?
+      description: Select “No” to skip creating a branch for this issue.
+      options:
+        - Yes — create feature branch for this issue
+        - No — do not create a branch for this issue
+    validations:
+      required: true
 
   - type: dropdown
     id: severity
@@ -23,7 +29,7 @@ body:
         - Medium (Minor feature issue)
         - Low (Cosmetic/Nice to have)
       default: 2
-      
+
 
   - type: textarea
     id: details
@@ -32,11 +38,11 @@ body:
       description: Quick description of the bug
       placeholder: |
         Brief description of what went wrong...
-        
+
         Steps to reproduce (if needed):
-        1. 
-        2. 
-        
+        1.
+        2.
+
         Expected vs actual behavior...
 
   - type: textarea
@@ -45,16 +51,16 @@ body:
       label: Screenshots/Files
       description: |
         **Drag/Drop/Attach images, videos, logs, or any files here** 📎
-        
+
         Just drag files directly into this box or click to browse!
       placeholder: |
         Drop your files here or click to browse...
-        
+
         • Screenshots of the issue
         • Error logs
-        • Network traces  
+        • Network traces
         • Screen recordings
-        
+
   - type: checkboxes
     id: environment
     attributes:
@@ -65,7 +71,7 @@ body:
         - label: Development
         - label: Local
         - label: N/A
-        
+
   - type: dropdown
     id: priority
     attributes:
@@ -77,7 +83,7 @@ body:
         - This month
         - N/A
       default: 3
-      
+
   - type: textarea
     id: logs_errors
     attributes:

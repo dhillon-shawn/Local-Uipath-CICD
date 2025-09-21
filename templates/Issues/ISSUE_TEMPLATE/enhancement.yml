@@ -2,17 +2,22 @@ name: Enhancement Template
 description: Use this for improvements, refinements, or optimization work
 title: "[Enhancement]: "
 labels: ["enhancement"]
-projects: ["ca-dmv/16" ]
-type: "Feature"
+#projects: ["ca-dmv/16" ]
+#type: "Feature"
 assignees:
   - $default-assignee
 body:
-  - type: markdown
+  - type: dropdown
+    id: auto_branch
     attributes:
-      value: |
-        Use this template to track enhancement work such as refinements, optimizations, or improvements.
+      label: Auto-create feature branch?
+      description: Select “No” to skip creating a branch for this issue.
+      options:
+        - Yes — create feature branch for this issue
+        - No — do not create a branch for this issue
+    validations:
+      required: true
 
-      
   - type: dropdown
     id: enhancement_type
     attributes:
@@ -38,14 +43,14 @@ body:
         • What is being enhanced?
         • Who requested this?
         • Expected outcome
-        
+
   - type: textarea
     id: attachments
     attributes:
       label: Attachments
       description: Upload designs, screenshots, or supporting files 📎
       placeholder: Drop your files here.
-      
+
   - type: dropdown
     id: priority
     attributes:
@@ -57,7 +62,7 @@ body:
         - This month
         - N/A
       default: 3
-      
+
   - type: checkboxes
     id: status
     attributes:

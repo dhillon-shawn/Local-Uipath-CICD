@@ -107,33 +107,6 @@ jobs:
               echo "Project ID: $PID"
             fi
 
-    
-
-      - name: protect non-prod
-        env:
-          REPO: ${{ inputs.repo_name }}
-        run: |
-          echo "Protecting Non-Prod"          
-          response=$(
-          curl -sSf -X PUT \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "Content-Type: application/json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${{ github.repository_owner }}/$REPO/branches/non-prod/protection" \
-            -d '{
-              "required_status_checks": null,
-              "enforce_admins": false,
-              "required_pull_request_reviews": null,
-              "restrictions": null,
-              "required_linear_history": false,
-              "allow_force_pushes": true,
-              "allow_deletions": false
-            }'
-          )
-          echo "Response $response"
-
-
       - name: Protect default branch with a ruleset
         env:
           REPO: ${{ inputs.repo_name }}
