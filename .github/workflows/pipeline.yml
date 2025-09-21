@@ -357,7 +357,10 @@ jobs:
 
 
       - name: Ensure assets
-        if: ${{ needs.setup.outputs.migrate == 'true' }} && (matrix.env == ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }})
+        if: ${{ needs.setup.outputs.migrate == 'true' && (
+            (inputs.target_env == 'hotfix' && matrix.env == 'prod') ||
+            (inputs.target_env != 'hotfix' && matrix.env == inputs.target_env)
+            ) }}
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/migrate-assets@main
         with:
           source_base_url:          ${{ env.BASE_URL }}
