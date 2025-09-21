@@ -372,48 +372,44 @@ jobs:
               )
           done
           
-      - name: labels
-        uses: actions/github-script@v7
-        with:
-          github-token: $GH_TOKEN
-          script: |
-            const labels = [
-              { name: 'feature', color: '1f6feb', description: 'New feature or enhancement' },
-              { name: 'hotfix',  color: 'd73a4a', description: 'Urgent production fix' },
-              { name: 'misc',    color: '8b949e', description: 'documentation/etc' },
-            ];
+      - name: seed labels (feature, hotfix, misc)
+        env:
+          REPO: ${{ inputs.repo_name }}
+        run: |
+          set -e
 
-            for (const lbl of labels) {
-              try {
-                await github.rest.issues.getLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  name: lbl.name,
-                });
-                await github.rest.issues.updateLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  name: lbl.name,
-                  new_name: lbl.name,
-                  color: lbl.color,
-                  description: lbl.description,
-                });
-                core.info(`Updated label: ${lbl.name}`);
-              } catch (e) {
-                if (e.status === 404) {
-                  await github.rest.issues.createLabel({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    name: lbl.name,
-                    color: lbl.color,
-                    description: lbl.description,
-                  });
-                  core.info(`Created label: ${lbl.name}`);
-                } else {
-                  core.setFailed(`Failed label op for ${lbl.name}: ${e}`);
-                }
-              }
-            }
+          payload='{"name":"feature","color":"1f6feb","description":"New feature or enhancement"}'
+          response=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository_owner }}/${REPO}/labels" \
+            -d "${payload}")
+          echo "response: $response"
+          
+          payload='{"name":"hotfix","color":"d73a4a","description":"Urgent production fix"}'
+          response=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository_owner }}/${REPO}/labels" \
+            -d "${payload}")
+          echo "response: $response"
+
+          payload='{"name":"misc","color":"8b949e","description":"Chores / docs / other"}'
+          response=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository_owner }}/${REPO}/labels" \
+            -d "${payload}")
+          echo "response: $response"
+
+
+          echo "Labels seeded."
           
       - name: PRINT RESULTS - UPDATE
         run: |
