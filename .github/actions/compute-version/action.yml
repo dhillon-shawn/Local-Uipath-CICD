@@ -15,20 +15,18 @@ runs:
 
     - name: Get latest version
       id: get_latest_version
-      shell: powershell
+      shell: bash
       run: |
-          $url = ("{0}/odata/Processes/UiPath.Server.Configuration.OData.GetProcessVersions(processId='{1}')" -f $env:OR_URL, "${{ inputs.pid }}") +
-                "?`$orderby=Version%20desc&`$top=1&`$select=Version"
-
-          $resp = Invoke-RestMethod -Method Get -Headers @{ Authorization = "Bearer $env:TOKEN" } -Uri $url
-
-          $latest = $null
-          if ($resp -and $resp.value -and $resp.value.Count -ge 1) { $latest = $resp.value[0].Version }
-          if ([string]::IsNullOrWhiteSpace($latest) -or $latest -eq 'null') { $latest = '0.0.0' }
-
-          # Write env var (UTF-8 without BOM)
-          $utf8 = New-Object System.Text.UTF8Encoding($false)
-          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "LATEST_VERSION=$latest`n", $utf8)
+        RESPONSE=$(
+          curl --location \
+            --header "Authorization: Bearer ${{ env.TOKEN }}" \
+            "${{ env.OR_URL }}/odata/Processes/UiPath.Server.Configuration.OData.GetProcessVersions(processId='${{inputs.pid}}')?%24orderby=Version%20desc&%24top=1&%24select=Version"
+        )
+        LATEST_VERSION=$(echo "$RESPONSE" | jq -r '.value[0].Version')
+        if [[ -z "$LATEST_VERSION" || "$LATEST_VERSION" == "null" ]]; then
+          LATEST_VERSION="0.0.0"
+        fi
+        echo "LATEST_VERSION=$LATEST_VERSION" >> "$GITHUB_ENV"
 
 
     - name: Compute auto-bumped version
