@@ -1,7 +1,7 @@
 name: Create branch for labeled issues
 on:
   issues:
-    types: [opened]
+    types: [opened,assigned]
 
 permissions:
   write-all
@@ -13,6 +13,7 @@ jobs:
 
       - name: Check if issue has assignees
         id: check
+        if: github.event.action == 'opened'
         run: |
                 if [ "${{ toJson(github.event.issue.assignees) }}" = "[]" ]; then
                   echo "Issue has no assignees."
@@ -25,12 +26,13 @@ jobs:
 
       - name: 'Auto-assign issue'
         uses: pozil/auto-assign-issue@v2
-        if: steps.check.outputs.has_assignees == 'false'
+        if: steps.check.outputs.has_assignees == 'false' &&   github.event.action == 'opened'
         with:
                   assignees: '${{ github.event.issue.user.login }}'
                   numOfAssignee: 1
 
       - name: Create Issue Branch
+        if: ${{ github.event.action == 'assigned' }}
         uses: robvanderleek/create-issue-branch@main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,4 +1,4 @@
-mode: 'immediate'
+mode: auto
 openDraftPR: true
 copyIssueDescriptionToPR: true
 copyIssueLabelsToPR: true
@@ -19,6 +19,6 @@ branches:
   - label: hotfix
     prefix: hotfix/
     name: hotfix
-    prTarget: main
+
 
 
