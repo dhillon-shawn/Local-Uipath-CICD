@@ -13,13 +13,5 @@ branches:
   - label: hotfix
     skip: false
     mode: immediate
-    prefix: hotfix/
-    autoLinkIssue: true
-    autoCloseIssue: true
-    autoDeleteBranch: true
-    copyIssueDescriptionToPR: true
-    copyIssueLabelsToPR: true
-    copyIssueAssigneeToPR: true
-    copyIssueProjectsToPR: true
   - label: '*'
     skip: true
