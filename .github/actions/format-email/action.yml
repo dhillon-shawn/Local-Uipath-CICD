@@ -105,38 +105,15 @@ runs:
             fullPath: x.FilePath == null ? null : String(x.FilePath)
           }));
 
-          // ---------- compute short, repo-agnostic paths ----------
+          // ---------- filename-only grouping ----------
           const norm = p => String(p || '').replace(/[\\/]+/g, '\\'); // normalize to backslashes
-          const splitParts = p => norm(p).split('\\').filter(Boolean);
-
-          // longest common path prefix across all non-null paths
-          const allPaths = rows.map(r => r.fullPath).filter(Boolean);
-          let commonParts = [];
-          if (allPaths.length) {
-            const partLists = allPaths.map(splitParts);
-            commonParts = partLists[0].slice();
-            for (const parts of partLists.slice(1)) {
-              let i = 0;
-              const max = Math.min(commonParts.length, parts.length);
-              while (i < max && commonParts[i].toLowerCase() === parts[i].toLowerCase()) i++;
-              commonParts = commonParts.slice(0, i);
-              if (!commonParts.length) break;
-            }
-            // Heuristic: if the common prefix is just a drive letter like "D:" or contains only CI working dirs,
-            // keep it; join() below will naturally remove it.
-          }
-
-          const toShortPath = (p) => {
+          const filenameOnly = p => {
             if (!p) return '(Project-wide)';
-            const parts = splitParts(p);
-            let i = 0;
-            while (i < commonParts.length && parts[i]?.toLowerCase() === commonParts[i]?.toLowerCase()) i++;
-            const remainder = parts.slice(i).join('\\');
-            return remainder || '(Project root)';
+            const parts = norm(p).split('\\').filter(Boolean);
+            return parts.length ? parts[parts.length - 1] : '(Project-wide)';
           };
 
-          // attach shortPath & group
-          rows.forEach(r => r.shortPath = toShortPath(r.fullPath));
+          rows.forEach(r => r.shortPath = filenameOnly(r.fullPath));
 
           // ---------- totals and sorting ----------
           const totals = { 1:0, 2:0, 3:0 };
@@ -145,7 +122,7 @@ runs:
           // Sort rows within each file: by severity, then rule
           const rowSort = (a,b) => (a.sev - b.sev) || a.rule.localeCompare(b.rule);
 
-          // Group by shortPath
+          // Group by shortPath (filename)
           const groups = new Map();
           for (const r of rows.sort(rowSort)) {
             const key = r.shortPath;
@@ -213,7 +190,7 @@ runs:
           if (rows.length === 0) {
             content = '<p>No analyzer results found.</p>';
           } else {
-            // Sort group headers: project-wide first, then alphabetical
+            // Sort headers: project-wide first, then alphabetical by filename
             const keys = Array.from(groups.keys()).sort((a,b) => {
               if (a === '(Project-wide)') return -1;
               if (b === '(Project-wide)') return 1;
@@ -249,6 +226,7 @@ runs:
           fs.mkdirSync(path.dirname(outPath), { recursive: true });
           fs.writeFileSync(outPath, html, 'utf8');
           core.info(`Analyzer HTML -> ${outPath}`);
+
 
 
 
