@@ -26,69 +26,145 @@ runs:
       with:
         github-token: ${{ inputs.token }}
         script: |
-          const event = context.eventName;
+          const eventName = context.eventName;
           const defaultBranch = context.payload.repository?.default_branch;
-          const { owner, repo } = context.repo;
+          const owner = context.repo.owner;
+          const repo  = context.repo.repo;
 
-          const refName = (context.ref || '').replace(/^refs\/heads\//, '');
+          // refs/heads/<branch>
+          const ref = context.ref || '';
+          const refName = ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref;
+
+          const sha = context.sha;
+          const actor = context.actor;
+
+          core.info('--- Decide target env (begin) ---');
+          core.info(`eventName: ${eventName}`);
+          core.info(`owner/repo: ${owner}/${repo}`);
+          core.info(`defaultBranch: ${defaultBranch}`);
+          core.info(`ref: ${ref}`);
+          core.info(`refName: ${refName}`);
+          core.info(`sha (context.sha): ${sha}`);
+          core.info(`actor: ${actor}`);
+
           let targetEnv = '';
           let skip = false;
 
-          if (event === 'pull_request') {
-            const pr = context.payload.pull_request;
-            const baseRef = pr?.base?.ref;
+          if (eventName === 'pull_request') {
             const action = context.payload.action;
+            const pr = context.payload.pull_request;
             const isDraft = !!pr?.draft;
+            const baseRef = pr?.base?.ref;
+            const prNumber = pr?.number;
+            const prHtml = pr?.html_url;
 
-            if (baseRef !== defaultBranch) {
+            core.info(`PR action: ${action}`);
+            core.info(`PR #${prNumber} url: ${prHtml}`);
+            core.info(`PR draft: ${isDraft}`);
+            core.info(`PR baseRef: ${baseRef}`);
+
+            // 1) Skip PRs not targeting the default branch
+            if (baseRef && defaultBranch && baseRef !== defaultBranch) {
+              core.info(`PR targets non-default branch (${baseRef} != ${defaultBranch}) -> skip`);
               skip = true;
             } else if (action === 'ready_for_review') {
+              core.info('PR moved to ready_for_review -> targetEnv=test');
               targetEnv = 'test';
-            } else if (['opened','reopened','synchronize'].includes(action)) {
+            } else if (action === 'opened' || action === 'reopened' || action === 'synchronize') {
               if (isDraft) {
-                skip = true;           // while draft, ignore PR runs
+                // CHANGED: run on draft PR events as dev (do NOT skip)
+                core.info('Draft PR event -> targetEnv=dev, do not skip');
+                targetEnv = 'dev';
+                skip = false;
               } else {
+                core.info('Non-draft PR event -> targetEnv=test');
                 targetEnv = 'test';
               }
             } else {
+              core.info('Uninteresting PR action -> skip');
               skip = true;
             }
 
-          } else if (event === 'push') {
+          } else if (eventName === 'push') {
+            core.info('Handling push event...');
+
             if (refName === defaultBranch) {
-              // Merge to default: prod unless merged PR head was hotfix/*
+              // Allow merges to default: prod unless merged PR was from hotfix/*
               const afterSha = context.payload.after || context.sha;
+              core.info(`Push to default branch. afterSha: ${afterSha}`);
+
               let isHotfix = false;
               try {
-                const assoc = await github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: afterSha });
+                const assoc = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                  owner, repo, commit_sha: afterSha
+                });
+                core.info(`Associated PRs for commit: ${assoc.data.length}`);
                 const pr = assoc.data.find(p => p.merged_at) || assoc.data[0];
-                if (pr?.head?.ref?.startsWith('hotfix/')) isHotfix = true;
-              } catch {}
-              targetEnv = isHotfix ? 'hotfix' : 'prod';
-
-            } else if (refName.startsWith('feature/') || refName.startsWith('hotfix/')) {
-              // If a PR is open for this branch: run dev when draft, skip when non-draft
-              const prs = await github.rest.pulls.list({ owner, repo, head: `${owner}:${refName}`, state: 'open' });
-              const pr = prs.data[0];
-              if (!pr) {
-                targetEnv = 'dev';
-              } else if (pr.draft) {
-                targetEnv = 'dev';
-              } else {
-                skip = true;            // non-draft PR open → let PR 'synchronize' handle test
+                if (pr) {
+                  core.info(`Associated PR: #${pr.number} (${pr.state}) head.ref=${pr.head?.ref} merged_at=${pr.merged_at}`);
+                  if (pr?.head?.ref?.startsWith('hotfix/')) {
+                    isHotfix = true;
+                  }
+                } else {
+                  core.info('No associated PRs found for the merge commit.');
+                }
+              } catch (e) {
+                core.info(`Could not inspect associated PRs: ${e.message}`);
               }
 
+              targetEnv = isHotfix ? 'hotfix' : 'prod';
+              core.info(`Push to default -> targetEnv=${targetEnv}`);
+
             } else {
-              skip = true;
+              // First, if there is an open PR for this branch, decide based on draft status
+              try {
+                core.info(`Checking for open PRs with head ${owner}:${refName} ...`);
+                const prs = await github.rest.pulls.list({
+                  owner, repo, head: `${owner}:${refName}`, state: 'open', per_page: 1
+                });
+                const pr = prs.data[0];
+
+                if (pr) {
+                  const isDraft = !!pr.draft;
+                  core.info(`Open PR exists for ${refName}: #${pr.number} (${pr.html_url}) draft=${isDraft}`);
+                  if (isDraft) {
+                    // CHANGED: do NOT skip; run as dev while PR is draft
+                    targetEnv = 'dev';
+                    skip = false;
+                    core.info('Open draft PR -> targetEnv=dev, do not skip');
+                  } else {
+                    // Non-draft PR exists → skip push; PR synchronize will run as test
+                    targetEnv = 'test'; // informational
+                    skip = true;
+                    core.info('Open non-draft PR -> skip push (PR workflows will handle as test)');
+                  }
+                } else {
+                  core.info('No open PR for this branch.');
+                  if (refName.startsWith('feature/') || refName.startsWith('hotfix/')) {
+                    targetEnv = 'dev';
+                    core.info(`Branch pattern matched (feature/* or hotfix/*) with no PR -> targetEnv=dev`);
+                  } else {
+                    core.info(`Branch ${refName} is not default and not feature/* or hotfix/* -> skip`);
+                    skip = true;
+                  }
+                }
+              } catch (e) {
+                core.info(`Error while listing PRs for branch ${refName}: ${e.message}`);
+                // Decide how to fail; leaving skip=false to avoid blocking unexpected pushes
+              }
             }
 
           } else {
+            core.info(`Unhandled event "${eventName}" -> skip`);
             skip = true;
           }
 
-          const sourceRef = event === 'pull_request'
+          const sourceRef = (eventName === 'pull_request')
             ? context.payload.pull_request.head.sha
             : context.sha;
+
+          core.info(`Final decision -> target_env=${targetEnv || '(empty)'}, skip=${skip}, source_ref=${sourceRef}`);
+          core.info('--- Decide target env (end) ---');
 
           core.setOutput('target_env', targetEnv);
           core.setOutput('skip', skip ? 'true' : 'false');
