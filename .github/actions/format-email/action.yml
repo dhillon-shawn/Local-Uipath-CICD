@@ -87,18 +87,17 @@ runs:
             3: { name:'Info',    icon:'ℹ️', row:'#eff6ff', bar:'#2563eb' },
           };
 
-          // Remove trailing "learn more" links (MD/HTML)
+
           const stripLink = (s) => String(s || '')
             .replace(/\s*\[learn more\.?\]\([^)]+\)/gi, '')
             .replace(/\s*<a\b[^>]*>\s*learn more\.?\s*<\/a>/gi, '');
 
-          // If description is "Expand to see details", blank it
           const cleanDesc = (s) => /^expand to see details$/i.test(String(s ?? '').trim()) ? '' : String(s ?? '');
 
           const raw = JSON.parse(fs.readFileSync(inPath, 'utf8'));
           const list = Array.isArray(raw) ? raw : (raw.Results || raw.results || []);
 
-          // ---------- filename helpers ----------
+
           const norm = p => String(p || '').replace(/[\\/]+/g, '/'); // normalize to forward slashes
           const base = p => {
             if (!p) return '(Project-wide)';
@@ -106,7 +105,6 @@ runs:
             return parts.length ? parts[parts.length - 1] : '(Project-wide)';
           };
 
-          // ---------- prepare rows ----------
           const rows = list.map(x => ({
             sev: Number(x.ErrorSeverity ?? 3) || 3,
             code: String(x.ErrorCode ?? ''),
@@ -117,21 +115,18 @@ runs:
             shortPath: base(x.FilePath)
           }));
 
-          // Totals
+
           const totals = { 1:0, 2:0, 3:0 };
           rows.forEach(r => totals[r.sev] = (totals[r.sev] || 0) + 1);
 
-          // Sort rows inside each file group
           const rowSort = (a,b) => (a.sev - b.sev) || a.rule.localeCompare(b.rule);
 
-          // Group by filename
           const groups = new Map();
           for (const r of rows.sort(rowSort)) {
             if (!groups.has(r.shortPath)) groups.set(r.shortPath, []);
             groups.get(r.shortPath).push(r);
           }
 
-          // ---------- styles ----------
           const css = {
             body: 'margin:20px;font-family:Arial,Helvetica,sans-serif;color:#0f172a;background:#ffffff;',
             h1: 'margin:0 0 8px 0;font-size:20px;',
@@ -146,7 +141,6 @@ runs:
             h2: 'margin:22px 0 8px 0;font-size:15px;color:#0f172a;'
           };
 
-          // Outlook-safe TD style with background + left severity bar + mso padding
           const tdBg = (bg, bar) =>
             css.td + `background-color:${bg};mso-padding-alt:8px 10px 8px 10px;border-left:6px solid ${bar};`;
 
@@ -184,8 +178,7 @@ runs:
               </table>
             </div>`;
 
-          // ---------- header ordering ----------
-          const priorityOrder = ['fake.xaml','(project-wide)','project.json', 'main.xaml', 'process.xaml'];
+          const priorityOrder = ['(project-wide)','project.json', 'main.xaml', 'process.xaml'];
           const baseLower = (name) => base(name).toLowerCase(); 
           const priorityIndex = (name) => {
             const n = baseLower(name);
