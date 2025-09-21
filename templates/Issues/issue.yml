@@ -38,32 +38,44 @@ jobs:
               with:
                 script: |
                   const issue = context.payload.issue;
-                  const { owner, repo } = context.repo;
+                  const body = issue.body || "";
 
+
+                  const optedOutDropdown = /Auto-create feature branch\?.*No — do not create a branch for this issue/i.test(
+                    body.replace(/\r?\n/g, " ")
+                  );
+
+
+
+                  if (optedOutDropdown) {
+                    core.info("User opted out of auto-creating a branch. Exiting.");
+                    return;
+                  }
+
+                  const { owner, repo } = context.repo;
                   const defaultBranch = context.payload.repository.default_branch;
+
 
                   const { data: ref } = await github.rest.git.getRef({
                     owner, repo, ref: `heads/${defaultBranch}`,
                   });
                   const sha = ref.object.sha;
 
+                  // Slugify the issue title for branch name
                   function slugify(input) {
-                    return input
-                      .normalize('NFKD')                       
-                      .replace(/[\u0300-\u036f]/g, '')         
+                    return input.normalize('NFKD')
+                      .replace(/[\u0300-\u036f]/g, '')
                       .toLowerCase()
-                      .replace(/[^a-z0-9]+/g, '-')            
-                      .replace(/^-+|-+$/g, '')                
-                      .slice(0, 40);                          
+                      .replace(/[^a-z0-9]+/g, '-')
+                      .replace(/^-+|-+$/g, '')
+                      .slice(0, 40);
                   }
 
                   const slug = slugify(issue.title) || `issue-${issue.number}`;
                   const branch = `feature/${issue.number}-${slug}`;
 
                   await github.rest.git.createRef({
-                    owner, repo,
-                    ref: `refs/heads/${branch}`,
-                    sha,
+                    owner, repo, ref: `refs/heads/${branch}`, sha,
                   });
 
                   await github.rest.issues.createComment({
