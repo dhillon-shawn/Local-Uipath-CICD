@@ -91,31 +91,15 @@ jobs:
             if ! git diff --cached --quiet -- .github .gitignore nuget.config; then
               git commit -m "update .github, .gitignore, nuget.config on ${default_branch} [skip ci]"
               if ! git push origin "${default_branch}"; then
-                echo "::notice:: push to ${default_branch} blocked – continuing."
+                echo "::notice:: push to ${default_branch} blocked."
+                exit 1
               fi
             else
               git reset -q
               echo "No .github/.gitignore/nuget.config changes on ${default_branch}."
             fi
 
-            # -------------------------
-            #  Fetch refs
-            # -------------------------
-            git fetch --prune --no-tags origin \
-              "+refs/heads/${default_branch}:refs/remotes/origin/${default_branch}"
 
-            # Try to fetch non-prod 
-            git fetch --prune --no-tags origin \
-              "+refs/heads/${non_branch}:refs/remotes/origin/${non_branch}" || true
-
-            # If repository is shallow, deepen so rebase has enough history
-            if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
-              git fetch --prune --no-tags --deepen=1000 origin "${default_branch}" || true
-              git fetch --prune --no-tags --deepen=1000 origin "${non_branch}" || true
-            fi
-
-            DEFAULT_SRC="origin/${default_branch}"
-            DEFAULT_SHA="$(git rev-parse ${DEFAULT_SRC})"
 
             if [[ -f "./project.json" ]]; then
               PID="$(jq -er '.name' ./project.json)"
