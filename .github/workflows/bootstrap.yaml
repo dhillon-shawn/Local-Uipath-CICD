@@ -383,6 +383,8 @@ jobs:
             
             
       - name: set token permissions
+        env:
+          REPO: ${{ inputs.repo_name }}
         run: |
             payload='{"default_workflow_permissions":"write","can_approve_pull_request_reviews":false}'
 
