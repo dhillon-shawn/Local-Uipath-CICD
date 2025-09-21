@@ -19,23 +19,23 @@ jobs:
     environment: ${{ inputs.target_env }}
     runs-on: ubuntu-latest
     outputs:
-      pid:                  ${{ steps.setup.outputs.PID }}
-      ptype:                ${{ steps.setup.outputs.ptype }}
-      entry_point:          ${{ steps.setup.outputs.entry_point }}
-      deployment_matrix:    ${{ steps.setup.outputs.deployment_matrix }}
-      email:                ${{ steps.setup.outputs.EMAIL }}
-      publishable:          ${{ steps.setup.outputs.PUBLISHABLE }}
+      pid: ${{ steps.setup.outputs.PID }}
+      ptype: ${{ steps.setup.outputs.ptype }}
+      entry_point: ${{ steps.setup.outputs.entry_point }}
+      deployment_matrix: ${{ steps.setup.outputs.deployment_matrix }}
+      email: ${{ steps.setup.outputs.EMAIL }}
+      publishable: ${{ steps.setup.outputs.PUBLISHABLE }}
 
-      pr_number:            ${{ steps.setup.outputs.PR_NUMBER }}
-      pr_action:            ${{ steps.setup.outputs.PR_ACTION }}
-      migrate:              ${{ steps.setup.outputs.MIGRATE }}
+      pr_number: ${{ steps.setup.outputs.PR_NUMBER }}
+      pr_action: ${{ steps.setup.outputs.PR_ACTION }}
+      migrate: ${{ steps.setup.outputs.MIGRATE }}
 
       vars: ${{ steps.capture.outputs.vars }}
 
       notes: ${{ steps.setup.outputs.notes }}
 
-      version:       ${{ steps.compute.outputs.version }}
-      base_folder_name:   ${{ steps.folder.outputs.base_folder_name }}
+      version: ${{ steps.compute.outputs.version }}
+      base_folder_name: ${{ steps.folder.outputs.base_folder_name }}
       fid: ${{ steps.folder.outputs.fid }}
 
     steps:
@@ -55,49 +55,48 @@ jobs:
         id: setup
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/setup@main
         with:
-          target_env:  ${{ inputs.target_env }}
-          source_ref:  ${{ inputs.source_ref }}
-          vars:        ${{ steps.capture.outputs.vars_json }}
+          target_env: ${{ inputs.target_env }}
+          source_ref: ${{ inputs.source_ref }}
+          vars: ${{ steps.capture.outputs.vars_json }}
 
       - name: auth
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
         with:
-                target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
-                role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
-                aws_region: "us-west-2"
-                secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
-                scopes: ${{ env.scope }}
+          target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
+          role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
+          aws_region: "us-west-2"
+          secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
+          scopes: ${{ env.scope }}
 
       - id: compute
         name: Compute version
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/compute-version@main
         with:
-          target_env:         ${{ inputs.target_env }}
-          pid:                ${{ steps.setup.outputs.pid }}
+          target_env: ${{ inputs.target_env }}
+          pid: ${{ steps.setup.outputs.pid }}
 
       - id: folder
         name: Resolve / create folder
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/ensure-folder@main
         with:
-          target_env:         ${{ inputs.target_env }}
-          pid:                ${{ steps.setup.outputs.pid }}
-          or_url:             ${{ env.OR_URL }}
-          token:              $TOKEN
-          dev_rid:            ${{ fromJSON(steps.capture.outputs.vars).DEV_RID }}
-          bot_rid:            ${{ fromJSON(steps.capture.outputs.vars).BOT_RID }}
-          mid:                ${{ fromJSON(steps.capture.outputs.vars).MID }}
-          bot_uid:            ${{ fromJSON(steps.capture.outputs.vars).BOT_UID }}
-          dev_uid:            ${{ fromJSON(steps.capture.outputs.vars).DEV_UID }}
-          FOLDER_NAME:        "${{ fromJSON(steps.capture.outputs.vars).FOLDER_NAME }}"
-
+          target_env: ${{ inputs.target_env }}
+          pid: ${{ steps.setup.outputs.pid }}
+          or_url: ${{ env.OR_URL }}
+          token: $TOKEN
+          dev_rid: ${{ fromJSON(steps.capture.outputs.vars).DEV_RID }}
+          bot_rid: ${{ fromJSON(steps.capture.outputs.vars).BOT_RID }}
+          mid: ${{ fromJSON(steps.capture.outputs.vars).MID }}
+          bot_uid: ${{ fromJSON(steps.capture.outputs.vars).BOT_UID }}
+          dev_uid: ${{ fromJSON(steps.capture.outputs.vars).DEV_UID }}
+          FOLDER_NAME: "${{ fromJSON(steps.capture.outputs.vars).FOLDER_NAME }}"
 
       - name: Ensure assets (only on first promote / prod merge)
         if: ${{ steps.setup.outputs.migrate == 'true' }}
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/migrate-assets@main
         with:
-          source_base_url:          ${{ env.BASE_URL }}
-          TARGET_OR_URL:             ${{ env.OR_URL }}
-          token:              $TOKEN
+          source_base_url: ${{ env.BASE_URL }}
+          TARGET_OR_URL: ${{ env.OR_URL }}
+          token: $TOKEN
 
   CLI:
     runs-on: windows-latest
@@ -111,31 +110,30 @@ jobs:
       - name: auth
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
         with:
-                target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
-                role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
-                aws_region: "us-west-2"
-                secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
-                scopes: ${{ env.scope }}
+          target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
+          role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
+          aws_region: "us-west-2"
+          secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
+          scopes: ${{ env.scope }}
 
       - name: Test
         if: ((  needs.setup.outputs.publishable  == 'true')  && inputs.target_env == 'test') || inputs.target_env == 'dev'
         id: CI
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/ci@main
         with:
-          folder_name:  "${{ needs.setup.outputs.base_folder_name }}"
-          target_env:   ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
+          folder_name: "${{ needs.setup.outputs.base_folder_name }}"
+          target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
           publishable: ${{ needs.setup.outputs.publishable}}
-
 
       - name: auth
         if: inputs.target_env != 'dev'
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
         with:
-                target_env: 'dev'
-                role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
-                aws_region: "us-west-2"
-                secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
-                scopes: ${{ env.scope }}
+          target_env: "dev"
+          role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
+          aws_region: "us-west-2"
+          secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
+          scopes: ${{ env.scope }}
 
       - name: Package
         id: Pack
@@ -145,12 +143,9 @@ jobs:
           version: ${{ needs.setup.outputs.version }}
           release_notes: ${{ needs.setup.outputs.notes }}
 
-
-
-
   DEPLOY:
     runs-on: ubuntu-latest
-    needs: [setup, CLI   ]
+    needs: [setup, CLI]
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.setup.outputs.deployment_matrix) }}
@@ -166,28 +161,24 @@ jobs:
       - name: auth
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
         with:
-                target_env: ${{ matrix.env }}
-                role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
-                aws_region: "us-west-2"
-                secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
-                scopes: ${{ env.scope }}
+          target_env: ${{ matrix.env }}
+          role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
+          aws_region: "us-west-2"
+          secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
+          scopes: ${{ env.scope }}
 
       - name: Deploy
         id: CD
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/cd@main
         with:
-          full_folder_name:  "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
-          base_folder_name:  "${{ needs.setup.outputs.base_folder_name }}"
-          fid:          ${{ needs.setup.outputs.fid }}
-          target_env:   ${{ matrix.env }}
-          version:      ${{ needs.setup.outputs.version }}
-          pid:          ${{ needs.setup.outputs.pid }}
-          or_url:       ${{ env.OR_URL }}
-          token:        $TOKEN
-
-
-
-
+          full_folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
+          base_folder_name: "${{ needs.setup.outputs.base_folder_name }}"
+          fid: ${{ needs.setup.outputs.fid }}
+          target_env: ${{ matrix.env }}
+          version: ${{ needs.setup.outputs.version }}
+          pid: ${{ needs.setup.outputs.pid }}
+          or_url: ${{ env.OR_URL }}
+          token: $TOKEN
 
   send:
     needs: [setup, CLI, DEPLOY]
@@ -198,16 +189,16 @@ jobs:
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/format-email@main
         id: compose
         with:
-          target_env:  ${{ inputs.target_env }}
+          target_env: ${{ inputs.target_env }}
           publishable: ${{ needs.setup.outputs.publishable }}
           json_path: results/analyze.json
           xml_path: results/test.xml
           cd_status: ${{ needs.DEPLOY.result }}
           source_ref: ${{ github.sha }}
-          version:   ${{ needs.setup.outputs.version }}
+          version: ${{ needs.setup.outputs.version }}
           folder_name: ${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}
           project_id: ${{ needs.setup.outputs.pid }}
-          migrate:  ${{ needs.setup.outputs.migrate }}
+          migrate: ${{ needs.setup.outputs.migrate }}
 
       - name: Send Email (SMTP)
         uses: dawidd6/action-send-mail@v3
@@ -216,9 +207,8 @@ jobs:
           server_port: 587
           username: ${{ secrets.EMAIL_USERNAME }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject:  ${{ steps.compose.outputs.subject }}
-          to:       ${{ needs.setup.outputs.email }}
-          from:     "UiPath CI/CD <uipath-cicd@noreply.com>"
+          subject: ${{ steps.compose.outputs.subject }}
+          to: ${{ needs.setup.outputs.email }}
+          from: "UiPath CI/CD <uipath-cicd@noreply.com>"
           html_body: file://${{ steps.compose.outputs.html }}
           convert_markdown: false
-
