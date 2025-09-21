@@ -379,6 +379,22 @@ jobs:
             echo "====================================================================================="
             echo " "
 
+            
+            
+            
+      - name: set token permissions
+        run: |
+            payload='{"default_workflow_permissions":"write","can_approve_pull_request_reviews":false}'
+
+            response=$(curl -sS -X PUT \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: application/json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${{ github.repository_owner }}/${REPO}/actions/permissions/workflow" \
+              -d "${payload}"
+            )
+            echo "Response: $response"
 
 
 

@@ -1,6 +1,6 @@
 name: Enhancement Template
 description: Use this for improvements, refinements, or optimization work
-title: "[Enhancement]: "
+title: ""
 labels: ["enhancement"]
 #projects: ["ca-dmv/16" ]
 #type: "Feature"

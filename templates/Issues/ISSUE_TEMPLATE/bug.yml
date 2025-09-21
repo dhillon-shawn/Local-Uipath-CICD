@@ -1,6 +1,5 @@
 name: Bug Template
 description: File a bug report.
-title: "[Bug]: "
 labels: ["bug"]
 #projects: ["ca-dmv/16" ]
 #type: "Bug"
