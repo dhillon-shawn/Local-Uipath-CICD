@@ -80,7 +80,6 @@ jobs:
 
             mkdir -p .github/workflows
             cp "$GITHUB_WORKSPACE/templates/Issues/issue.yml"             .github/workflows/
-            cp "$GITHUB_WORKSPACE/templates/Issues/link-pr.yml"             .github/workflows/
             cp "$GITHUB_WORKSPACE/templates/Issues/issue-branch.yml"             .github/
             cp -r "$GITHUB_WORKSPACE/templates/Issues/ISSUE_TEMPLATE"     .github/
 
