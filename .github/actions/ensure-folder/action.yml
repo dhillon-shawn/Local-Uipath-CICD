@@ -110,7 +110,7 @@ runs:
               --header "Authorization: Bearer ${{inputs.token}}" \
               --header "Content-Type: application/json" \
               --data "{
-                  \"DisplayName\": \"$CHILD_NAME\",
+                  \"DisplayName\": \"$folder\",
                   \"Description\": \"Created via API\",
                   \"FullyQualifiedName\": \"$FULLY_QUALIFIED\",
                   \"ProvisionType\": \"Automatic\",

@@ -344,7 +344,7 @@ jobs:
         if: matrix.env == ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/ensure-folder@main
         with:
-          target_env:         ${{ inputs.target_env }}
+          target_env:         ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
           pid:                ${{ needs.setup.outputs.pid }}
           or_url:             ${{ env.OR_URL }}
           token:              $TOKEN
