@@ -33,7 +33,7 @@ jobs:
     steps:
       - name: set target_env and decide skip
         id: check
-        uses: dhillon-shawn/Local-Uipath-CICD/pre-check@main
+        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/pre-check@main
 
   pipeline:
     needs: pre-check
