@@ -263,7 +263,7 @@ jobs:
           packages\UiPath.CLI.Windows.25.4.9337.28376\tools\uipcli.exe package pack "$proj" `
             --output "$stageOut" `
             --outputType '${{ needs.setup.outputs.ptype }}' `
-            -v '${{ needs.resolve-dependencies.outputs.version }}' `
+            -v '${{ steps.compute.outputs.version }}' `
             --repositoryUrl 'https://github.com/${{ github.repository }}' `
             --repositoryBranch '${{ github.ref_name }}' `
             --repositoryCommit '${{ github.sha }}' `
@@ -409,12 +409,12 @@ jobs:
           migrate:  ${{ needs.setup.outputs.migrate }}
 
       - name: Send Email (SMTP)
-        if: always()
         uses: dawidd6/action-send-mail@v3
         with:
-          server_address: smtp.ad.dmv.ca.gov
-          server_port: 25
-          secure: false
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
           subject:  ${{ steps.compose.outputs.subject }}
           to:       ${{ needs.setup.outputs.email }}
           from:     "UiPath CI/CD <uipath-cicd@noreply.com>"
