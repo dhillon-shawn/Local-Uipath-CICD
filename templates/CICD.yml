@@ -25,7 +25,7 @@ jobs:
     outputs:
       target_env: ${{ steps.check.outputs.target_env }}
       source_ref: ${{ steps.check.outputs.source_ref }}
-      skip: ${{ steps.check.outputs.check }}
+      skip: ${{ steps.check.outputs.skip }}
     steps:
       - name: set target_env and decide skip
         id: check
