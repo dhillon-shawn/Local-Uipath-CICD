@@ -185,7 +185,7 @@ runs:
             </div>`;
 
           // ---------- header ordering ----------
-          const priorityOrder = ['(project-wide)','project.json', 'main.xaml', 'process.xaml'];
+          const priorityOrder = ['fake.xaml','(project-wide)','project.json', 'main.xaml', 'process.xaml'];
           const baseLower = (name) => base(name).toLowerCase(); 
           const priorityIndex = (name) => {
             const n = baseLower(name);
