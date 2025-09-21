@@ -1,4 +1,4 @@
-mode: auto
+mode: immediate
 openDraftPR: true
 copyIssueDescriptionToPR: true
 copyIssueLabelsToPR: true
@@ -8,18 +8,14 @@ autoCloseIssue: true
 autoDeleteBranch: true
 conventionalPrTitles: true
 branchName: '${issue.number}-${issue.title}'
-commentMessage: '✅ Created branch `${branchName}` from `${defaultBranch}` and opened a draft PR.'
+commentMessage: 'Created branch `${branchName}` from `${defaultBranch}` and opened a draft PR.'
 
 branches:
-
   - label: feature
     prefix: feature/
-    name: feature
-    prTarget: ${defaultBranch}
 
   - label: hotfix
     prefix: hotfix/
-    name: hotfix
-    prTarget: main
+
 
 

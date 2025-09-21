@@ -1,0 +1,89 @@
+name: Decide target env
+description: Compute target_env/skip/source_ref for Pipeline Caller
+author: you
+inputs:
+  token:
+    description: GitHub token with repo read permissions
+    required: false
+    default: ${{ github.token }}
+outputs:
+  target_env:
+    description: dev | test | prod | hotfix
+    value: ${{ steps.decider.outputs.target_env }}
+  skip:
+    description: if the caller should skip running the pipeline
+    value: ${{ steps.decider.outputs.skip }}
+  source_ref:
+    description: SHA to pass to downstream pipeline
+    value: ${{ steps.decider.outputs.source_ref }}
+
+runs:
+  using: composite
+  steps:
+    - name: Compute env/skip via GitHub API
+      id: decider
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.token }}
+        script: |
+          const eventName = context.eventName;
+          const defaultBranch = context.payload.repository?.default_branch;
+          const owner = context.repo.owner;
+          const repo  = context.repo.repo;
+
+          // refs/heads/<branch>
+          const ref = context.ref || '';
+          const refName = ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref;
+
+          let targetEnv = '';
+          let skip = false;
+
+          if (eventName === 'pull_request') {
+            // PR events: opened, reopened, ready_for_review, synchronize
+            targetEnv = 'test';
+          } else if (eventName === 'push') {
+            if (refName.startsWith('feature/') || refName.startsWith('hotfix/')) {
+              // If an open PR exists for this branch, skip the push run
+              const prs = await github.rest.pulls.list({
+                owner, repo, head: `${owner}:${refName}`, state: 'open'
+              });
+              if (prs.data.length > 0) {
+                skip = true;          // PR workflow (synchronize) will run with 'test'
+                targetEnv = 'test';   // informational only
+              } else {
+                targetEnv = 'dev';
+              }
+            } else if (refName === defaultBranch) {
+              // Merge into default: prod unless PR came from hotfix/*
+              const afterSha = context.payload.after || context.sha;
+              let isHotfix = false;
+
+              try {
+                const assoc = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                  owner, repo, commit_sha: afterSha
+                });
+                const pr = assoc.data.find(p => p.merged_at) || assoc.data[0];
+                if (pr?.head?.ref?.startsWith('hotfix/')) {
+                  isHotfix = true;
+                }
+              } catch (e) {
+                core.info(`Could not inspect associated PRs: ${e.message}`);
+              }
+
+              targetEnv = isHotfix ? 'hotfix' : 'prod';
+            } else {
+              // Any other push branch: do nothing
+              skip = true;
+            }
+          } else {
+            // Any other event: do nothing
+            skip = true;
+          }
+
+          const sourceRef = eventName === 'pull_request'
+            ? context.payload.pull_request.head.sha
+            : context.sha;
+
+          core.setOutput('target_env', targetEnv);
+          core.setOutput('skip', skip ? 'true' : 'false');
+          core.setOutput('source_ref', sourceRef);
