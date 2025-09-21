@@ -371,6 +371,49 @@ jobs:
               )
           done
           
+      - name: Upsert labels
+        uses: actions/github-script@v7
+        with:
+          github-token: $GH_TOKEN
+          script: |
+            const labels = [
+              { name: 'feature', color: '1f6feb', description: 'New feature or enhancement' },
+              { name: 'hotfix',  color: 'd73a4a', description: 'Urgent production fix' },
+              { name: 'misc',    color: '8b949e', description: 'documentation/etc' },
+            ];
+
+            for (const lbl of labels) {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: lbl.name,
+                });
+                await github.rest.issues.updateLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: lbl.name,
+                  new_name: lbl.name,
+                  color: lbl.color,
+                  description: lbl.description,
+                });
+                core.info(`Updated label: ${lbl.name}`);
+              } catch (e) {
+                if (e.status === 404) {
+                  await github.rest.issues.createLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name: lbl.name,
+                    color: lbl.color,
+                    description: lbl.description,
+                  });
+                  core.info(`Created label: ${lbl.name}`);
+                } else {
+                  core.setFailed(`Failed label op for ${lbl.name}: ${e}`);
+                }
+              }
+            }
+          
       - name: PRINT RESULTS - UPDATE
         run: |
             echo " "
