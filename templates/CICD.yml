@@ -24,17 +24,22 @@ permissions:
 jobs:
 
 
-  pipeline:
+  pre-check:
     runs-on: ubuntu-latest
+    outputs:
+      target_env: ${{ steps.check.outputs.target_env }}
+      source_ref: ${{ steps.check.outputs.source_ref }}
+      skip: ${{ steps.check.outputs.check }}
     steps:
-      - name: Decide env
-        id: decide
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/pipeline-prep@main
+      - name: set target_env and decide skip
+        id: check
+        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/pre-check@main
 
-      - name: Call pipeline
-        if: ${{ steps.decide.outputs.skip != 'true' }}
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/workflows/pipeline.yml@main
-        secrets: inherit
-        with:
-          target_env: ${{ steps.decide.outputs.target_env }}
-          source_ref: ${{ steps.decide.outputs.source_ref }}
+  pipeline:
+    needs: pre-check
+    if: ${{ needs.pre-check.outputs.skip != 'true' }}
+    uses: dhillon-shawn/Local-Uipath-CICD/.github/workflows/pipeline.yml@main
+    secrets: inherit
+    with:
+      target_env: ${{ needs.pre-check.outputs.target_env }}
+      source_ref: ${{ needs.pre-check.outputs.source_ref }}
