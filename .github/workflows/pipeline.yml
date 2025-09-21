@@ -30,7 +30,7 @@ jobs:
       pr_action:            ${{ steps.setup.outputs.PR_ACTION }}
       migrate:              ${{ steps.setup.outputs.MIGRATE }}
 
-      vars: ${{ steps.capture.outputs.vars_json }}
+      vars: ${{ steps.capture.outputs.vars }}
 
       notes: ${{ steps.notes.outputs.release_text }}
 
