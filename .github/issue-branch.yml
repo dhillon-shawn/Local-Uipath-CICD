@@ -10,7 +10,7 @@ branches:
     copyIssueLabelsToPR: true
     copyIssueAssigneeToPR: true
     copyIssueProjectsToPR: true
-  - label: hotfix
+  - label: bug
     skip: false
     mode: immediate
   - label: '*'
