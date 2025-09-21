@@ -2,11 +2,15 @@ name: Pipeline Caller
 
 on:
   push:
-    branches: [ non-prod, main, master ]
+    branches:
+      - $default-branch
+      - 'feature/**'
+
     paths-ignore:
       - '.github/**'
   pull_request:
-    branches: [ main, master ]
+    branches:
+      - $default-branch
     types: [ opened, synchronize, reopened, ready_for_review ]
 
 concurrency:

@@ -371,7 +371,7 @@ jobs:
               )
           done
           
-      - name: Upsert labels
+      - name: labels
         uses: actions/github-script@v7
         with:
           github-token: $GH_TOKEN

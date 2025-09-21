@@ -1,21 +1,21 @@
-name: Auto Assign Issue
-
+name: Create branch for labeled issues
 on:
   issues:
-    types: [opened]
+    types: [opened, labeled, assigned]  # 'assigned' supports the default "auto" mode
 
 permissions:
-  write-all
+  contents: write
+  issues: read
+  pull-requests: write
 
 jobs:
-    auto-assign:
-        runs-on: ubuntu-latest
-        permissions:
-            issues: write
-        steps:
-            - name: Check if issue has assignees
-              id: check
-              run: |
+  create_branch:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Check if issue has assignees
+        id: check
+        run: |
                 if [ "${{ toJson(github.event.issue.assignees) }}" = "[]" ]; then
                   echo "Issue has no assignees."
                   echo "has_assignees=false" >> $GITHUB_OUTPUT
@@ -25,54 +25,14 @@ jobs:
                 fi
 
 
-            - name: 'Auto-assign issue'
-              uses: pozil/auto-assign-issue@v2
-              if: steps.check.outputs.has_assignees == 'false'
-              with:
+      - name: 'Auto-assign issue'
+        uses: pozil/auto-assign-issue@v2
+        if: steps.check.outputs.has_assignees == 'false'
+        with:
                   assignees: '${{ github.event.issue.user.login }}'
                   numOfAssignee: 1
 
-            - uses: actions/github-script@v7
-              with:
-                script: |
-                  const issue = context.payload.issue;
-                  const body = issue.body || "";
-
-
-                  const { owner, repo } = context.repo;
-                  const defaultBranch = context.payload.repository.default_branch;
-
-
-                  const { data: ref } = await github.rest.git.getRef({
-                    owner, repo, ref: `heads/${defaultBranch}`,
-                  });
-                  const sha = ref.object.sha;
-
-                  // Slugify the issue title for branch name
-                  function slugify(input) {
-                    return input.normalize('NFKD')
-                      .replace(/[\u0300-\u036f]/g, '')
-                      .toLowerCase()
-                      .replace(/[^a-z0-9]+/g, '-')
-                      .replace(/^-+|-+$/g, '')
-                      .slice(0, 40);
-                  }
-
-                  const slug = slugify(issue.title) || `issue-${issue.number}`;
-                  const branch = `feature/${issue.number}-${slug}`;
-
-                  await github.rest.git.createRef({
-                    owner, repo, ref: `refs/heads/${branch}`, sha,
-                  });
-
-                  await github.rest.issues.createComment({
-                    owner, repo, issue_number: issue.number,
-                    body: [
-                      `Created branch \`${branch}\` from \`${defaultBranch}\`.`,
-                      '',
-                      'Next steps:',
-                      '1. Push commits to that branch.',
-                      '2. Open a PR from that branch back to the default branch.',
-                      '3. The PR body will auto-link and close this issue on merge.',
-                    ].join('\n')
-                  });
+      - name: Create Issue Branch
+        uses: robvanderleek/create-issue-branch@v1.9.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
