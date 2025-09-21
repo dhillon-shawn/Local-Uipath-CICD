@@ -196,7 +196,7 @@ runs:
           if (rows.length === 0) {
             content = '<p>No analyzer results found.</p>';
           } else {
-            const priorityOrder = ['project.json', 'Main.xaml', 'Process.xaml', '(project-wide)', 'fake'];
+            const priorityOrder = ['project.json', 'Main.xaml', 'Process.xaml', '(Project-wide)', 'fake'];
             const priorityIndex = (name) => {
               const i = priorityOrder.indexOf(String(name).toLowerCase());
               return i === -1 ? 999 : i;
