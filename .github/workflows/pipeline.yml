@@ -135,7 +135,7 @@ jobs:
         id: CI
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/ci@main
         with:
-          folder_name: "${{ needs.setup.outputs.base_folder_name }}"
+          folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
           target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
           publishable: ${{ needs.setup.outputs.publishable}}
 
