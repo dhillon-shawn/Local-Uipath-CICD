@@ -80,10 +80,11 @@ jobs:
 
             mkdir -p .github/workflows
             cp "$GITHUB_WORKSPACE/templates/Issues/issue.yml"             .github/workflows/
+            cp "$GITHUB_WORKSPACE/templates/Issues/link-pr.yml"             .github/workflows/
             cp -r "$GITHUB_WORKSPACE/templates/Issues/ISSUE_TEMPLATE"     .github/
-            cp "$GITHUB_WORKSPACE/templates/PRs/pull_request_template.md" .github/
-            cp -r "$GITHUB_WORKSPACE/templates/PRs/PULL_REQUEST_TEMPLATE" .github/
+
             cp "$GITHUB_WORKSPACE/templates/CICD.yml"                     .github/workflows/
+            
             cp "$GITHUB_WORKSPACE/templates/.gitignore"                   .
             cp "$GITHUB_WORKSPACE/templates/nuget.config"                 .
 
