@@ -130,7 +130,7 @@ jobs:
           secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
           scopes: ${{ env.scope }}
 
-      - name: Test
+      - name: CI
         if: ((  needs.setup.outputs.publishable  == 'true')  && inputs.target_env == 'test') || inputs.target_env == 'dev'
         id: CI
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/ci@main
