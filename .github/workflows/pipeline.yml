@@ -203,8 +203,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          PACKAGE=$(find outputs -type f -name '*.nupkg' | head -n 1)
-          test -n "$PACKAGE" || { echo "No .nupkg under ./outputs"; exit 1; }
+          PACKAGE=$(find output -type f -name '*.nupkg' | head -n 1)
+          test -n "$PACKAGE" || { echo "No .nupkg under ./output"; exit 1; }
 
           STABLE="rc-${PID}-${VERSION}.nupkg"
           cp -f "$PACKAGE" "$STABLE"
