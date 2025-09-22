@@ -23,6 +23,8 @@ jobs:
     environment: 'prod'
     steps:
 
+      - name: checkout
+        uses: actions/checkout@v4
 
       - name: Capture environment and repo vars
         id: capture
