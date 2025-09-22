@@ -16,9 +16,9 @@ jobs:
   setup:
     runs-on: ubuntu-latest
     outputs:
-      pid:     ${{ steps.pick.outputs.pid }}
-      version: ${{ steps.pick.outputs.version }}
-      name:    ${{ steps.pick.outputs.name }}
+      pid:     ${{ steps.meta.outputs.pid }}
+      version: ${{ steps.meta.outputs.version }}
+      package: ${{ steps.meta.outputs.package }}
       vars: ${{ steps.capture.outputs.vars }}
       email: ${{ steps.author.outputs.EMAIL }}
     environment: 'prod'
@@ -43,62 +43,50 @@ jobs:
           echo '${{ toJSON(vars) }}' >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
-      - name: Pick most recently uploaded .nupkg on RC
-        id: pick
-        run: |
-          set -euo pipefail
-
-          # Get assets for this release tag
-          ASSETS_JSON="$(gh api "repos/$REPO/releases/tags/${{ inputs.rc_tag }}")"
-
-          # Build TSV: "<updated_at>\t<name>" for .nupkg only, then pick the newest by updated_at
-          printf '%s\n' "$ASSETS_JSON" \
-            | jq -r '.assets[] | select(.name | endswith(".nupkg")) | [.updated_at, .name] | @tsv' \
-            | sort -k1,1 \
-            | tail -n1 \
-            > newest.tsv
-
-          if [ ! -s newest.tsv ]; then
-            echo "No .nupkg assets found on release tag ${{ inputs.rc_tag }}"
-            exit 1
-          fi
-
-          read UPDATED NAME < newest.tsv
-          echo "Chosen asset: $NAME (updated_at=$UPDATED)"
-
-          # Derive pid/version from NAME using the LAST dot: pid.version.nupkg
-          BASE="${NAME%.nupkg}"
-          VERSION="${BASE##*.}"   # text after last dot
-          PID="${BASE%.*}"        # text before last dot
-
-          if [ -z "$PID" ] || [ -z "$VERSION" ]; then
-            echo "Failed to parse pid/version from asset name: $NAME"
-            exit 1
-          fi
-
-          echo "pid=$PID"       >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "name=$NAME"     >> "$GITHUB_OUTPUT"
-
-      - name: Download chosen asset
+          
+      - name: Download rc-meta.json for this tag
         run: |
           set -euo pipefail
           mkdir -p rc
-          echo "Downloading ${{ steps.pick.outputs.name }} from ${{ inputs.rc_tag }} (repo: $REPO)"
+          gh release download "${{ inputs.rc_tag }}" --repo "$REPO" --dir rc --pattern "rc-meta.json"
+          test -f rc/rc-meta.json || { echo "rc-meta.json missing on ${{ inputs.rc_tag }}"; exit 1; }
+          cat rc/rc-meta.json
+          
+      - name: Read pid/version/package from meta
+        id: meta
+        run: |
+          set -euo pipefail
+          PID=$(jq -r '.pid' rc/rc-meta.json)
+          VERSION=$(jq -r '.version' rc/rc-meta.json)
+          PACKAGE=$(jq -r '.package' rc/rc-meta.json)
+          test -n "$PID" -a -n "$VERSION" -a -n "$PACKAGE" || { echo "Invalid rc-meta.json"; exit 1; }
+          echo "pid=$PID"        >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "package=$PACKAGE" >> "$GITHUB_OUTPUT"
+          
+      - name: Download the exact package from this RC
+        run: |
+          set -euo pipefail
+          mkdir -p rc
+          echo "Downloading ${{ steps.meta.outputs.package }} from tag ${{ inputs.rc_tag }}"
           gh release download "${{ inputs.rc_tag }}" \
             --repo "$REPO" \
             --dir rc \
-            --pattern "${{ steps.pick.outputs.name }}"
-          cp "rc/${{ steps.pick.outputs.name }}" "${{ steps.pick.outputs.name }}"
-          ls -lah "${{ steps.pick.outputs.name }}"
+            --pattern "${{ steps.meta.outputs.package }}"
+          ls -lah rc
 
-      - name: Upload package for matrix jobs (preserve filename)
+      - name: Stage into ./output
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          cp "rc/${{ steps.meta.outputs.package }}" "output/${{ steps.meta.outputs.package }}"
+          ls -lah output
+
+      - name: Upload artifact for matrix (name=output)
         uses: actions/upload-artifact@v4
         with:
-          name: rc-package
-          path: ${{ steps.pick.outputs.name }}
-
-
+          name: output
+          path: ./output
 
       - name: auth
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
@@ -132,13 +120,6 @@ jobs:
       matrix:
         env: [ "dev", "test", "prod" ]
     steps:
-      - name: Download package artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: rc-package
-          path: .
-
-
       - name: auth
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
         with:

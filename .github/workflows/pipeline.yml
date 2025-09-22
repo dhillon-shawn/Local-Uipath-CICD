@@ -194,39 +194,42 @@ jobs:
           pid: ${{ needs.setup.outputs.pid }}
 
 
-      - name: Create/Update RC
+      - name: Create RC + upload package/meta data
         if: matrix.env == 'test' && inputs.rc_tag != ''
         env:
-            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-            PID:          ${{ needs.setup.outputs.pid }}
-            VERSION:      ${{ needs.setup.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO:     ${{ github.repository }}
+          PID:      ${{ needs.setup.outputs.pid }}
+          VERSION:  ${{ needs.setup.outputs.version }}
         run: |
-            set -euo pipefail
+          set -euo pipefail
 
-            PACKAGE=$(find output -type f -name '*.nupkg' | head -n 1)
-            test -n "$PACKAGE" || { echo "No .nupkg under ./output"; exit 1; }
-            BASENAME=$(basename "$PACKAGE")
+          PKG=$(find output -type f -name '*.nupkg' | head -n 1)
+          test -n "$PKG" || { echo "No .nupkg under ./output"; exit 1; }
+          NAME=$(basename "$PKG")
 
+          cat > rc-meta.json <<EOF
+          {"pid":"${PID}","version":"${VERSION}","package":"${NAME}","commit":"${{ inputs.sha }}"}
+          EOF
+
+          if gh release view "${{ inputs.rc_tag }}" --repo "$REPO" >/dev/null 2>&1; then
+            gh release edit "${{ inputs.rc_tag }}" \
+              --repo "$REPO" \
+              --title "RC ${{ inputs.rc_tag }}" \
+              --notes "PR #${{ inputs.pr_num }} - pid=${PID} - version=${VERSION} - commit=${{ inputs.sha }}" \
+              --prerelease
+          else
             gh release create "${{ inputs.rc_tag }}" \
-              --title "RC for PR #${{ inputs.pr_num }}" \
-              --notes "Automated RC: pid=${PID} version=${VERSION} commit=${{ inputs.sha }}" \
-              --prerelease || true
+              --repo "$REPO" \
+              --title "RC ${{ inputs.rc_tag }}" \
+              --notes "PR #${{ inputs.pr_num }} - pid=${PID} - version=${VERSION} - commit=${{ inputs.sha }}" \
+              --prerelease
+          fi
 
-            REL=$(gh api repos/{owner}/{repo}/releases/tags/${{ inputs.rc_tag }})
-            echo "$REL" | jq -r '.assets[] | "\(.id) \(.name)"' | while read -r AID ANAME; do
-              if [[ "$ANAME" == *.nupkg ]]; then
-                echo "Deleting old asset: $ANAME ($AID)"
-                gh api -X DELETE repos/{owner}/{repo}/releases/assets/$AID >/dev/null
-              fi
-            done
+          gh release upload "${{ inputs.rc_tag }}" --repo "$REPO" "$PKG" --clobber
+          gh release upload "${{ inputs.rc_tag }}" --repo "$REPO" rc-meta.json --clobber
 
-            echo "Uploading $BASENAME to ${{ inputs.rc_tag }}"
-            gh release upload "${{ inputs.rc_tag }}" "$PACKAGE" --clobber
-
-            echo "RC updated: ${{ inputs.rc_tag }} → $BASENAME (pid=${PID} version=${VERSION})"
-
-          
+          echo "RC ${{ inputs.rc_tag }} updated with $NAME and rc-meta.json"
   send:
     needs: [setup, CLI, DEPLOY]
     if: ${{ always() && !cancelled() }}
