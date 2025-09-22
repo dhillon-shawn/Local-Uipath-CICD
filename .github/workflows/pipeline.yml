@@ -160,7 +160,7 @@ jobs:
 
 
 
-  DEPLOY:
+  Deploy:
     runs-on: ubuntu-latest
     needs: [setup, CLI]
     strategy:
@@ -193,45 +193,63 @@ jobs:
           version: ${{ needs.setup.outputs.version }}
           pid: ${{ needs.setup.outputs.pid }}
 
+  rc:
+    needs: [setup,Deploy]
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+            name: output
+            path: ./output
+
 
       - name: Create RC + upload package/meta data
-        if: matrix.env == 'test' && inputs.rc_tag != ''
+        if: ${{ inputs.rc_tag != '' }}
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO:     ${{ github.repository }}
           PID:      ${{ needs.setup.outputs.pid }}
           VERSION:  ${{ needs.setup.outputs.version }}
+          SHA:      ${{ inputs.sha }}
+          RC_TAG:   ${{ inputs.rc_tag }}
+          PR_NUM:   ${{ inputs.pr_num }}
+          OUT_DIR:  output
         run: |
           set -euo pipefail
-
-          PKG=$(find output -type f -name '*.nupkg' | head -n 1)
-          test -n "$PKG" || { echo "No .nupkg under ./output"; exit 1; }
-          NAME=$(basename "$PKG")
+          PKG="$(find "$OUT_DIR" -type f -name '*.nupkg' | sort | head -n 1 || true)"
+          test -n "${PKG:-}" || { echo "No .nupkg under ./$OUT_DIR"; exit 1; }
+          NAME="$(basename "$PKG")"
 
           cat > rc-meta.json <<EOF
-          {"pid":"${PID}","version":"${VERSION}","package":"${NAME}","commit":"${{ inputs.sha }}"}
+          {"pid":"${PID}","version":"${VERSION}","package":"${NAME}","commit":"${SHA}"}
           EOF
 
-          if gh release view "${{ inputs.rc_tag }}" --repo "$REPO" >/dev/null 2>&1; then
-            gh release edit "${{ inputs.rc_tag }}" \
-              --repo "$REPO" \
-              --title "RC ${{ inputs.rc_tag }}" \
-              --notes "PR #${{ inputs.pr_num }} - pid=${PID} - version=${VERSION} - commit=${{ inputs.sha }}" \
+          if gh release view "$RC_TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release edit "$RC_TAG" \
+              --repo   "$REPO" \
+              --title  "RC $RC_TAG" \
+              --notes  "PR #$PR_NUM - pid=$PID - version=$VERSION - commit=$SHA" \
+              --target "$SHA" \
               --prerelease
           else
-            gh release create "${{ inputs.rc_tag }}" \
-              --repo "$REPO" \
-              --title "RC ${{ inputs.rc_tag }}" \
-              --notes "PR #${{ inputs.pr_num }} - pid=${PID} - version=${VERSION} - commit=${{ inputs.sha }}" \
+            gh release create "$RC_TAG" \
+              --repo   "$REPO" \
+              --title  "RC $RC_TAG" \
+              --notes  "PR #$PR_NUM - pid=$PID - version=$VERSION - commit=$SHA" \
+              --target "$SHA" \
               --prerelease
           fi
 
-          gh release upload "${{ inputs.rc_tag }}" --repo "$REPO" "$PKG" --clobber
-          gh release upload "${{ inputs.rc_tag }}" --repo "$REPO" rc-meta.json --clobber
+          gh release upload "$RC_TAG" --repo "$REPO" "$PKG" --clobber
+          gh release upload "$RC_TAG" --repo "$REPO" rc-meta.json --clobber
 
-          echo "RC ${{ inputs.rc_tag }} updated with $NAME and rc-meta.json"
+          echo "RC $RC_TAG updated with $NAME and rc-meta.json"
+
   send:
-    needs: [setup, CLI, DEPLOY]
+    needs: [setup, CLI, Deploy, rc]
     if: ${{ always() && !cancelled() }}
     uses: dhillon-shawn/Local-Uipath-CICD/.github/workflows/send-email.yml@main
     secrets: inherit
