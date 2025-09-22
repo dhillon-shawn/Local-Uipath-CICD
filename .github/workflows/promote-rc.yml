@@ -214,6 +214,7 @@ jobs:
   Deploy:
     needs: [setup, CLI]
     runs-on: ubuntu-latest
+    if: ${{ always() && needs.CLI.result != 'failure' && !cancelled() }}
     steps:
       - name: auth
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
