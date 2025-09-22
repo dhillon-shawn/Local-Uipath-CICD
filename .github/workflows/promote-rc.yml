@@ -16,8 +16,9 @@ jobs:
   setup:
     runs-on: ubuntu-latest
     outputs:
-      pid:     ${{ steps.parse.outputs.pid }}
-      version: ${{ steps.parse.outputs.version }}
+      pid:     ${{ steps.pick.outputs.pid }}
+      version: ${{ steps.pick.outputs.version }}
+      name:    ${{ steps.pick.outputs.name }}
       vars: ${{ steps.capture.outputs.vars }}
       email: ${{ steps.author.outputs.EMAIL }}
     environment: 'prod'
@@ -42,46 +43,60 @@ jobs:
           echo '${{ toJSON(vars) }}' >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
-      - name: Read pid/version from RC release notes
-        id: parse
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO:     ${{ github.repository }}
+      - name: Pick most recently uploaded .nupkg on RC
+        id: pick
         run: |
           set -euo pipefail
 
-          BODY=$(gh release view "${{ inputs.rc_tag }}" --repo "$REPO" --json body --jq .body)
-          echo "Release body:"
-          echo "$BODY"
+          # Get assets for this release tag
+          ASSETS_JSON="$(gh api "repos/$REPO/releases/tags/${{ inputs.rc_tag }}")"
 
-          PID=$(printf '%s' "$BODY" | sed -n 's/.*pid=\([^[:space:]]\+\).*/\1/p' | head -n1)
-          VERSION=$(printf '%s' "$BODY" | sed -n 's/.*version=\([^[:space:]]\+\).*/\1/p' | head -n1)
+          # Build TSV: "<updated_at>\t<name>" for .nupkg only, then pick the newest by updated_at
+          printf '%s\n' "$ASSETS_JSON" \
+            | jq -r '.assets[] | select(.name | endswith(".nupkg")) | [.updated_at, .name] | @tsv' \
+            | sort -k1,1 \
+            | tail -n1 \
+            > newest.tsv
 
-          test -n "$PID"      || { echo "Could not parse pid=... from release notes"; exit 1; }
-          test -n "$VERSION"  || { echo "Could not parse version=... from release notes"; exit 1; }
+          if [ ! -s newest.tsv ]; then
+            echo "No .nupkg assets found on release tag ${{ inputs.rc_tag }}"
+            exit 1
+          fi
+
+          read UPDATED NAME < newest.tsv
+          echo "Chosen asset: $NAME (updated_at=$UPDATED)"
+
+          # Derive pid/version from NAME using the LAST dot: pid.version.nupkg
+          BASE="${NAME%.nupkg}"
+          VERSION="${BASE##*.}"   # text after last dot
+          PID="${BASE%.*}"        # text before last dot
+
+          if [ -z "$PID" ] || [ -z "$VERSION" ]; then
+            echo "Failed to parse pid/version from asset name: $NAME"
+            exit 1
+          fi
 
           echo "pid=$PID"       >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME"     >> "$GITHUB_OUTPUT"
 
-          
-      - name: Download canonical RC asset
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO:     ${{ github.repository }}
+      - name: Download chosen asset
         run: |
           set -euo pipefail
           mkdir -p rc
-          STABLE="rc-${{ steps.parse.outputs.pid }}-${{ steps.parse.outputs.version }}.nupkg"
-          gh release download "${{ inputs.rc_tag }}" --repo "$REPO" --dir rc --pattern "$STABLE"
-          cp "rc/$STABLE" package.nupkg
+          echo "Downloading ${{ steps.pick.outputs.name }} from ${{ inputs.rc_tag }} (repo: $REPO)"
+          gh release download "${{ inputs.rc_tag }}" \
+            --repo "$REPO" \
+            --dir rc \
+            --pattern "${{ steps.pick.outputs.name }}"
+          cp "rc/${{ steps.pick.outputs.name }}" "${{ steps.pick.outputs.name }}"
+          ls -lah "${{ steps.pick.outputs.name }}"
 
-          
-      - name: Upload artifact for matrix
+      - name: Upload package for matrix jobs (preserve filename)
         uses: actions/upload-artifact@v4
         with:
-          name: rc
-          path: package.nupkg
-
+          name: rc-package
+          path: ${{ steps.pick.outputs.name }}
 
 
 
@@ -99,7 +114,7 @@ jobs:
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/ensure-folder@main
         with:
           target_env: 'prod'
-          pid: ${{ steps.parse.outputs.pid }}
+          pid: ${{ steps.pick.outputs.pid }}
           or_url: ${{ env.OR_URL }}
           token: $TOKEN
           dev_rid: ${{ fromJSON(steps.capture.outputs.vars).DEV_RID }}
@@ -117,11 +132,12 @@ jobs:
       matrix:
         env: [ "dev", "test", "prod" ]
     steps:
-      - name: Fetch package
+      - name: Download package artifact
         uses: actions/download-artifact@v4
         with:
-          name: rc
+          name: rc-package
           path: .
+
 
       - name: auth
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main

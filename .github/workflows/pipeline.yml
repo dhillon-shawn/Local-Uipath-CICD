@@ -194,31 +194,38 @@ jobs:
           pid: ${{ needs.setup.outputs.pid }}
 
 
-      - name: Create/Update RC (test path)
+      - name: Create/Update RC
         if: matrix.env == 'test' && inputs.rc_tag != ''
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PID:          ${{ needs.setup.outputs.pid }}
-          VERSION:      ${{ needs.setup.outputs.version }}
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            PID:          ${{ needs.setup.outputs.pid }}
+            VERSION:      ${{ needs.setup.outputs.version }}
         run: |
-          set -euo pipefail
+            set -euo pipefail
 
-          PACKAGE=$(find output -type f -name '*.nupkg' | head -n 1)
-          test -n "$PACKAGE" || { echo "No .nupkg under ./output"; exit 1; }
+            PACKAGE=$(find output -type f -name '*.nupkg' | head -n 1)
+            test -n "$PACKAGE" || { echo "No .nupkg under ./output"; exit 1; }
+            BASENAME=$(basename "$PACKAGE")
 
-          STABLE="rc-${PID}-${VERSION}.nupkg"
-          cp -f "$PACKAGE" "$STABLE"
+            gh release create "${{ inputs.rc_tag }}" \
+              --title "RC for PR #${{ inputs.pr_num }}" \
+              --notes "Automated RC: pid=${PID} version=${VERSION} commit=${{ inputs.sha }}" \
+              --prerelease || true
 
-          gh release create "${{ inputs.rc_tag }}" \
-            --title "RC for PR #${{ inputs.pr_num }}" \
-            --notes "Automated RC: pid=${PID} version=${VERSION} commit=${{ inputs.sha }}" \
-            --prerelease || true
+            REL=$(gh api repos/{owner}/{repo}/releases/tags/${{ inputs.rc_tag }})
+            echo "$REL" | jq -r '.assets[] | "\(.id) \(.name)"' | while read -r AID ANAME; do
+              if [[ "$ANAME" == *.nupkg ]]; then
+                echo "Deleting old asset: $ANAME ($AID)"
+                gh api -X DELETE repos/{owner}/{repo}/releases/assets/$AID >/dev/null
+              fi
+            done
 
-          gh release upload "${{ inputs.rc_tag }}" "$STABLE" --clobber
-      
-          echo "RC updated: ${{ inputs.rc_tag }} -> $STABLE"
+            echo "Uploading $BASENAME to ${{ inputs.rc_tag }}"
+            gh release upload "${{ inputs.rc_tag }}" "$PACKAGE" --clobber
 
-          echo "RC updated: ${{ inputs.rc_tag }} -> $STABLE (pid=${PID} version=${VERSION})"
+            echo "RC updated: ${{ inputs.rc_tag }} → $BASENAME (pid=${PID} version=${VERSION})"
+
           
   send:
     needs: [setup, CLI, DEPLOY]
