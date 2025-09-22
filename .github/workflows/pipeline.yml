@@ -157,6 +157,9 @@ jobs:
           version: ${{ needs.setup.outputs.version }}
           release_notes: ${{ needs.setup.outputs.notes }}
 
+
+
+
   DEPLOY:
     runs-on: ubuntu-latest
     needs: [setup, CLI]
@@ -185,44 +188,53 @@ jobs:
         id: CD
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/cd@main
         with:
-          full_folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
-          base_folder_name: "${{ needs.setup.outputs.base_folder_name }}"
-          fid: ${{ needs.setup.outputs.fid }}
+          folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
           target_env: ${{ matrix.env }}
           version: ${{ needs.setup.outputs.version }}
           pid: ${{ needs.setup.outputs.pid }}
-          or_url: ${{ env.OR_URL }}
-          token: $TOKEN
+
+
+      - name: Create/Update RC (test path)
+        if: matrix.env == 'test' && inputs.rc_tag != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PID:          ${{ needs.setup.outputs.pid }}
+          VERSION:      ${{ needs.setup.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          PACKAGE=$(find outputs -type f -name '*.nupkg' | head -n 1)
+          test -n "$PACKAGE" || { echo "No .nupkg under ./outputs"; exit 1; }
+
+          STABLE="rc-${PID}-${VERSION}.nupkg"
+          cp -f "$PACKAGE" "$STABLE"
+          shasum -a 256 "$STABLE" | awk '{print $1}' > "$STABLE.sha256"
+
+          # Ensure RC exists (ignore if already present)
+          gh release create "${{ inputs.rc_tag }}" \
+            --title "RC for PR #${{ inputs.pr_num }}" \
+            --notes "Automated RC: pid=${PID} version=${VERSION} commit=${{ inputs.sha }}" \
+            --prerelease || true
+
+          gh release upload "${{ inputs.rc_tag }}" "$STABLE" --clobber
+          gh release upload "${{ inputs.rc_tag }}" "$STABLE.sha256" --clobber
+
+          echo "RC updated: ${{ inputs.rc_tag }} → $STABLE"
 
   send:
     needs: [setup, CLI, DEPLOY]
-    runs-on: windows-latest
     if: ${{ always() && !cancelled() }}
-    steps:
-      - name: Compose Analysis Email
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/format-email@main
-        id: compose
-        with:
-          target_env: ${{ inputs.target_env }}
-          publishable: ${{ needs.setup.outputs.publishable }}
-          json_path: results/analyze.json
-          xml_path: results/test.xml
-          cd_status: ${{ needs.DEPLOY.result }}
-          source_ref: ${{ github.sha }}
-          version: ${{ needs.setup.outputs.version }}
-          folder_name: ${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}
-          project_id: ${{ needs.setup.outputs.pid }}
-          migrate: ${{ needs.setup.outputs.migrate }}
+    uses: dhillon-shawn/Local-Uipath-CICD/.github/workflows/send-email.yml@main
+    secrets: inherit
+    with:
+        target_env: ${{ inputs.target_env }}
+        publishable: ${{ needs.setup.outputs.publishable }}
+        result: ${{ needs.DEPLOY.result }}
+        version: ${{ needs.setup.outputs.version }}
+        folder_name: ${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}
+        pid: ${{ needs.setup.outputs.pid }}
+        migrate: ${{ needs.setup.outputs.migrate }}
+        email: ${{ needs.setup.outputs.email }}
 
-      - name: Send Email (SMTP)
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 587
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: ${{ steps.compose.outputs.subject }}
-          to: ${{ needs.setup.outputs.email }}
-          from: "UiPath CI/CD <uipath-cicd@noreply.com>"
-          html_body: file://${{ steps.compose.outputs.html }}
-          convert_markdown: false
+
+

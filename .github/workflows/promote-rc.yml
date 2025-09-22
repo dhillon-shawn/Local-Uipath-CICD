@@ -1,0 +1,130 @@
+name: rc-promotion
+on:
+  workflow_call:
+    inputs:
+      rc_tag: { type: string, required: true }
+      pr_num: { type: string, required: false }
+    secrets: {}
+
+env:
+  scope: "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines.Read OR.Monitoring OR.Robots.Read OR.Settings.Read OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Users.Read"
+
+permissions:
+  contents: write
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      pid:     ${{ steps.parse.outputs.pid }}
+      version: ${{ steps.parse.outputs.version }}
+      vars: ${{ steps.capture.outputs.vars }}
+      email: ${{ steps.author.outputs.EMAIL }}
+    environment: 'prod'
+    steps:
+
+
+      - name: Capture environment and repo vars
+        id: capture
+        run: |
+          echo "vars<<EOF" >> "$GITHUB_OUTPUT"
+          echo '${{ toJSON(vars) }}' >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+        
+      - name: Download canonical RC asset
+        id: dl
+        env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p rc
+          echo "Downloading from tag: ${{ inputs.rc_tag }}"
+          gh release download "${{ inputs.rc_tag }}" --dir rc --pattern "rc-*.nupkg"
+          gh release download "${{ inputs.rc_tag }}" --dir rc --pattern "rc-*.nupkg.sha256" || true
+          ls -lah rc
+
+      - name: Parse pid/version from filename
+        id: parse
+        run: |
+          set -euo pipefail
+          FILE=$(ls rc/rc-*.nupkg | head -n1)
+          test -n "$FILE" || { echo "No rc-*.nupkg found in release"; exit 1; }
+          BASENAME=$(basename "$FILE")
+
+
+          if [[ "$BASENAME" =~ ^rc-(.+)-([0-9A-Za-z\.\-\+]+)\.nupkg$ ]]; then
+            PID="${BASH_REMATCH[1]}"
+            VERSION="${BASH_REMATCH[2]}"
+          else
+            echo "Filename $BASENAME doesn't match rc-<pid>-<version>.nupkg"; exit 1;
+          fi
+          echo "pid=$PID"       >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          cp "rc/$BASENAME" package.nupkg
+          if [ -f "rc/${BASENAME}.sha256" ]; then
+            echo "$(cat rc/${BASENAME}.sha256)  package.nupkg" | shasum -a 256 -c -
+          fi
+
+      - name: Upload artifact for matrix
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc
+          path: package.nupkg
+
+
+      - name: Commit author email
+        id: author
+        shell: bash
+        run: |
+          set -euo pipefail
+          EMAIL="$(git log -n 10 --pretty='%ae' \
+          | grep -viE '(^action@github\.com$)|(\[bot\]@users\.noreply\.github\.com$)|(@users\.noreply\.github\.com$)' \
+          | head -n1)"
+          echo "EMAIL=$EMAIL" >> "$GITHUB_OUTPUT"
+          echo "Email: $EMAIL"
+
+  Deploy:
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [ "dev", "test", "prod" ]
+    steps:
+      - name: Fetch package
+        uses: actions/download-artifact@v4
+        with:
+          name: rc
+          path: .
+
+      - name: auth
+        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
+        with:
+          target_env: ${{ matrix.env }}
+          role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
+          aws_region: "us-west-2"
+          secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
+          scopes: ${{ env.scope }}
+
+      - name: Deploy
+        id: CD
+        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/cd@main
+        with:
+          folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
+          target_env: ${{ matrix.env }}
+          version: ${{ needs.setup.outputs.version }}
+          pid: ${{ needs.setup.outputs.pid }}
+
+  send:
+    needs: [setup, Deploy]
+    if: ${{ always() && !cancelled() }}
+    uses: dhillon-shawn/Local-Uipath-CICD/.github/workflows/send-email.yml@main
+    secrets: inherit
+    with:
+        target_env: 'prod'
+        result: ${{ needs.DEPLOY.result }}
+        version: ${{ needs.setup.outputs.version }}
+        folder_name: ${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}
+        pid: ${{ needs.setup.outputs.pid }}
+        email: ${{ needs.setup.outputs.email }}

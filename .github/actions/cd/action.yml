@@ -2,13 +2,9 @@ name: CD
 description: Continuos Deployment
 
 inputs:
-  base_folder_name: { required: true, description: "" }
-  full_folder_name: { required: true, description: "" }
-  fid: { required: true, description: "" }
+  folder_name: { required: true, description: "" }
   version: { required: true, description: "" }
   pid: { required: true, description: "" }
-  or_url: { required: true, description: "" }
-  token: { required: true, description: "" }
   target_env: { required: true, description: "" }
 
 
@@ -30,9 +26,9 @@ runs:
         echo "Publishing Package to Tenant Feed "
 
         response=$(curl  --location \
-          --header "Authorization: Bearer ${{ inputs.token }}" \
+          --header "Authorization: Bearer ${{ env.TOKEN }}" \
           --form "file=@$PACKAGE_PATH" \
-          "${{ inputs.or_url }}/odata/Processes/UiPath.Server.Configuration.OData.UploadPackage()"
+          "${{ env.OR_URL }}/odata/Processes/UiPath.Server.Configuration.OData.UploadPackage()"
         )
         echo "Publish Response: $response"
 
@@ -50,10 +46,10 @@ runs:
             --connect-timeout 10 --max-time 120 \
             --output "$body" \
             --write-out '%{http_code}' \
-            -H "Authorization: Bearer ${{ inputs.token }}" \
+            -H "Authorization: Bearer ${{ env.TOKEN }}" \
             -H "Content-Type: application/json" \
-            -H "X-UIPATH-FolderPath: ${{ inputs.full_folder_name }}" \
-            "${{ inputs.or_url }}/odata/Releases?%24select=Id%2CProcessKey%2CName%2CProcessType&%24filter=ProcessKey%20eq%20%27${{ inputs.pid }}%27"
+            -H "X-UIPATH-FolderPath: ${{ inputs.folder_name }}" \
+            "${{ env.OR_URL }}/odata/Releases?%24select=Id%2CProcessKey%2CName%2CProcessType&%24filter=ProcessKey%20eq%20%27${{ inputs.pid }}%27"
         ) || curl_rc=$?
 
         echo "Status Code: $status"
@@ -96,11 +92,11 @@ runs:
             --output "$body" \
             --write-out '%{http_code}' \
             -X POST \
-            -H "Authorization: Bearer ${{ inputs.token }}" \
+            -H "Authorization: Bearer ${{ env.TOKEN }}" \
             -H "Content-Type: application/json" \
             -H "Content-Length: 0" \
-            -H "X-UIPATH-FolderPath: ${{ inputs.full_folder_name }}" \
-            "${{ inputs.or_url }}/odata/Releases(${{env.id_found}})/UiPath.Server.Configuration.OData.UpdateToLatestPackageVersion"
+            -H "X-UIPATH-FolderPath: ${{ inputs.folder_name }}" \
+            "${{ env.OR_URL }}/odata/Releases(${{env.id_found}})/UiPath.Server.Configuration.OData.UpdateToLatestPackageVersion"
         ) || curl_rc=$?
 
         echo "Status Code: $status"
@@ -130,11 +126,11 @@ runs:
             --output "$body" \
             --write-out '%{http_code}' \
             -X PATCH \
-            -H "Authorization: Bearer ${{ inputs.token }}" \
+            -H "Authorization: Bearer ${{  env.TOKEN }}" \
             -H "Content-Type: application/json" \
-            -H "X-UIPATH-FolderPath: ${{ inputs.full_folder_name }}" \
+            -H "X-UIPATH-FolderPath: ${{ inputs.folder_name }}" \
             --data-binary @- \
-            "${{ inputs.or_url }}/odata/Releases(${{ env.id_found}})" <<'JSON'
+            "${{ env.OR_URL }}/odata/Releases(${{ env.id_found}})" <<'JSON'
         {
           "Name": "${{ inputs.pid }}",
           "ProcessKey": "${{ inputs.pid }}",
@@ -167,9 +163,9 @@ runs:
                   --output "$body" \
                   --write-out '%{http_code}' \
                   -X POST \
-                  -H "Authorization: Bearer ${{ inputs.token }}" \
+                  -H "Authorization: Bearer ${{  env.TOKEN }}" \
                   -H "Content-Type: application/json" \
-                  -H "X-UIPATH-FolderPath: ${{ inputs.full_folder_name }}" \
+                  -H "X-UIPATH-FolderPath: ${{ inputs.folder_name }}" \
                   --data-binary @- \
                   "${{ env.OR_URL }}/odata/Releases" <<'JSON'
         {

@@ -37,3 +37,23 @@ jobs:
       sha:   ${{ needs.pre-check.outputs.sha }}
       rc_tag:     ${{ needs.pre-check.outputs.rc_tag }}
       pr_num:  ${{ needs.pre-check.outputs.pr_num }}
+
+  stage:
+    needs: pre-check
+    if: needs.pre-check.outputs.target_env != '' && needs.pre-check.outputs.target_env != 'prod'
+    uses: dhillon-shawn/Local-Uipath-CICD/.github/workflows/pipeline.yml@main
+    secrets: inherit
+    with:
+      target_env: ${{ needs.pre-check.outputs.target_env }}
+      sha:        ${{ needs.pre-check.outputs.sha }}
+      rc_tag:     ${{ needs.pre-check.outputs.rc_tag }}
+      pr_num:     ${{ needs.pre-check.outputs.pr_num }}
+
+  rc-promotion:
+    needs: pre-check
+    if: needs.pre-check.outputs.target_env == 'prod'
+    uses: dhillon-shawn/Local-Uipath-CICD/.github/workflows/promote-rc.yml@main
+    secrets: inherit
+    with:
+      rc_tag: ${{ needs.pre-check.outputs.rc_tag }}
+      pr_num: ${{ needs.pre-check.outputs.pr_num }}
