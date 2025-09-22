@@ -21,24 +21,70 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
       package: ${{ steps.meta.outputs.package }}
       vars: ${{ steps.capture.outputs.vars }}
-      email: ${{ steps.author.outputs.EMAIL }}
+      email: ${{ steps.author.outputs.email }}
       publishable: ${{ steps.tests.outputs.PUBLISHABLE }}
     environment: ${{ inputs.target_env}}
     steps:
       - name: checkout
         uses: actions/checkout@v4
 
-      - name: Commit author email
-        id: author
+      - name: Resolve human email for this PR
         shell: bash
+        id: author
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO:     ${{ github.repository }}
+          PR_NUM:   ${{ github.event.pull_request.number }}
         run: |
-          set -euo pipefail
-          EMAIL="$(git log -n 10 --pretty='%ae' \
-          | grep -viE '(^action@github\.com$)|(\[bot\]@users\.noreply\.github\.com$)|(@users\.noreply\.github\.com$)' \
-          | head -n1)"
-          echo "EMAIL=$EMAIL" >> "$GITHUB_OUTPUT"
-          echo "Email: $EMAIL"
-          
+          is_valid_email() {
+            # Lowercase, reject GitHub noreply and obvious bots
+            local e="${1,,}"
+            [[ -n "$e" ]] || return 1
+            [[ "$e" =~ @ ]] || return 1
+            [[ "$e" =~ @users\.noreply\.github\.com$ ]] && return 1
+            [[ "$e" =~ \[bot\]@ ]] && return 1
+            [[ "$e" == "action@github.com" ]] && return 1
+            return 0
+          }
+
+          EMAIL=""
+
+          # 1) PR commit emails (author & committer), first non-bot/non-noreply
+          EMAIL_FROM_COMMITS="$(gh api "repos/$REPO/pulls/$PR_NUM/commits" --paginate \
+            --jq '[ .[] | .commit.author.email, .commit.committer.email ]
+                  | map(select(. != null))
+                  | map(ascii_downcase)
+                  | map(select(endswith("@users.noreply.github.com")|not))
+                  | map(select(contains("[bot]@")|not))
+                  | map(select(. != "action@github.com"))
+                  | unique
+                  | .[0] // empty' || true)"
+          if is_valid_email "$EMAIL_FROM_COMMITS"; then
+            EMAIL="$EMAIL_FROM_COMMITS"
+          fi
+
+          # 2) Fallback: PR author public email
+          if [[ -z "$EMAIL" ]]; then
+            LOGIN="$(gh api "repos/$REPO/pulls/$PR_NUM" --jq '.user.login')"
+            EMAIL_FROM_USER="$(gh api "users/$LOGIN" --jq '.email // empty' || true)"
+            if is_valid_email "$EMAIL_FROM_USER"; then
+              EMAIL="$EMAIL_FROM_USER"
+            fi
+          fi
+
+          # 3) Fallback: any assignee public email
+          if [[ -z "$EMAIL" ]]; then
+            mapfile -t ASSIGNEES < <(gh api "repos/$REPO/pulls/$PR_NUM" --jq '.assignees[].login' || true)
+            for u in "${ASSIGNEES[@]:-}"; do
+              E="$(gh api "users/$u" --jq '.email // empty' || true)"
+              if is_valid_email "$E"; then EMAIL="$E"; break; fi
+            done
+          fi
+
+          # 4) If still empty, keep it blank—don’t fail
+          echo "email=$EMAIL" >> "$GITHUB_OUTPUT"
+          echo "Resolved email: ${EMAIL:-<none>}"
+
       - name: Publishable test cases?
         id: tests
         shell: bash
