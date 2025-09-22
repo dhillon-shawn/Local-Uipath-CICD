@@ -124,7 +124,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        env: [ "dev", "test", "prod" ]
+        env: [ "prod" ]
     steps:
       - name: auth
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
