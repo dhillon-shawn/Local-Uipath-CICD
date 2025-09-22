@@ -208,19 +208,18 @@ jobs:
 
           STABLE="rc-${PID}-${VERSION}.nupkg"
           cp -f "$PACKAGE" "$STABLE"
-          shasum -a 256 "$STABLE" | awk '{print $1}' > "$STABLE.sha256"
 
-          # Ensure RC exists (ignore if already present)
           gh release create "${{ inputs.rc_tag }}" \
             --title "RC for PR #${{ inputs.pr_num }}" \
             --notes "Automated RC: pid=${PID} version=${VERSION} commit=${{ inputs.sha }}" \
             --prerelease || true
 
           gh release upload "${{ inputs.rc_tag }}" "$STABLE" --clobber
-          gh release upload "${{ inputs.rc_tag }}" "$STABLE.sha256" --clobber
+      
+          echo "RC updated: ${{ inputs.rc_tag }} -> $STABLE"
 
-          echo "RC updated: ${{ inputs.rc_tag }} → $STABLE"
-
+          echo "RC updated: ${{ inputs.rc_tag }} -> $STABLE (pid=${PID} version=${VERSION})"
+          
   send:
     needs: [setup, CLI, DEPLOY]
     if: ${{ always() && !cancelled() }}
