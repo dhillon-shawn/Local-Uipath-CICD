@@ -27,16 +27,6 @@ jobs:
         id: check
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/pre-check@main
 
-  pipeline:
-    needs: pre-check
-    if: needs.pre-check.outputs.target_env != ''
-    uses: dhillon-shawn/Local-Uipath-CICD/.github/workflows/pipeline.yml@main
-    secrets: inherit
-    with:
-      target_env: ${{ needs.pre-check.outputs.target_env }}
-      sha:   ${{ needs.pre-check.outputs.sha }}
-      rc_tag:     ${{ needs.pre-check.outputs.rc_tag }}
-      pr_num:  ${{ needs.pre-check.outputs.pr_num }}
 
   stage:
     needs: pre-check
