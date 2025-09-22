@@ -47,6 +47,7 @@ jobs:
       - name: Download rc-meta.json for this tag
         env:
           REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p rc
@@ -67,6 +68,8 @@ jobs:
           echo "package=$PACKAGE" >> "$GITHUB_OUTPUT"
           
       - name: Download the exact package from this RC
+        env:
+            GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p rc
@@ -84,7 +87,7 @@ jobs:
           cp "rc/${{ steps.meta.outputs.package }}" "output/${{ steps.meta.outputs.package }}"
           ls -lah output
 
-      - name: Upload artifact 
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: output
