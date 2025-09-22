@@ -45,6 +45,8 @@ jobs:
 
           
       - name: Download rc-meta.json for this tag
+        env:
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           mkdir -p rc
@@ -75,14 +77,14 @@ jobs:
             --pattern "${{ steps.meta.outputs.package }}"
           ls -lah rc
 
-      - name: Stage into ./output
+      - name: Copy into into ./output
         run: |
           set -euo pipefail
           mkdir -p output
           cp "rc/${{ steps.meta.outputs.package }}" "output/${{ steps.meta.outputs.package }}"
           ls -lah output
 
-      - name: Upload artifact for matrix (name=output)
+      - name: Upload artifact 
         uses: actions/upload-artifact@v4
         with:
           name: output
