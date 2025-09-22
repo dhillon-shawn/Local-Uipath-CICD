@@ -100,8 +100,6 @@ jobs:
               echo "No .github/.gitignore/nuget.config changes on ${default_branch}."
             fi
 
-
-
             if [[ -f "./project.json" ]]; then
               PID="$(jq -er '.name' ./project.json)"
               echo "PID=$PID" >> "$GITHUB_ENV"
@@ -200,14 +198,12 @@ jobs:
 
 
       - name: Scavenge Folder
-        env:
-          OR_TOKEN: $TOKEN
         if: inputs.folder_name == ''
         run: |
             echo "Iterating through folder checking releases for a Process ID (${{ env.PID }}) match"
 
             FOLDERS=$(curl --location \
-              --header "Authorization: Bearer $OR_TOKEN" \
+              --header "Authorization: Bearer $TOKEN" \
               "${{ env.OR_URL }}/odata/Folders?\$select=Id,FullyQualifiedName"
             )
 
@@ -223,7 +219,7 @@ jobs:
               echo "Checking folder: $fname ($fid)"
 
               response=$(curl --location \
-                --header "Authorization: Bearer $OR_TOKEN" \
+                --header "Authorization: Bearer $TOKEN" \
                 --header "X-UIPATH-OrganizationUnitId: $fid" \
                 "${{ env.OR_URL }}/odata/Releases?%24select=Id%2CProcessKey%2CName%2CProcessType&%24filter=ProcessKey%20eq%20%27${{ env.PID }}%27"
               )
