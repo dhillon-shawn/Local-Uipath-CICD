@@ -80,7 +80,6 @@ jobs:
 
             mkdir -p .github/workflows
             cp "$GITHUB_WORKSPACE/templates/Issues/issue.yml"             .github/workflows/
-            cp "$GITHUB_WORKSPACE/templates/Issues/issue-branch.yml"             .github/
             cp -r "$GITHUB_WORKSPACE/templates/Issues/ISSUE_TEMPLATE"     .github/
 
             cp "$GITHUB_WORKSPACE/templates/CICD.yml"                     .github/workflows/
@@ -370,13 +369,13 @@ jobs:
               )
           done
           
-      - name: seed labels (feature, hotfix, misc)
+      - name: Add Labels
         env:
           REPO: ${{ inputs.repo_name }}
         run: |
           set -e
 
-          payload='{"name":"feature","color":"1f6feb","description":"New feature or enhancement"}'
+          payload='{"name":"release","color":"1f6feb","description":"New release"}'
           response=$(curl -sS  -X POST \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
