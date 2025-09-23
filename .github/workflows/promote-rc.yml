@@ -202,6 +202,9 @@ jobs:
           secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
           scopes: ${{ env.scope }}
 
+      - name: setup uipcli and nuget feed
+        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/uipcli-config@main
+
       - name: CI
         id: CI
         uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/ci@main
