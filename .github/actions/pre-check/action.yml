@@ -26,7 +26,7 @@ runs:
         script: |
           const out = { target_env: '', sha: '', rc_tag: '', pr_num: '', promote: 'false' };
 
-          const isFeature = (ref) => String(ref || '').startsWith('feature/');
+          const isrelease = (ref) => String(ref || '').startsWith('release/');
           const isHotfix  = (ref) => String(ref || '').startsWith('hotfix/');
 
           if (context.eventName === 'push') {
@@ -65,8 +65,8 @@ runs:
                 out.target_env = '';
                 out.sha = '';
                 out.promote = 'false';
-              } else if (isFeature(head)) {
-                // Merged feature -> promote RC to prod 
+              } else if (isrelease(head)) {
+                // Merged release -> promote RC to prod 
                 out.pr_num    = String(pr.number);
                 out.rc_tag    = `rc-pr-${out.pr_num}`;
                 out.target_env= 'prod';
