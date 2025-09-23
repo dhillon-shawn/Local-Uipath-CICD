@@ -1,14 +1,12 @@
-name: "Feature"
-description: "Request a new feature"
-labels: ["feature"]
+name: "Release"
+description: "Request a new release"
+labels: ["release"]
 body:
   - type: input
     id: summary
     attributes:
       label: Summary
       placeholder: One sentence summary
-    validations:
-      required: true
   - type: textarea
     id: details
     attributes:
