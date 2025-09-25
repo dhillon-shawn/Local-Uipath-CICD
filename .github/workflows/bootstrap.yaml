@@ -186,7 +186,7 @@ jobs:
 
       - name: Auth
         if: inputs.folder_name == ''
-        uses: dhillon-shawn/Local-CICD-UTILSauth@v0
+        uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
         with:
                 target_env: "DEV"
                 role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
