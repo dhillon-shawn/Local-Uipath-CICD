@@ -13,11 +13,17 @@ on:
     secrets: {}
 
 jobs:
-  send:
-    runs-on: windows-latest
+
+
+  format:
+    runs-on: ubuntu-latest
+    outputs:
+      subject: ${{ steps.compose.outputs.subject }}
+      html: ${{ steps.compose.outputs.html }}
     steps:
+
       - name: Compose Email
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/format-email@main
+        uses: dhillon-shawn/Local-CICD-UTILS/format-email@v0
         id: compose
         with:
           target_env: ${{ inputs.target_env }}
@@ -31,15 +37,26 @@ jobs:
           project_id: ${{ inputs.pid }}
           migrate: ${{ inputs.migrate }}
 
+
+  send:
+    runs-on: windows-latest
+    needs: format
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+            name: email
+            path: .
+
+
       - name: Send Email (SMTP)
         uses: dawidd6/action-send-mail@v3
         with:
-          server_address: smtp.gmail.com
-          server_port: 587
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: ${{ steps.compose.outputs.subject }}
+          server_address: smtp.ad.dmv.ca.gov
+          server_port: 25
+          secure: false
+          subject: ${{ needs.format.outputs.subject }}
           to: ${{ inputs.email }}
           from: "UiPath CI/CD <uipath-cicd@noreply.com>"
-          html_body: file://${{ steps.compose.outputs.html }}
+          html_body: file://${{ needs.format.outputs.html }}
           convert_markdown: false

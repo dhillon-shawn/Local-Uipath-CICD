@@ -24,16 +24,9 @@ jobs:
       deployment_matrix: ${{ steps.setup.outputs.deployment_matrix }}
       email: ${{ steps.setup.outputs.EMAIL }}
       publishable: ${{ steps.setup.outputs.PUBLISHABLE }}
-
-      pr_action: ${{ steps.setup.outputs.PR_ACTION }}
-      migrate: ${{ steps.setup.outputs.MIGRATE }}
-
       vars: ${{ steps.capture.outputs.vars }}
-
       notes: ${{ steps.setup.outputs.notes }}
-
       version: ${{ steps.compute.outputs.version }}
-      base_folder_name: ${{ steps.folder.outputs.base_folder_name }}
       fid: ${{ steps.folder.outputs.fid }}
 
     steps:
@@ -49,16 +42,16 @@ jobs:
           echo '${{ toJSON(vars) }}' >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
-      - name: Pipeline Setup (Parse+Set)
+      - name: Pipeline Setup
         id: setup
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/setup@main
+        uses: dhillon-shawn/Local-CICD-UTILS/setup@v0
         with:
           target_env: ${{ inputs.target_env }}
-          source_ref: ${{ inputs.sha }}
           vars: ${{ steps.capture.outputs.vars_json }}
+          everything: true
 
       - name: auth
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
+        uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
         with:
           target_env: 'dev'
           role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
@@ -68,14 +61,14 @@ jobs:
 
       - id: compute
         name: Compute version
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/compute-version@main
+        uses: dhillon-shawn/Local-CICD-UTILS/compute-version@v0
         with:
           target_env: ${{ inputs.target_env }}
           pid: ${{ steps.setup.outputs.pid }}
 
       - name: auth
         if: inputs.target_env != 'dev'
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
+        uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
         with:
           target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
           role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
@@ -85,12 +78,10 @@ jobs:
 
       - id: folder
         name: Resolve / create folder
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/ensure-folder@main
+        uses: dhillon-shawn/Local-CICD-UTILS/ensure-folder@v0
         with:
           target_env: ${{ inputs.target_env }}
           pid: ${{ steps.setup.outputs.pid }}
-          or_url: ${{ env.OR_URL }}
-          token: $TOKEN
           dev_rid: ${{ fromJSON(steps.capture.outputs.vars).DEV_RID }}
           bot_rid: ${{ fromJSON(steps.capture.outputs.vars).BOT_RID }}
           mid: ${{ fromJSON(steps.capture.outputs.vars).MID }}
@@ -98,13 +89,7 @@ jobs:
           dev_uid: ${{ fromJSON(steps.capture.outputs.vars).DEV_UID }}
           FOLDER_NAME: "${{ fromJSON(steps.capture.outputs.vars).FOLDER_NAME }}"
 
-      - name: Ensure assets (only on first promote / prod merge)
-        if: ${{ steps.setup.outputs.migrate == 'true' }}
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/migrate-assets@main
-        with:
-          source_base_url: ${{ env.BASE_URL }}
-          TARGET_OR_URL: ${{ env.OR_URL }}
-          token: $TOKEN
+
 
   CLI:
     runs-on: windows-latest
@@ -117,12 +102,12 @@ jobs:
 
 
       - name: setup uipcli and nuget feed
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/uipcli-config@main
+        uses: dhillon-shawn/Local-CICD-UTILS/uipcli-config@v0
 
 
 
       - name: auth
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
+        uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
         with:
           target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
           role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
@@ -133,7 +118,7 @@ jobs:
       - name: CI
         if: ((  needs.setup.outputs.publishable  == 'true')  && inputs.target_env == 'test') || inputs.target_env == 'dev'
         id: CI
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/ci@main
+        uses: dhillon-shawn/Local-CICD-UTILS/ci@v0
         with:
           folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
           target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
@@ -141,7 +126,7 @@ jobs:
 
       - name: auth
         if: inputs.target_env != 'dev'
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
+        uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
         with:
           target_env: "dev"
           role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
@@ -151,7 +136,7 @@ jobs:
 
       - name: Package
         id: Pack
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/pack@main
+        uses: dhillon-shawn/Local-CICD-UTILS/pack@v0
         with:
           ptype: ${{ needs.setup.outputs.ptype }}
           version: ${{ needs.setup.outputs.version }}
@@ -176,7 +161,7 @@ jobs:
           ref: ${{ inputs.sha }}
 
       - name: auth
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
+        uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
         with:
           target_env: ${{ matrix.env }}
           role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
@@ -186,7 +171,7 @@ jobs:
 
       - name: Deploy
         id: CD
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/cd@main
+        uses: dhillon-shawn/Local-CICD-UTILS/cd@v0
         with:
           folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
           target_env: ${{ matrix.env }}
@@ -216,6 +201,7 @@ jobs:
           SHA:      ${{ inputs.sha }}
           RC_TAG:   ${{ inputs.rc_tag }}
           PR_NUM:   ${{ inputs.pr_num }}
+          FOLDER: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
           OUT_DIR:  output
         run: |
           set -euo pipefail
@@ -224,7 +210,7 @@ jobs:
           NAME="$(basename "$PKG")"
 
           cat > rc-meta.json <<EOF
-          {"pid":"${PID}","version":"${VERSION}","package":"${NAME}","commit":"${SHA}"}
+          {"folder":"${FOLDER}","pid":"${PID}","version":"${VERSION}","package":"${NAME}","commit":"${SHA}"}
           EOF
 
           if gh release view "$RC_TAG" --repo "$REPO" >/dev/null 2>&1; then

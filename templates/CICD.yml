@@ -26,7 +26,7 @@ jobs:
     steps:
       - name: set target_env and decide skip
         id: check
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/pre-check@main
+        uses: dhillon-shawn/Local-CICD-UTILS/pre-check@v0
 
 
   stage:

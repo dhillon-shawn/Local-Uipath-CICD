@@ -16,6 +16,7 @@ permissions:
 jobs:
   setup:
     runs-on: ubuntu-latest
+    environment: ${{ inputs.target_env}}
     outputs:
       pid:     ${{ steps.meta.outputs.pid }}
       version: ${{ steps.meta.outputs.version }}
@@ -23,93 +24,18 @@ jobs:
       vars: ${{ steps.capture.outputs.vars }}
       email: ${{ steps.author.outputs.email }}
       publishable: ${{ steps.tests.outputs.PUBLISHABLE }}
-    environment: ${{ inputs.target_env}}
     steps:
       - name: checkout
         uses: actions/checkout@v4
 
-      - name: Resolve human email for this PR
-        shell: bash
-        id: author
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO:     ${{ github.repository }}
-          PR_NUM:   ${{ github.event.pull_request.number }}
-        run: |
-          is_valid_email() {
-            # Lowercase, reject GitHub noreply and obvious bots
-            local e="${1,,}"
-            [[ -n "$e" ]] || return 1
-            [[ "$e" =~ @ ]] || return 1
-            [[ "$e" =~ @users\.noreply\.github\.com$ ]] && return 1
-            [[ "$e" =~ \[bot\]@ ]] && return 1
-            [[ "$e" == "action@github.com" ]] && return 1
-            return 0
-          }
 
-          EMAIL=""
 
-          # 1) PR commit emails (author & committer), first non-bot/non-noreply
-          EMAIL_FROM_COMMITS="$(gh api "repos/$REPO/pulls/$PR_NUM/commits" --paginate \
-            --jq '[ .[] | .commit.author.email, .commit.committer.email ]
-                  | map(select(. != null))
-                  | map(ascii_downcase)
-                  | map(select(endswith("@users.noreply.github.com")|not))
-                  | map(select(contains("[bot]@")|not))
-                  | map(select(. != "action@github.com"))
-                  | unique
-                  | .[0] // empty' || true)"
-          if is_valid_email "$EMAIL_FROM_COMMITS"; then
-            EMAIL="$EMAIL_FROM_COMMITS"
-          fi
-
-          # 2) Fallback: PR author public email
-          if [[ -z "$EMAIL" ]]; then
-            LOGIN="$(gh api "repos/$REPO/pulls/$PR_NUM" --jq '.user.login')"
-            EMAIL_FROM_USER="$(gh api "users/$LOGIN" --jq '.email // empty' || true)"
-            if is_valid_email "$EMAIL_FROM_USER"; then
-              EMAIL="$EMAIL_FROM_USER"
-            fi
-          fi
-
-          # 3) Fallback: any assignee public email
-          if [[ -z "$EMAIL" ]]; then
-            mapfile -t ASSIGNEES < <(gh api "repos/$REPO/pulls/$PR_NUM" --jq '.assignees[].login' || true)
-            for u in "${ASSIGNEES[@]:-}"; do
-              E="$(gh api "users/$u" --jq '.email // empty' || true)"
-              if is_valid_email "$E"; then EMAIL="$E"; break; fi
-            done
-          fi
-
-          # 4) If still empty, keep it blank—don’t fail
-          echo "email=$EMAIL" >> "$GITHUB_OUTPUT"
-          echo "Resolved email: ${EMAIL:-<none>}"
-
-      - name: Publishable test cases?
-        id: tests
-        shell: bash
-        run: |
-          if jq -e '.designOptions.fileInfoCollection' project.json >/dev/null 2>&1; then
-            valid_tests="$(jq '[.designOptions.fileInfoCollection[] | select(.editingStatus=="Publishable")] | length' project.json)"
-          else
-            valid_tests="0"
-          fi
-          if [ "$valid_tests" -gt 0 ]; then
-            echo "PUBLISHABLE=true"  >> "$GITHUB_OUTPUT"
-            echo "Publishable Test Cases Detected ✅"
-          else
-            echo "PUBLISHABLE=false" >> "$GITHUB_OUTPUT"
-            echo "No Publishable Test Cases Detected ❌"
-          fi
-          
       - name: Capture environment and repo vars
         id: capture
         run: |
           echo "vars<<EOF" >> "$GITHUB_OUTPUT"
           echo '${{ toJSON(vars) }}' >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
-
-          
       - name: Download rc-meta.json for this tag
         env:
           REPO: ${{ github.repository }}
@@ -160,8 +86,16 @@ jobs:
           name: output
           path: ./output
 
+
+  Resolve:
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+
+      - name: checkout
+        uses: actions/checkout@v4
       - name: auth
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
+        uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
         with:
           target_env: ${{ inputs.target_env}}
           role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
@@ -171,30 +105,31 @@ jobs:
 
       - id: folder
         name: Resolve / create folder
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/ensure-folder@main
+        uses: dhillon-shawn/Local-CICD-UTILS/ensure-folder@v0
         with:
           target_env: ${{ inputs.target_env}}
-          pid: ${{ steps.meta.outputs.pid }}
-          or_url: ${{ env.OR_URL }}
-          token: $TOKEN
-          dev_rid: ${{ fromJSON(steps.capture.outputs.vars).DEV_RID }}
-          bot_rid: ${{ fromJSON(steps.capture.outputs.vars).BOT_RID }}
-          mid: ${{ fromJSON(steps.capture.outputs.vars).MID }}
-          bot_uid: ${{ fromJSON(steps.capture.outputs.vars).BOT_UID }}
-          dev_uid: ${{ fromJSON(steps.capture.outputs.vars).DEV_UID }}
-          FOLDER_NAME: "${{ fromJSON(steps.capture.outputs.vars).FOLDER_NAME }}"
+          pid: ${{ needs.setup.outputs.pid }}
+          dev_rid: ${{ fromJSON(needs.setup.outputs.vars).DEV_RID }}
+          bot_rid: ${{ fromJSON(needs.setup.outputs.vars).BOT_RID }}
+          mid: ${{ fromJSON(needs.setup.outputs.vars).MID }}
+          bot_uid: ${{ fromJSON(needs.setup.outputs.vars).BOT_UID }}
+          dev_uid: ${{ fromJSON(needs.setup.outputs.vars).DEV_UID }}
+          FOLDER_NAME: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
+
+      - name: Ensure assets (only on first promote / prod merge)
+        uses: dhillon-shawn/Local-CICD-UTILS/migrate-assets@v0
 
 
   CLI:
     runs-on: windows-latest
-    needs: setup
+    needs: [setup, Resolve]
     if: ((  needs.setup.outputs.publishable  == 'true')  && inputs.target_env == 'test')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: auth
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
+        uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
         with:
           target_env: "test"
           role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
@@ -203,11 +138,11 @@ jobs:
           scopes: ${{ env.scope }}
 
       - name: setup uipcli and nuget feed
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/uipcli-config@main
+        uses: dhillon-shawn/Local-CICD-UTILS/uipcli-config@v0
 
       - name: CI
         id: CI
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/ci@main
+        uses: dhillon-shawn/Local-CICD-UTILS/ci@v0
         with:
           folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
           target_env: 'test'
@@ -215,12 +150,12 @@ jobs:
 
 
   Deploy:
-    needs: [setup, CLI]
+    needs: [setup, Resolve, CLI]
     runs-on: ubuntu-latest
     if: ${{ always() && needs.CLI.result != 'failure' && !cancelled() }}
     steps:
       - name: auth
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
+        uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
         with:
           target_env: ${{ inputs.target_env}}
           role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
@@ -230,7 +165,7 @@ jobs:
 
       - name: Deploy
         id: CD
-        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/cd@main
+        uses: dhillon-shawn/Local-CICD-UTILS/cd@v0
         with:
           folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
           target_env: ${{ inputs.target_env}}
@@ -238,7 +173,7 @@ jobs:
           pid: ${{ needs.setup.outputs.pid }}
 
   send:
-    needs: [setup, Deploy]
+    needs: [setup,Resolve, Deploy]
     if: ${{ always() && !cancelled() }}
     uses: dhillon-shawn/Local-Uipath-CICD/.github/workflows/send-email.yml@main
     secrets: inherit
