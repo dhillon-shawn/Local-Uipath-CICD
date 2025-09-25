@@ -1,268 +1,482 @@
-name: Central Pipeline
+name: Bootstrap an existing Repo (w Studio Project)
 
 on:
-  workflow_call:
+  workflow_dispatch:
     inputs:
-      target_env: { type: string, required: true }
-      sha:   { type: string, required: false }
-      rc_tag:     { type: string, required: false }
-      pr_num:  { type: string, required: false }
+      repo_name:
+        description: "Target repo name"
+        required: true
 
-    secrets: {}
+      reviewers:
+        description: "GitHub usernames for prod reviewers"
+        required: false
+
+      folder_name:
+        description: "New Projects - FullyQualified Folder Name - Ex: Grandma/Mom/Daughter (creates Daughter SubFolder) or Orphan (Creates Standalone Folder)"
+        default: ''
+        required: false
+permissions:
+  write-all
+
 env:
-  scope: "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines.Read OR.Monitoring OR.Robots.Read OR.Settings.Read OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Users.Read"
+  scope: "OR.Folders OR.BackgroundTasks OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Settings.Read OR.Robots.Read OR.Machines OR.Execution OR.Assets OR.Users.Read OR.Jobs OR.Monitoring OR.Robots"
 
 jobs:
-  setup:
-    name: setup
-    environment: ${{ inputs.target_env }}
-    runs-on: ubuntu-latest
-    outputs:
-      pid: ${{ steps.setup.outputs.PID }}
-      ptype: ${{ steps.setup.outputs.ptype }}
-      entry_point: ${{ steps.setup.outputs.entry_point }}
-      deployment_matrix: ${{ steps.setup.outputs.deployment_matrix }}
-      email: ${{ steps.setup.outputs.EMAIL }}
-      publishable: ${{ steps.setup.outputs.PUBLISHABLE }}
-
-      pr_action: ${{ steps.setup.outputs.PR_ACTION }}
-      migrate: ${{ steps.setup.outputs.MIGRATE }}
-
-      vars: ${{ steps.capture.outputs.vars }}
-
-      notes: ${{ steps.setup.outputs.notes }}
-
-      version: ${{ steps.compute.outputs.version }}
-      base_folder_name: ${{ steps.folder.outputs.base_folder_name }}
-      fid: ${{ steps.folder.outputs.fid }}
-
-    steps:
-      - name: Checkout exact source ref
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.sha }}
-
-      - name: Capture environment and repo vars
-        id: capture
-        run: |
-          echo "vars<<EOF" >> "$GITHUB_OUTPUT"
-          echo '${{ toJSON(vars) }}' >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
-
-      - name: Pipeline Setup (Parse+Set)
-        id: setup
-        uses: dhillon-shawn/Local-CICD-UTILS/setup@v0
-        with:
-          target_env: ${{ inputs.target_env }}
-          source_ref: ${{ inputs.sha }}
-          vars: ${{ steps.capture.outputs.vars_json }}
-
-      - name: auth
-        uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
-        with:
-          target_env: 'dev'
-          role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
-          aws_region: "us-west-2"
-          secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
-          scopes: ${{ env.scope }}
-
-      - id: compute
-        name: Compute version
-        uses: dhillon-shawn/Local-CICD-UTILS/compute-version@v0
-        with:
-          target_env: ${{ inputs.target_env }}
-          pid: ${{ steps.setup.outputs.pid }}
-
-      - name: auth
-        if: inputs.target_env != 'dev'
-        uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
-        with:
-          target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
-          role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
-          aws_region: "us-west-2"
-          secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
-          scopes: ${{ env.scope }}
-
-      - id: folder
-        name: Resolve / create folder
-        uses: dhillon-shawn/Local-CICD-UTILS/ensure-folder@v0
-        with:
-          target_env: ${{ inputs.target_env }}
-          pid: ${{ steps.setup.outputs.pid }}
-          or_url: ${{ env.OR_URL }}
-          token: $TOKEN
-          dev_rid: ${{ fromJSON(steps.capture.outputs.vars).DEV_RID }}
-          bot_rid: ${{ fromJSON(steps.capture.outputs.vars).BOT_RID }}
-          mid: ${{ fromJSON(steps.capture.outputs.vars).MID }}
-          bot_uid: ${{ fromJSON(steps.capture.outputs.vars).BOT_UID }}
-          dev_uid: ${{ fromJSON(steps.capture.outputs.vars).DEV_UID }}
-          FOLDER_NAME: "${{ fromJSON(steps.capture.outputs.vars).FOLDER_NAME }}"
-
-      - name: Ensure assets (only on first promote / prod merge)
-        if: ${{ steps.setup.outputs.migrate == 'true' }}
-        uses: dhillon-shawn/Local-CICD-UTILS/migrate-assets@v0
-        with:
-          source_base_url: ${{ env.BASE_URL }}
-          TARGET_OR_URL: ${{ env.OR_URL }}
-          token: $TOKEN
-
-  CLI:
-    runs-on: windows-latest
-    needs: [setup]
-    steps:
-      - name: Checkout exact source ref
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.sha }}
-
-
-      - name: setup uipcli and nuget feed
-        uses: dhillon-shawn/Local-CICD-UTILS/uipcli-config@v0
-
-
-
-      - name: auth
-        uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
-        with:
-          target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
-          role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
-          aws_region: "us-west-2"
-          secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
-          scopes: ${{ env.scope }}
-
-      - name: CI
-        if: ((  needs.setup.outputs.publishable  == 'true')  && inputs.target_env == 'test') || inputs.target_env == 'dev'
-        id: CI
-        uses: dhillon-shawn/Local-CICD-UTILS/ci@v0
-        with:
-          folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
-          target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
-          publishable: ${{ needs.setup.outputs.publishable}}
-
-      - name: auth
-        if: inputs.target_env != 'dev'
-        uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
-        with:
-          target_env: "dev"
-          role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
-          aws_region: "us-west-2"
-          secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
-          scopes: ${{ env.scope }}
-
-      - name: Package
-        id: Pack
-        uses: dhillon-shawn/Local-CICD-UTILS/pack@v0
-        with:
-          ptype: ${{ needs.setup.outputs.ptype }}
-          version: ${{ needs.setup.outputs.version }}
-          release_notes: ${{ needs.setup.outputs.notes }}
-
-
-
-
-  Deploy:
-    runs-on: ubuntu-latest
-    needs: [setup, CLI]
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.setup.outputs.deployment_matrix) }}
-    concurrency:
-      group: deploy-${{ matrix.env }}-${{ github.ref }}
-      cancel-in-progress: false
-    steps:
-      - name: Checkout exact source ref
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.sha }}
-
-      - name: auth
-        uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
-        with:
-          target_env: ${{ matrix.env }}
-          role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
-          aws_region: "us-west-2"
-          secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
-          scopes: ${{ env.scope }}
-
-      - name: Deploy
-        id: CD
-        uses: dhillon-shawn/Local-CICD-UTILS/cd@v0
-        with:
-          folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
-          target_env: ${{ matrix.env }}
-          version: ${{ needs.setup.outputs.version }}
-          pid: ${{ needs.setup.outputs.pid }}
-
-  rc:
-    needs: [setup,Deploy]
+  BOOTSTRAP:
     runs-on: ubuntu-latest
     steps:
-
-      - name: Download artifact
-        uses: actions/download-artifact@v4
+      - name: Checkout controller repo
+        uses: actions/checkout@v4
         with:
-            name: output
-            path: ./output
+          fetch-depth: 1
+      - name: Mint App installation token
+        id: inst
+        uses: tibdex/github-app-token@v2
+        with:
+          app_id: ${{ secrets.WORKFLOW_APP_ID }}
+          private_key: ${{ secrets.WORKFLOW_PEM }}
 
+      - name: Export App token
+        run: echo "GH_TOKEN=${{ steps.inst.outputs.token }}" >> $GITHUB_ENV
 
-      - name: Create RC + upload package/meta data
-        if: ${{ inputs.rc_tag != '' }}
-        shell: bash
+      - name: Get Default Branch
+        id: get_default
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO:     ${{ github.repository }}
-          PID:      ${{ needs.setup.outputs.pid }}
-          VERSION:  ${{ needs.setup.outputs.version }}
-          SHA:      ${{ inputs.sha }}
-          RC_TAG:   ${{ inputs.rc_tag }}
-          PR_NUM:   ${{ inputs.pr_num }}
-          FOLDER: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
-          OUT_DIR:  output
+          REPO: ${{ inputs.repo_name}}
+        run: |
+          default_branch=$(
+            curl -sSf -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ github.repository_owner }}/$REPO" | jq -r '.default_branch'
+          )
+          echo "Default Branch: $default_branch"
+          echo "DEFAULT_BRANCH=$default_branch" >> $GITHUB_OUTPUT
+
+      - name: check
+        run: |
+          echo "${{ steps.get_default.outputs.DEFAULT_BRANCH }} "
+
+      - name: Repo Level (update main; rebase+sync .github on non-prod)
+        env:
+          repo: ${{ inputs.repo_name }}
+          default_branch: ${{ steps.get_default.outputs.DEFAULT_BRANCH }}
+        run: |
+            set -euo pipefail
+
+            git clone --depth=1 "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository_owner }}/${repo}"
+            cd "$(basename "$repo")"
+
+            git config --global --add safe.directory "$(pwd)"
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+
+            REPO_SLUG="${{ github.repository_owner }}/${repo}"
+
+            # -------------------------
+            # Update default branch
+            # -------------------------
+            git switch "${default_branch}"
+            git pull --ff-only origin "${default_branch}"
+
+            mkdir -p .github/workflows
+            cp "$GITHUB_WORKSPACE/templates/Issues/issue.yml"             .github/workflows/
+            cp -r "$GITHUB_WORKSPACE/templates/Issues/ISSUE_TEMPLATE"     .github/
+
+            cp "$GITHUB_WORKSPACE/templates/CICD.yml"                     .github/workflows/
+            
+            cp "$GITHUB_WORKSPACE/templates/.gitignore"                   .
+            cp "$GITHUB_WORKSPACE/templates/nuget.config"                 .
+
+            git add .github .gitignore nuget.config
+            if ! git diff --cached --quiet -- .github .gitignore nuget.config; then
+              git commit -m "update .github, .gitignore, nuget.config on ${default_branch} [skip ci]"
+              if ! git push origin "${default_branch}"; then
+                echo "::notice:: push to ${default_branch} blocked."
+                exit 1
+              fi
+            else
+              git reset -q
+              echo "No .github/.gitignore/nuget.config changes on ${default_branch}."
+            fi
+
+            if [[ -f "./project.json" ]]; then
+              PID="$(jq -er '.name' ./project.json)"
+              echo "PID=$PID" >> "$GITHUB_ENV"
+              echo "Project ID: $PID"
+            fi
+
+      - name: Protect default branch with a ruleset
+        env:
+          REPO: ${{ inputs.repo_name }}
+          default_branch: ${{ steps.get_default.outputs.DEFAULT_BRANCH }}
+          WORKFLOW_APP_ID: ${{ secrets.WORKFLOW_APP_ID }}
         run: |
           set -euo pipefail
-          PKG="$(find "$OUT_DIR" -type f -name '*.nupkg' | sort | head -n 1 || true)"
-          test -n "${PKG:-}" || { echo "No .nupkg under ./$OUT_DIR"; exit 1; }
-          NAME="$(basename "$PKG")"
 
-          cat > rc-meta.json <<EOF
-          {"folder":"${FOLDER}","pid":"${PID}","version":"${VERSION}","package":"${NAME}","commit":"${SHA}"}
-          EOF
+          payload="$(
+            jq -nc \
+              --arg name "Protect ${default_branch}" \
+              --arg ref  "refs/heads/${default_branch}" \
+              --arg appId "${WORKFLOW_APP_ID}" '
+              {
+                name: $name,
+                target: "branch",
+                enforcement: "active",
+                conditions: { ref_name: { include: [ $ref ], exclude: [] } },
+                bypass_actors: [
+                  { actor_id: ($appId|tonumber), actor_type: "Integration", bypass_mode: "always" }
+                ],
+                rules: [
+                  {
+                    type: "pull_request",
+                    parameters: {
+                      required_approving_review_count: 1,
+                      dismiss_stale_reviews_on_push: true,
+                      require_code_owner_review: false,
+                      require_last_push_approval: true,
+                      required_review_thread_resolution: true
+                    }
+                  }
+                ]
+              }'
+          )"
 
-          if gh release view "$RC_TAG" --repo "$REPO" >/dev/null 2>&1; then
-            gh release edit "$RC_TAG" \
-              --repo   "$REPO" \
-              --title  "RC $RC_TAG" \
-              --notes  "PR #$PR_NUM - pid=$PID - version=$VERSION - commit=$SHA" \
-              --target "$SHA" \
-              --prerelease
-          else
-            gh release create "$RC_TAG" \
-              --repo   "$REPO" \
-              --title  "RC $RC_TAG" \
-              --notes  "PR #$PR_NUM - pid=$PID - version=$VERSION - commit=$SHA" \
-              --target "$SHA" \
-              --prerelease
+          response=$(curl -sS  -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository_owner }}/${REPO}/rulesets" \
+            -d "${payload}"
+          )
+          echo "Response: $response"
+
+
+
+      - name: turn on auto merge and delete on merge
+        env:
+          REPO: ${{ inputs.repo_name }}
+        run: |
+          curl -L -sSf \
+            -X PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository_owner }}/$REPO" \
+            -d '{"allow_auto_merge": true, "delete_branch_on_merge": true}'
+
+
+
+      - name: Parse reviewers → numeric IDs (for prod env gate)
+        id: parse_reviewers
+        env:
+          REVIEWERS: ${{ inputs.reviewers }}
+        run: |
+          set -euo pipefail
+          users=$(echo "$REVIEWERS" | tr ', ' '\n' | sed '/^$/d' | sort -u)
+          ids=()
+          for u in $users; do
+            id=$(gh api "users/$u" --jq .id || echo "")
+            [ -n "$id" ] && ids+=("$id")
+          done
+          echo "gh_ids=$(IFS=,; echo "${ids[*]}")" >> $GITHUB_OUTPUT
+
+
+
+      - name: Auth
+        if: inputs.folder_name == ''
+        uses: dhillon-shawn/Local-Uipath-CICD/.github/actions/auth@main
+        with:
+                target_env: "DEV"
+                role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
+                aws_region: "us-west-2"
+                secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
+                scopes: ${{ env.scope }}
+
+
+
+      - name: Scavenge Folder
+        if: inputs.folder_name == ''
+        run: |
+            echo "Iterating through folder checking releases for a Process ID (${{ env.PID }}) match"
+
+            FOLDERS=$(curl --location \
+              --header "Authorization: Bearer $TOKEN" \
+              "${{ env.OR_URL }}/odata/Folders?\$select=Id,FullyQualifiedName"
+            )
+
+            echo "Folders Response: $FOLDERS"
+
+            FOUND_FOLDER=""
+            while IFS=$'\t' read -r fid fname || [ -n "$fid" ]; do
+
+              fid=${fid%$'\r'}
+              fname=${fname%$'\r'}
+
+              [ -n "$fid" ] || continue
+              echo "Checking folder: $fname ($fid)"
+
+              response=$(curl --location \
+                --header "Authorization: Bearer $TOKEN" \
+                --header "X-UIPATH-OrganizationUnitId: $fid" \
+                "${{ env.OR_URL }}/odata/Releases?%24select=Id%2CProcessKey%2CName%2CProcessType&%24filter=ProcessKey%20eq%20%27${{ env.PID }}%27"
+              )
+              echo "Release Response: $response"
+
+              id_found=$(printf '%s' "$response" | jq -r '.value[0].Id // empty')
+              if [ -n "$id_found" ]; then
+                echo "Found Release ID: $id_found in folder $fname ($fid)"
+                FOUND_FOLDER="$fname"
+                break
+              fi
+            done < <(
+              printf '%s' "$FOLDERS" \
+              | jq -r '.value[] | [.Id, (.FullyQualifiedName // "")] | @tsv' \
+              | tr -d '\r'
+            )
+
+            if [ -n "$FOUND_FOLDER" ]; then
+              echo "FOUND_FOLDER=$FOUND_FOLDER" >> "$GITHUB_ENV"
+            else
+              echo "::error::No folder with a matching Release (Process ID == ${{ env.PID }}) was found."
+              exit 1
+            fi
+            
+      - name: Resolve folder
+        env:
+          folder_name: ${{ inputs.folder_name }}
+        run: |
+          set -euo pipefail
+
+          FOLDER_NAME="${folder_name:-}"
+          if [ -z "${FOLDER_NAME}" ]; then
+            FOLDER_NAME="${FOUND_FOLDER:-}"
           fi
 
-          gh release upload "$RC_TAG" --repo "$REPO" "$PKG" --clobber
-          gh release upload "$RC_TAG" --repo "$REPO" rc-meta.json --clobber
+          echo "Will set FOLDER_NAME='${FOLDER_NAME}'"
+          echo "FOLDER_TO_SET=${FOLDER_NAME}" >> "$GITHUB_ENV"
+          
 
-          echo "RC $RC_TAG updated with $NAME and rc-meta.json"
 
-  send:
-    needs: [setup, CLI, Deploy, rc]
-    if: ${{ always() && !cancelled() }}
-    uses: dhillon-shawn/Local-Uipath-CICD/.github/workflows/send-email.yml@main
-    secrets: inherit
-    with:
-        target_env: ${{ inputs.target_env }}
-        publishable: ${{ needs.setup.outputs.publishable }}
-        result: ${{ needs.DEPLOY.result }}
-        version: ${{ needs.setup.outputs.version }}
-        folder_name: ${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}
-        pid: ${{ needs.setup.outputs.pid }}
-        migrate: ${{ needs.setup.outputs.migrate }}
-        email: ${{ needs.setup.outputs.email }}
+      - name: Create/update environments + vars (uses App token)
+        env:
+          REPO: ${{ inputs.repo_name }}
+          REVIEWER_IDS: ${{ steps.parse_reviewers.outputs.gh_ids }}
+        run: |
+          set -euo pipefail
 
+          for env in dev test prod hotfix; do
+              echo "Creating $env" 
+              reviewers_block="$(
+                jq -nc --arg ids "$REVIEWER_IDS" --arg env "$env" '
+                  if $env == "prod" and ($ids|length>0) then
+                    ($ids
+                    | split(",")
+                    | map(select(length>0) | tonumber)
+                    | map({type:"User", id:.}))
+                  else
+                    []
+                  end
+                '
+              )"
+
+              payload="$(jq -nc --argjson reviewers "$reviewers_block" '
+                {
+                  wait_timer: 0,
+                  reviewers: $reviewers
+                }
+              ')"
+
+              echo "Payload: $payload"
+
+              curl  -X PUT \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ github.repository_owner }}/$REPO/environments/$env" \
+              -d "$payload"
+
+
+              echo "==================="            
+              echo "$env created"
+              echo "==================="
+             
+              VARIABLES_JSON='{
+                "dev": {
+                  "MID": "",
+                  "DEV_RID": "6144536",
+                  "DEV_UID": "12616150",
+                  "BOT_UID": "",
+                  "BOT_RID": "6144535",
+                  "FOLDER_NAME" : "${{ env.FOLDER_TO_SET}}"
+                },
+                "test": {
+                  "MID": "5296531",
+                  "DEV_RID": "6951189",
+                  "DEV_UID": "12506499",
+                  "BOT_UID": "12507013",
+                  "BOT_RID": "6144537",
+                  "FOLDER_NAME" : "${{ env.FOLDER_TO_SET}}"
+                },
+                "prod": {
+                  "MID": "",
+                  "DEV_RID": "6144536",
+                  "DEV_UID": "12616150",
+                  "BOT_UID": "",
+                  "BOT_RID": "6144535",
+                  "FOLDER_NAME" : "${{ env.FOLDER_TO_SET}}"
+                },
+                "hotfix": {
+                  "MID": "",
+                  "DEV_RID": "6144536",
+                  "DEV_UID": "12616150",
+                  "BOT_UID": "",
+                  "BOT_RID": "6144535",
+                  "FOLDER_NAME" : "${{ env.FOLDER_TO_SET}}"
+                }
+              }'
+
+              echo "Creating or updating environment vars for $env"
+
+              while IFS=$'\t' read -r name value; do
+                payload_create=$(jq -nc --arg name "$name" --arg value "$value" '{name:$name, value:$value}')
+                payload_update=$(jq -nc --arg value "$value" '{value:$value}')
+                
+                code=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+                  -H "Authorization: Bearer $GH_TOKEN" \
+                  -H "Accept: application/vnd.github+json" \
+                  -H "Content-Type: application/json" \
+                  "https://api.github.com/repos/${{ github.repository_owner }}/$REPO/environments/$env/variables" \
+                  -d "$payload_create")
+
+                if [[ "$code" == "201" ]]; then
+                  echo "Created: $name"
+                elif [[ "$code" == "409" || "$code" == "422" ]]; then
+                  curl -sS -o /dev/null -X PATCH \
+                    -H "Authorization: Bearer $GH_TOKEN" \
+                    -H "Accept: application/vnd.github+json" \
+                    -H "Content-Type: application/json" \
+                    "https://api.github.com/repos/${{ github.repository_owner }}/$REPO/environments/$env/variables/$name" \
+                    -d "$payload_update"
+                  echo "Updated: $name"
+                else
+                  echo "POST $name failed with HTTP $code" >&2
+                  exit 1
+                fi
+              done < <(
+                echo "$VARIABLES_JSON" \
+                | jq -r --arg env "$env" '.[$env] // {} | to_entries[] | "\(.key)\t\(.value)"'
+              )
+          done
+          
+      - name: Add Labels
+        env:
+          REPO: ${{ inputs.repo_name }}
+        run: |
+          set -e
+
+          payload='{"name":"release","color":"1f6feb","description":"New release"}'
+          response=$(curl -sS  -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository_owner }}/${REPO}/labels" \
+            -d "${payload}")
+          echo "response: $response"
+          
+          payload='{"name":"hotfix","color":"d73a4a","description":"Urgent production fix"}'
+          response=$(curl -sS  -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository_owner }}/${REPO}/labels" \
+            -d "${payload}")
+          echo "response: $response"
+
+          echo "Labels added."
+          
+      - name: PRINT RESULTS - UPDATE
+        run: |
+            echo " "
+            echo "====================================================================================="
+            echo "Link to existing repo: https://github.com/${{ github.repository_owner }}/${{inputs.repo_name}}"
+            echo "====================================================================================="
+            echo " "
+
+            
+            
+            
+      - name: set token permissions
+        env:
+          REPO: ${{ inputs.repo_name }}
+        run: |
+            payload='{"default_workflow_permissions":"write","can_approve_pull_request_reviews":true}'
+
+            response=$(curl -sS -X PUT \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: application/json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${{ github.repository_owner }}/${REPO}/actions/permissions/workflow" \
+              -d "${payload}"
+            )
+            echo "Response: $response"
+
+
+
+  copy:
+    runs-on: ubuntu-latest
+    needs: [BOOTSTRAP]
+    env:
+      TOKEN: ${{ secrets.USER_PAT }}
+      TARGET_OWNER: ${{ github.repository_owner }}
+      TARGET_REPO: ${{ inputs.repo_name }}
+    strategy:
+      matrix:
+        name:
+          [
+            EMAIL_USERNAME,
+            EMAIL_PASSWORD,
+            RPA_UIPATH_CICD_ROLE_ARN,
+            RPA_UIPATH_CICD_SECRET_ARN
+          ]
+
+    steps:
+      - name: Get destination repo public key
+        run: |
+          set -e
+          KEY_RESP="$(curl -sS \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${TARGET_OWNER}/${TARGET_REPO}/actions/secrets/public-key")"
+          echo "$KEY_RESP" | jq .
+          echo "KEY_ID=$(echo "$KEY_RESP" | jq -r .key_id)" >> "$GITHUB_ENV"
+          echo "PUBKEY=$(echo "$KEY_RESP" | jq -r .key)"    >> "$GITHUB_ENV"
+
+      - name: Install PyNaCl
+        run: python3 -m pip install --quiet pynacl
+
+      - name: Encrypt & upload ${{ matrix.name }}
+        env:
+          SECRET_NAME: ${{ matrix.name }}
+          SECRET_VALUE: ${{ secrets[matrix.name] }}
+        run: |
+          set -euo pipefail
+          [ -n "${SECRET_VALUE:-}" ] || { echo "::error::Secret '${SECRET_NAME}' is not set in this repo"; exit 1; }
+
+          # Single-line Python (no leading spaces, no heredoc)
+          ENC_VALUE="$(python3 -c "import os,base64; from nacl.public import PublicKey,SealedBox; pk=PublicKey(base64.b64decode(os.environ['PUBKEY'])); val=os.environ['SECRET_VALUE'].encode('utf-8'); print(base64.b64encode(SealedBox(pk).encrypt(val)).decode('ascii'))")"
+
+          curl -sS -X PUT \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/${TARGET_OWNER}/${TARGET_REPO}/actions/secrets/${SECRET_NAME}" \
+            -d "$(jq -nc --arg ev "$ENC_VALUE" --arg kid "$KEY_ID" '{encrypted_value:$ev, key_id:$kid}')" \
+          | jq .
 
 
