@@ -117,7 +117,7 @@ jobs:
         with:
           folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
           target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
-          publishable: ${{ needs.setup.outputs.skip_ci}}
+          skip_ci: ${{ needs.setup.outputs.skip_ci}}
 
       - name: auth
         if: inputs.target_env != 'dev'
