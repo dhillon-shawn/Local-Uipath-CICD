@@ -23,7 +23,7 @@ jobs:
       entry_point: ${{ steps.setup.outputs.entry_point }}
       deployment_matrix: ${{ steps.setup.outputs.deployment_matrix }}
       email: ${{ steps.setup.outputs.EMAIL }}
-      publishable: ${{ steps.setup.outputs.PUBLISHABLE }}
+      skip_ci: ${{ steps.setup.outputs.skip_ci }}
       vars: ${{ steps.capture.outputs.vars }}
       notes: ${{ steps.setup.outputs.notes }}
       version: ${{ steps.compute.outputs.version }}
@@ -110,13 +110,13 @@ jobs:
           scopes: ${{ env.scope }}
 
       - name: CI
-        if: ((  needs.setup.outputs.publishable  == 'true')  && inputs.target_env == 'test') || inputs.target_env == 'dev'
+        if: ((  needs.setup.outputs.skip_ci  == 'false')  && inputs.target_env == 'test') || inputs.target_env == 'dev'
         id: CI
         uses: dhillon-shawn/Local-CICD-UTILS/ci@v0
         with:
           folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
           target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
-          publishable: ${{ needs.setup.outputs.publishable}}
+          publishable: ${{ needs.setup.outputs.skip_ci}}
 
       - name: auth
         if: inputs.target_env != 'dev'
@@ -196,7 +196,6 @@ jobs:
     secrets: inherit
     with:
         target_env: ${{ inputs.target_env }}
-        publishable: ${{ needs.setup.outputs.publishable }}
         result: ${{ needs.DEPLOY.result }}
         version: ${{ needs.setup.outputs.version }}
         folder_name: ${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}

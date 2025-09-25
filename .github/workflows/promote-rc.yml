@@ -23,10 +23,12 @@ jobs:
       package: ${{ steps.rc.outputs.package }}
       vars: ${{ steps.capture.outputs.vars }}
       email: ${{ steps.setup.outputs.email }}
-      publishable: ${{ steps.setup.outputs.PUBLISHABLE }}
+      skip_ci: ${{ steps.setup.outputs.skip_ci }}
     steps:
       - name: checkout
         uses: actions/checkout@v4
+        with:
+            ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Capture environment and repo vars
         id: capture
@@ -39,8 +41,7 @@ jobs:
       - name: RC Setup
         id: setup
         uses: dhillon-shawn/Local-CICD-UTILS/setup@v0
-        with:
-          vars: ${{ steps.capture.outputs.vars_json }}
+
 
       - name: RC download/parse
         id: rc
@@ -81,7 +82,7 @@ jobs:
   CLI:
     runs-on: windows-latest
     needs: [setup, Resolve]
-    if: ((  needs.setup.outputs.publishable  == 'true')  && inputs.target_env == 'test')
+    if: ((  needs.setup.outputs.skip_ci  == 'false')  && inputs.target_env == 'test')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -104,7 +105,7 @@ jobs:
         with:
           folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
           target_env: 'test'
-          publishable: ${{ needs.setup.outputs.publishable}}
+          publishable: ${{ needs.setup.outputs.skip_ci}}
 
 
   Deploy:
@@ -142,4 +143,3 @@ jobs:
         folder_name: ${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}
         pid: ${{ needs.setup.outputs.pid }}
         email: ${{ needs.setup.outputs.email }}
-        publishable: ${{ needs.setup.outputs.publishable }}
