@@ -18,17 +18,15 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.target_env}}
     outputs:
-      pid:     ${{ steps.meta.outputs.pid }}
-      version: ${{ steps.meta.outputs.version }}
-      package: ${{ steps.meta.outputs.package }}
+      pid:     ${{ steps.setup.outputs.pid }}
+      version: ${{ steps.rc.outputs.version }}
+      package: ${{ steps.rc.outputs.package }}
       vars: ${{ steps.capture.outputs.vars }}
-      email: ${{ steps.author.outputs.email }}
-      publishable: ${{ steps.tests.outputs.PUBLISHABLE }}
+      email: ${{ steps.setup.outputs.email }}
+      publishable: ${{ steps.setup.outputs.PUBLISHABLE }}
     steps:
       - name: checkout
         uses: actions/checkout@v4
-
-
 
       - name: Capture environment and repo vars
         id: capture
@@ -36,55 +34,20 @@ jobs:
           echo "vars<<EOF" >> "$GITHUB_OUTPUT"
           echo '${{ toJSON(vars) }}' >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
-      - name: Download rc-meta.json for this tag
-        env:
-          REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mkdir -p rc
-          gh release download "${{ inputs.rc_tag }}" --repo "$REPO" --dir rc --pattern "rc-meta.json"
-          test -f rc/rc-meta.json || { echo "rc-meta.json missing on ${{ inputs.rc_tag }}"; exit 1; }
-          cat rc/rc-meta.json
           
-      - name: Read pid/version/package from meta
-        id: meta
-        run: |
-          set -euo pipefail
-          PID=$(jq -r '.pid' rc/rc-meta.json)
-          VERSION=$(jq -r '.version' rc/rc-meta.json)
-          PACKAGE=$(jq -r '.package' rc/rc-meta.json)
-          test -n "$PID" -a -n "$VERSION" -a -n "$PACKAGE" || { echo "Invalid rc-meta.json"; exit 1; }
-          echo "pid=$PID"        >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "package=$PACKAGE" >> "$GITHUB_OUTPUT"
           
-      - name: Download the exact package from this RC
-        env:
-            GH_TOKEN: ${{ github.token }}
-            REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          mkdir -p rc
-          echo "Downloading ${{ steps.meta.outputs.package }} from tag ${{ inputs.rc_tag }}"
-          gh release download "${{ inputs.rc_tag }}" \
-            --repo "$REPO" \
-            --dir rc \
-            --pattern "${{ steps.meta.outputs.package }}"
-          ls -lah rc
-
-      - name: Copy into into ./output
-        run: |
-          set -euo pipefail
-          mkdir -p output
-          cp "rc/${{ steps.meta.outputs.package }}" "output/${{ steps.meta.outputs.package }}"
-          ls -lah output
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: RC Setup
+        id: setup
+        uses: dhillon-shawn/Local-CICD-UTILS/setup@v0
         with:
-          name: output
-          path: ./output
+          vars: ${{ steps.capture.outputs.vars_json }}
+
+      - name: RC download/parse
+        id: rc
+        uses: dhillon-shawn/Local-CICD-UTILS/rc-download@v0
+        with:
+          rc_tag: ${{ inputs.rc_tag }}
+
 
 
   Resolve:
@@ -109,12 +72,7 @@ jobs:
         with:
           target_env: ${{ inputs.target_env}}
           pid: ${{ needs.setup.outputs.pid }}
-          dev_rid: ${{ fromJSON(needs.setup.outputs.vars).DEV_RID }}
-          bot_rid: ${{ fromJSON(needs.setup.outputs.vars).BOT_RID }}
-          mid: ${{ fromJSON(needs.setup.outputs.vars).MID }}
-          bot_uid: ${{ fromJSON(needs.setup.outputs.vars).BOT_UID }}
-          dev_uid: ${{ fromJSON(needs.setup.outputs.vars).DEV_UID }}
-          FOLDER_NAME: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
+          vars: ${{ needs.setup.outputs.vars }}
 
       - name: Ensure assets (only on first promote / prod merge)
         uses: dhillon-shawn/Local-CICD-UTILS/migrate-assets@v0

@@ -52,9 +52,10 @@ jobs:
       - name: Send Email (SMTP)
         uses: dawidd6/action-send-mail@v3
         with:
-          server_address: smtp.ad.dmv.ca.gov
-          server_port: 25
-          secure: false
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
           subject: ${{ needs.format.outputs.subject }}
           to: ${{ inputs.email }}
           from: "UiPath CI/CD <uipath-cicd@noreply.com>"
