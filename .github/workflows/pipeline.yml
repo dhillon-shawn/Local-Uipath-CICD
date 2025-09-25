@@ -102,6 +102,7 @@ jobs:
 
       - name: auth
         uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
+        if: ((  needs.setup.outputs.skip_ci  == 'false')  && inputs.target_env == 'test') || inputs.target_env == 'dev'
         with:
           target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
           role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
