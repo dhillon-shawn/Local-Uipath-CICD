@@ -27,7 +27,6 @@ jobs:
         id: compose
         with:
           target_env: ${{ inputs.target_env }}
-          publishable: ${{ inputs.publishable }}
           json_path: results/analyze.json
           xml_path: results/test.xml
           cd_status: ${{ inputs.result }}

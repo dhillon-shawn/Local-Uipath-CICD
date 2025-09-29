@@ -10,15 +10,14 @@ on:
 env:
   scope: "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines.Read OR.Monitoring OR.Robots.Read OR.Settings.Read OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Users.Read"
 
-permissions:
-  write-all
+permissions: write-all
 
 jobs:
   setup:
     runs-on: ubuntu-latest
     environment: ${{ inputs.target_env}}
     outputs:
-      pid:     ${{ steps.setup.outputs.pid }}
+      pid: ${{ steps.setup.outputs.pid }}
       version: ${{ steps.rc.outputs.version }}
       package: ${{ steps.rc.outputs.package }}
       vars: ${{ steps.capture.outputs.vars }}
@@ -28,7 +27,7 @@ jobs:
       - name: checkout
         uses: actions/checkout@v4
         with:
-            ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Capture environment and repo vars
         id: capture
@@ -36,12 +35,10 @@ jobs:
           echo "vars<<EOF" >> "$GITHUB_OUTPUT"
           echo '${{ toJSON(vars) }}' >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
-          
-          
+
       - name: RC Setup
         id: setup
         uses: dhillon-shawn/Local-CICD-UTILS/setup@v0
-
 
       - name: RC download/parse
         id: rc
@@ -49,13 +46,10 @@ jobs:
         with:
           rc_tag: ${{ inputs.rc_tag }}
 
-
-
   Resolve:
     runs-on: ubuntu-latest
     needs: setup
     steps:
-
       - name: checkout
         uses: actions/checkout@v4
       - name: auth
@@ -77,7 +71,6 @@ jobs:
 
       - name: Ensure assets (only on first promote / prod merge)
         uses: dhillon-shawn/Local-CICD-UTILS/migrate-assets@v0
-
 
   CLI:
     runs-on: windows-latest
@@ -104,9 +97,8 @@ jobs:
         uses: dhillon-shawn/Local-CICD-UTILS/ci@v0
         with:
           folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
-          target_env: 'test'
+          target_env: "test"
           skip_ci: ${{ needs.setup.outputs.skip_ci}}
-
 
   Deploy:
     needs: [setup, Resolve, CLI]
@@ -132,14 +124,14 @@ jobs:
           pid: ${{ needs.setup.outputs.pid }}
 
   send:
-    needs: [setup,Resolve, Deploy]
+    needs: [setup, Resolve, Deploy]
     if: ${{ always() && !cancelled() }}
     uses: dhillon-shawn/Local-Uipath-CICD/.github/workflows/send-email.yml@main
     secrets: inherit
     with:
-        target_env: ${{ inputs.target_env}}
-        result: ${{ needs.DEPLOY.result }}
-        version: ${{ needs.setup.outputs.version }}
-        folder_name: ${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}
-        pid: ${{ needs.setup.outputs.pid }}
-        email: ${{ needs.setup.outputs.email }}
+      target_env: ${{ inputs.target_env}}
+      result: ${{ needs.DEPLOY.result }}
+      version: ${{ needs.setup.outputs.version }}
+      folder_name: ${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}
+      pid: ${{ needs.setup.outputs.pid }}
+      email: ${{ needs.setup.outputs.email }}

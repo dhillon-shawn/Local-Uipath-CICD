@@ -1,0 +1,379 @@
+name: rollback
+on:
+  workflow_call:
+
+permissions:
+  write-all
+
+env:
+  scope: "OR.Assets OR.BackgroundTasks OR.Execution OR.Folders OR.Jobs OR.Machines.Read OR.Monitoring OR.Robots.Read OR.Settings.Read OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Users.Read"
+
+jobs:
+  prep:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.parse.outputs.version }}
+      pid: ${{ steps.parse.outputs.pid }}
+      folder: ${{ steps.parse.outputs.folder }}
+    steps:
+      - id: find
+        uses: actions/github-script@v7
+        with:
+          result-encoding: string
+          script: |
+            const {owner, repo} = context.repo;
+            const issue_number = context.payload.issue.number;
+            const re = /https?:\/\/github\.com\/[^/]+\/[^/]+\/pull\/(\d+)/;
+
+            let page = 1, pr = null;
+            while (!pr) {
+              const {data} = await github.rest.issues.listComments({
+                owner, repo, issue_number, per_page: 100, page,
+                sort: 'created', direction: 'desc'
+              });
+              for (const c of data) { const m = re.exec(c.body || ''); if (m) { pr = m[1]; break; } }
+              if (data.length < 100) break; page++;
+            }
+            if (!pr) { core.setFailed('No PR URL found in comments.'); return; }
+            core.setOutput('pr_number', pr); return pr;
+
+      - name: Use it
+        run: echo "PR number ${{ steps.find.outputs.result }}"
+
+
+
+      - name: Build release tag
+        id: tag
+        run: |
+            echo "value=rc-pr-${{ steps.find.outputs.result }}" >> "$GITHUB_OUTPUT"
+            echo "tag: $value"
+      - name: Download rc-meta.json from release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p tmp
+          gh release download "${{ steps.tag.outputs.value }}" \
+            --repo "${{ github.repository }}" \
+            --dir tmp \
+            --pattern 'rc-meta.json' \
+            --clobber
+
+          test -f tmp/rc-meta.json || { echo "::error::rc-meta.json not found in release"; exit 1; }
+
+      - name: Parse rc-meta.json
+        id: parse
+        run: |
+          set -euo pipefail
+          file="tmp/rc-meta.json"
+          folder=$(jq -er '.folder' "$file")
+          version=$(jq -er '.version | tostring' "$file")
+          pid=$(jq -er '.pid' "$file")
+
+          {
+            echo "folder=$folder"
+            echo "version=$version"
+            echo "pid=$pid"
+          } >> "$GITHUB_OUTPUT"
+
+
+      - name: print
+        run: |
+          echo "folder:  ${{ steps.parse.outputs.folder }}"
+          echo "version: ${{ steps.parse.outputs.version }}"
+          echo "pid:     ${{ steps.parse.outputs.pid }}"
+
+
+  rollback_pr:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1) Load the issue & derive a slug
+      - name: issue refresh
+        id: issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const repo = context.repo;
+            const num = context.payload.issue.number;
+            const { data: issue } = await github.rest.issues.get({ ...repo, issue_number: num });
+            const rawTitle = issue.title || 'rollback';
+            const slug = rawTitle.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,50) || 'rollback';
+            core.setOutput('slug', slug);
+            core.setOutput('title', rawTitle);
+            core.setOutput('body', issue.body || '');
+            core.setOutput('labels', JSON.stringify((issue.labels||[]).map(l => typeof l === 'string' ? l : l.name)));
+            core.setOutput('milestone', issue.milestone ? String(issue.milestone.number) : '');
+
+      # 2) Read the hidden merge metadata from the issue comments
+      - name: read pr-merge-meta
+        id: meta
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const repo = context.repo;
+            const issue_number = context.payload.issue.number;
+
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              { ...repo, issue_number, per_page: 100 }
+            );
+
+            // Find last occurrence of the hidden block
+            let meta = null;
+            for (const c of comments.slice().reverse()) {
+              const m = c.body?.match(/<!--\s*pr-merge-meta:\s*({[\s\S]*?})\s*-->/i);
+              if (m) { meta = JSON.parse(m[1]); break; }
+            }
+            if (!meta) {
+              core.setFailed(`No pr-merge-meta block found on issue #${issue_number}. Ensure the merge-meta composite ran on PR merge.`);
+            }
+
+            // Compute planned PR number (latest + 1)
+            const latest = await github.rest.pulls.list({ ...repo, state:'all', per_page:1, sort:'created', direction:'desc' });
+            const planned = latest.data.length ? latest.data[0].number + 1 : 1;
+
+            core.setOutput('base', meta.base);
+            core.setOutput('old_pr', String(meta.pr));
+            core.setOutput('merge_method', meta.merge_method);
+            core.setOutput('targets', JSON.stringify(meta.merge_artifact_shas || []));
+            core.setOutput('plannedPr', String(planned));
+
+      # 3) Checkout current base (default) with full history
+      - name: checkout base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.meta.outputs.base }}
+          fetch-depth: 0
+
+      # 4) Create rollback/<planned-pr>-<slug> and apply the revert(s)
+      - name: create rollback branch & revert
+        id: branch
+        env:
+          BRANCH: rollback/${{ steps.meta.outputs.plannedPr }}-${{ steps.issue.outputs.slug }}
+          MODE: ${{ steps.meta.outputs.merge_method }}
+          TARGETS: ${{ steps.meta.outputs.targets }}
+        run: |
+          set -euo pipefail
+          echo "Creating branch ${BRANCH} from ${GITHUB_REF_NAME}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+
+          mode="${MODE}"
+          # Parse JSON array to lines
+          mapfile -t targets < <(echo "${TARGETS}" | jq -r '.[]')
+
+          if [ "${#targets[@]}" -eq 0 ]; then
+            echo "No revert targets found in pr-merge-meta"; exit 1
+          fi
+
+          # For rebase merges, revert the series in reverse order
+          if [ "$mode" = "rebase" ]; then
+            mapfile -t targets < <(printf "%s\n" "${targets[@]}" | tac)
+          fi
+
+          if [ "$mode" = "merge" ]; then
+            for sha in "${targets[@]}"; do
+              echo "Reverting MERGE commit $sha (-m 1)"
+              git revert -m 1 --no-edit "$sha"
+            done
+          else
+            for sha in "${targets[@]}"; do
+              echo "Reverting commit $sha"
+              git revert --no-edit "$sha"
+            done
+          fi
+
+          git push --set-upstream origin "$BRANCH"
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+
+      # 5) Open the rollback PR (hard-link to the reopened issue)
+      - name: open rollback PR
+        id: createpr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const repo = context.repo;
+            const issue_number = context.payload.issue.number;
+            const base = '${{ steps.meta.outputs.base }}';
+            const head = '${{ steps.branch.outputs.branch }}';
+            const oldPr = Number('${{ steps.meta.outputs.old_pr }}');
+            const planned = Number('${{ steps.meta.outputs.plannedPr }}');
+            const title = `Revert #${oldPr}: ` + ${{ toJson(steps.issue.outputs.title) }};
+            const body = [
+              `Revert of #${oldPr} (automated on issue reopen).`,
+              '',
+              `Closes #${issue_number}`,
+              '',
+              '<!-- rollback-link: {"old_pr":'+oldPr+',"from_issue":'+issue_number+'} -->'
+            ].join('\n');
+
+            const { data: pr } = await github.rest.pulls.create({ ...repo, title, head, base, body, draft: false });
+
+            // (Optional) copy labels/milestone from the issue
+            const labels = JSON.parse('${{ steps.issue.outputs.labels }}');
+            if (labels.length) await github.rest.issues.addLabels({ ...repo, issue_number: pr.number, labels });
+            const milestone = '${{ steps.issue.outputs.milestone }}';
+            if (milestone) await github.rest.issues.update({ ...repo, issue_number: pr.number, milestone: Number(milestone) });
+
+            core.info(`rollback PR: actual=${pr.number} planned=${planned} url=${pr.html_url}`);
+            core.setOutput('pr_number', String(pr.number));
+            core.setOutput('pr_url', pr.html_url);
+
+      # 6) Verify planned vs actual PR number (since you name the branch with planned)
+      - name: pr verify
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const planned = Number('${{ steps.meta.outputs.plannedPr }}');
+            const actual  = Number('${{ steps.createpr.outputs.pr_number }}');
+            if (planned !== actual) {
+              core.warning(`planned_pr=${planned} != actual_pr=${actual} (branch is 'rollback/${planned}-${{ steps.issue.outputs.slug }}')`);
+            } else {
+              core.info(`planned_pr matches actual_pr=${actual}`);
+            }
+
+      # 7) Comment on the issue for humans (link + branch)
+      - name: comment on issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              ...context.repo,
+              issue_number: context.payload.issue.number,
+              body: `Opened rollback PR: ${{ steps.createpr.outputs.pr_url }}\nBranch: \`${{ steps.branch.outputs.branch }}\` (reverts #${{ steps.meta.outputs.old_pr }})`
+            })
+
+
+
+  rollback:
+    runs-on: ubuntu-latest
+    needs: [prep]
+    strategy:
+      fail-fast: false
+      matrix:
+        env: ['dev', 'test', 'prod']
+    steps:
+
+
+      - name: auth
+        uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
+        with:
+          target_env: ${{ matrix.env }}
+          role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
+          aws_region: "us-west-2"
+          secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
+          scopes: ${{ env.scope }}
+
+
+      - name: check release
+        shell: bash
+        run: |
+          echo "checking release"
+          body="$(mktemp)"
+          trap 'rm -f "$body"' EXIT
+
+          curl_rc=0
+          status=$(
+            curl -L -sS \
+              --connect-timeout 10 --max-time 120 \
+              --output "$body" \
+              --write-out '%{http_code}' \
+              -H "Authorization: Bearer ${{ env.TOKEN }}" \
+              -H "Content-Type: application/json" \
+              -H "X-UIPATH-FolderPath: ${{ needs.prep.outputs.folder }}" \
+              "${{ env.OR_URL }}/odata/Releases?%24select=Id%2CProcessKey%2CName%2CProcessType&%24filter=ProcessKey%20eq%20%27${{ needs.prep.outputs.pid }}%27"
+          ) || curl_rc=$?
+
+          echo "Status Code: $status"
+          echo "::group::Response body"
+          if [[ -s "$body" ]] && command -v jq >/dev/null && jq -e . "$body" >/dev/null 2>&1; then
+            jq -r . "$body"
+          else
+            cat "$body"
+          fi
+          echo "::endgroup::"
+
+          id_found="$(jq -r '.value[0].Id // empty' "$body" 2>/dev/null || true)"
+          echo "id_found=$id_found" >> "$GITHUB_ENV"
+
+          if [[ $curl_rc -ne 0 || ${status:-0} -ge 400 ]]; then
+            exit 1
+          fi
+
+
+      - name: get version
+        id: version
+        shell: bash
+        run: |
+            RESP=$(
+              curl -L -sS \
+                -H "Authorization: Bearer ${{ env.TOKEN }}" \
+                -H "Content-Type: application/json" \
+                -H "X-UIPATH-FolderPath: ${{ needs.prep.outputs.folder }}" \
+                "${{ env.OR_URL }}/odata/Processes/UiPath.Server.Configuration.OData.GetProcessVersions(processId='${{ needs.prep.outputs.pid }}')?%24select=Version%2CPublished&%24filter=Version%20eq%20%27${{ needs.prep.outputs.version }}%27"
+            )
+
+            INPUT_TS=$(echo "$RESP" | jq -r '.value[0].Published // empty')
+            if [ -z "$INPUT_TS" ] || [ "$INPUT_TS" = "null" ]; then
+              echo "Input version '${{ needs.prep.outputs.version }}' not found for process '${{ needs.prep.outputs.pid }}'." >&2
+              exit 1
+            fi
+
+            INPUT_TS_ENC=$(printf '%s' "$INPUT_TS" | jq -sRr @uri)
+
+            PRIOR_JSON=$(
+              curl -L -sS \
+                -H "Authorization: Bearer ${{ env.TOKEN }}" \
+                -H "Content-Type: application/json" \
+                -H "X-UIPATH-FolderPath: ${{ needs.prep.outputs.folder }}" \
+                "${{ env.OR_URL }}/odata/Processes/UiPath.Server.Configuration.OData.GetProcessVersions(processId='${{ needs.prep.outputs.pid }}')?%24select=Version%2CPublished&%24filter=Published%20lt%20${INPUT_TS_ENC}&%24orderby=Published%20desc&%24top=1"
+            )
+
+            echo "Response: $PRIOR_JSON"
+
+            previous_version=$(echo "$PRIOR_JSON" | jq -r '.value[0].Version // empty')
+            if [ -z "$previous_version" ]; then
+              echo "No previous version found prior to Published=$INPUT_TS for process '${{ needs.prep.outputs.pid }}'." >&2
+              exit 1
+            fi
+
+            echo "PREV_VER=$previous_version" >> "$GITHUB_OUTPUT"
+
+
+
+      - name: rollback release
+        shell: bash
+        run: |
+          echo "rolling back release"
+          body="$(mktemp)"
+          trap 'rm -f "$body"' EXIT
+
+          curl_rc=0
+          status=$(
+            curl -L -sS \
+              --connect-timeout 10 --max-time 120 \
+              --output "$body" \
+              --write-out '%{http_code}' \
+              -X POST \
+              -H "Authorization: Bearer ${{  env.TOKEN }}" \
+              -H "Content-Type: application/json" \
+              -H "X-UIPATH-FolderPath: ${{ needs.prep.outputs.folder }}" \
+              --data-binary @- \
+              "${{ env.OR_URL }}/odata/Releases(${{ env.id_found}})/UiPath.Server.Configuration.OData.UpdateToSpecificPackageVersion" <<'JSON'
+          {
+            "packageVersion": "${{ steps.version.outputs.PREV_VER }}"
+          }
+          JSON
+          ) || curl_rc=$?
+
+          echo "Status Code: $status"
+          echo "::group::Response body"
+          if command -v jq >/dev/null; then jq -r . "$body" || cat "$body"; else cat "$body"; fi
+          echo "::endgroup::"
+
+          if [[ $curl_rc -ne 0 || ${status:-0} -ge 400 ]]; then
+            exit 1
+          fi

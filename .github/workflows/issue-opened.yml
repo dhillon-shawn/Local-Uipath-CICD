@@ -1,0 +1,242 @@
+name: Create branch, PR, Ticket for issues
+
+on:
+    workflow_call:
+
+permissions: write-all
+
+jobs:
+    parse:
+        outputs:
+            user_email: ${{ steps.parse.outputs.user_email }}
+            start: ${{ steps.parse.outputs.start }}
+            end: ${{ steps.parse.outputs.end }}
+            effort: ${{ steps.parse.outputs.effort }}
+            justification: ${{ steps.parse.outputs.justification }}
+            plan: ${{ steps.parse.outputs.plan }}
+            test_plan: ${{ steps.parse.outputs.test_plan }}
+            risk: ${{ steps.parse.outputs.risk }}
+            impacted_groups: ${{ steps.parse.outputs.impacted_groups }}
+            impacted_users: ${{ steps.parse.outputs.impacted_users }}
+            notified_when: ${{ steps.parse.outputs.notified_when }}
+            notified_how: ${{ steps.parse.outputs.notified_how }}
+            backup: ${{ steps.parse.outputs.backup }}
+            public: ${{ steps.parse.outputs.public }}
+            cdt: ${{ steps.parse.outputs.cdt }}
+            new_app: ${{ steps.parse.outputs.new_app }}
+            title: ${{ steps.parse.outputs.title }}
+            url: ${{ steps.parse.outputs.url }}
+        runs-on: ubuntu-latest
+        steps:
+            - name: assign check
+              id: check
+              run: |
+                  echo "issue_number=${{ github.event.issue.number }}"
+                  echo "assignees_json=${{ toJson(github.event.issue.assignees) }}"
+                  if [ "${{ toJson(github.event.issue.assignees) }}" = "[]" ]; then
+                    echo "has_assignees=false" >> $GITHUB_OUTPUT
+                    echo "result=no current assignee"
+                  else
+                    echo "has_assignees=true" >> $GITHUB_OUTPUT
+                    echo "result=already assigned"
+                  fi
+
+            - name: assign ensure
+              if: steps.check.outputs.has_assignees == 'false'
+              uses: pozil/auto-assign-issue@v2
+              with:
+                  assignees: "${{ github.event.issue.user.login }}"
+                  numOfAssignee: 1
+
+            - name: issue refresh
+              id: issue
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const repo = context.repo;
+                      const num = context.payload.issue.number;
+                      const { data: issue } = await github.rest.issues.get({ ...repo, issue_number: num });
+                      const labels = (issue.labels || []).map(l => typeof l === 'string' ? l : l.name);
+                      const mode = labels.includes('hotfix') ? 'hotfix' : 'release';
+                      core.info(`issue: #${num} | mode=${mode} | labels=[${labels.join(', ')}] | assignees=[${(issue.assignees||[]).map(a=>a.login).join(', ')}]`);
+                      core.setOutput('title', issue.title || '');
+                      core.setOutput('body', issue.body || '');
+                      core.setOutput('labels', JSON.stringify(labels));
+                      core.setOutput('assignees', JSON.stringify((issue.assignees || []).map(a => a.login)));
+                      core.setOutput('milestone', issue.milestone ? String(issue.milestone.number) : '');
+                      core.setOutput('mode', mode);
+
+            - name: meta derive
+              id: meta
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const issueNum = context.payload.issue.number;
+                      const nextPrNumber = issueNum + 1;
+                      const defaultBranch = context.payload.repository.default_branch;
+                      const mode = '${{ steps.issue.outputs.mode }}';
+                      const rawTitle = ${{ toJson(steps.issue.outputs.title) }};
+                      const title = rawTitle || mode;
+                      const slug = title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,50) || mode;
+                      const branch = `${mode}/${nextPrNumber}-${slug}`;
+                      const isDraft = mode === 'release';
+                      const prefix = isDraft ? 'Release: ' : 'Hotfix: ';
+                      core.info(`meta: issue=${issueNum} -> planned_pr=${nextPrNumber} | mode=${mode} | draft=${isDraft} | branch=${branch} | default=${defaultBranch}`);
+                      core.setOutput('default', defaultBranch);
+                      core.setOutput('branch', branch);
+                      core.setOutput('plannedPr', String(nextPrNumber));
+                      core.setOutput('isDraft', String(isDraft));
+                      core.setOutput('prefix', prefix);
+                      core.setOutput('slug', slug);
+
+            - name: checkout default
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ steps.meta.outputs.default }}
+
+            - name: branch init
+              env:
+                  BRANCH: ${{ steps.meta.outputs.branch }}
+                  ISSUE_NUMBER: ${{ github.event.issue.number }}
+                  MODE: ${{ steps.issue.outputs.mode }}
+              run: |
+                  echo "creating branch=$BRANCH from default=${{ steps.meta.outputs.default }} for issue #$ISSUE_NUMBER mode=$MODE"
+                  git config user.name  "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  git switch -c "$BRANCH"
+                  git commit --allow-empty -m "chore: init $MODE branch for #$ISSUE_NUMBER [skip ci]"
+                  git push --set-upstream origin "$BRANCH"
+                  echo "pushed branch=$BRANCH"
+
+            - name: pr open
+              id: createpr
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const repo = context.repo;
+                      const issue_number = context.payload.issue.number;
+                      const base = '${{ steps.meta.outputs.default }}';
+                      const head = '${{ steps.meta.outputs.branch }}';
+                      const isDraft = '${{ steps.meta.outputs.isDraft }}' === 'true';
+                      const title = '${{ steps.meta.outputs.prefix }}' + ${{ toJson(steps.issue.outputs.title) }};
+                      const body = [
+                        `${isDraft ? 'Draft PR' : 'PR'} for issue #${issue_number}`,
+                        '',
+                        `Closes #${issue_number}`,
+                        '',
+                        '---',
+                        ${{ toJson(steps.issue.outputs.body) }}
+                      ].join('\n');
+                      const { data: pr } = await github.rest.pulls.create({ ...repo, title, head, base, body, draft: isDraft });
+                      const labels = JSON.parse('${{ steps.issue.outputs.labels }}');
+                      if (labels.length) await github.rest.issues.addLabels({ ...repo, issue_number: pr.number, labels });
+                      const milestone = '${{ steps.issue.outputs.milestone }}';
+                      if (milestone) await github.rest.issues.update({ ...repo, issue_number: pr.number, milestone: Number(milestone) });
+                      const assignees = JSON.parse('${{ steps.issue.outputs.assignees }}');
+                      const finalAssignees = assignees.length ? assignees : ['${{ github.event.issue.user.login }}'];
+                      await github.rest.issues.addAssignees({ ...repo, issue_number: pr.number, assignees: finalAssignees });
+                      core.info(`pr: actual=${pr.number} | planned=${'${{ steps.meta.outputs.plannedPr }}'} | url=${pr.html_url} | head=${head} -> base=${base} | draft=${isDraft}`);
+                      core.setOutput('pr_number', String(pr.number));
+                      core.setOutput('pr_url', pr.html_url)
+
+            - name: pr verify
+              if: always()
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const planned = Number('${{ steps.meta.outputs.plannedPr }}');
+                      const actual  = Number('${{ steps.createpr.outputs.pr_number }}');
+                      if (planned !== actual) {
+                        core.warning(`verify: planned_pr=${planned} != actual_pr=${actual} (branch remains '${{ steps.meta.outputs.branch }}')`);
+                      } else {
+                        core.info(`verify: planned_pr matches actual_pr=${actual}`);
+                      }
+
+            - name: Comment PR link + meta on the issue
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const repo = context.repo;
+                      const issue_number = context.payload.issue.number;
+                      const pr_number = Number('${{ steps.createpr.outputs.pr_number }}');
+
+                      // Load fresh PR details (head/base/sha/urls)
+                      const { data: pr } = await github.rest.pulls.get({ ...repo, pull_number: pr_number });
+
+                      // Minimal, durable metadata for reopen/rollback
+                      const meta = {
+                          pr: pr.number,
+                          pr_url: pr.html_url,
+                          branch: pr.head.ref,
+                          base: pr.base.ref,
+                          issue: issue_number,
+                          source_head_sha: pr.head.sha,
+                          slug: '${{ steps.meta.outputs.slug }}',
+                          created_by: context.actor,
+                          created_at: new Date().toISOString()
+                      };
+
+                      const body = [
+                          `Opened PR: ${pr.html_url}`,
+                          `Branch: \`${pr.head.ref}\``,
+                          '',
+                          '<!-- pr-meta:',
+                          JSON.stringify(meta),
+                          '-->'
+                      ].join('\n');
+
+                      await github.rest.issues.createComment({ ...repo, issue_number, body });
+
+            - name: Parse issue
+              id: parse
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const issue = context.payload.issue;
+                      if (!issue) { core.setFailed('No issue payload.'); return; }
+                      const body = '\n' + (issue.body || '') + '\n';
+                      const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+                      function block(label) {
+                        const re = new RegExp(
+                          `\\n\\s*#{1,6}\\s*${esc(label)}\\s*\\n([\\s\\S]*?)(?=\\n\\s*#{1,6}\\s*|$)`,
+                          'i'
+                        );
+                        const m = body.match(re);
+                        return (m ? m[1].trim() : '');
+                      }
+                      function line(label) {
+                        return block(label).split('\n').map(s => s.trim()).filter(Boolean)[0] || '';
+                      }
+
+                      const cb = block('Confirmations').split('\n');
+                      const pick = (label) => {
+                        const row = cb.find(l => new RegExp(`^-\\s*\\[( |x|X)\\]\\s*${esc(label)}\\s*$`).test(l));
+                        if (!row) return 'No';
+                        const m = row.match(/^-\\s*\\[( |x|X)\\]/);
+                        return (m && (m[1] === 'x' || m[1] === 'X')) ? 'Yes' : 'No';
+                      };
+
+                      const out = {
+                        start:         line('Start date'),
+                        end:           line('End date'),
+                        user_email:        line('Assignee email'),
+                        effort:        line('Effort/Project'),
+                        justification:           block('Justification'),
+                        plan:          block('Implementation plan'),
+                        risk:          block('Risk'),
+                        test_plan:  block('Test plan'),
+                        impacted_groups:        line('Impacted groups'),
+                        impacted_users:        line('Impacted users (emails)'),
+                        notified_when: line('When were impacted users last notified?'),
+                        notified_how:  line('How were impacted users last notified?'),
+                        backup:        line('Backup contact (email)'),
+                        public:        pick('Impacts the public.'),
+                        cdt:           pick('Involves CDT.'),
+                        new_app:       pick('New app (ESD needs to know).'),
+                        issue_num:         String(issue.number),
+                        title:         issue.title || '',
+                        url:           issue.html_url || ''
+                      };
+
+                      Object.entries(out).forEach(([k,v]) => core.setOutput(k, v ?? ''));
