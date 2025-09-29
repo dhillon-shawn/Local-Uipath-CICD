@@ -23,6 +23,7 @@ jobs:
       vars: ${{ steps.capture.outputs.vars }}
       email: ${{ steps.setup.outputs.email }}
       skip_ci: ${{ steps.setup.outputs.skip_ci }}
+      ptype: ${{ steps.setup.outputs.ptype }}
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -46,8 +47,9 @@ jobs:
         with:
           rc_tag: ${{ inputs.rc_tag }}
 
-  Resolve:
+  ensure:
     runs-on: ubuntu-latest
+    if: needs.setup.outputs.ptype == 'Process'
     needs: setup
     steps:
       - name: checkout
@@ -62,20 +64,18 @@ jobs:
           scopes: ${{ env.scope }}
 
       - id: folder
-        name: Resolve / create folder
+        name: ensure / create folder
         uses: dhillon-shawn/Local-CICD-UTILS/ensure-folder@v0
         with:
           target_env: ${{ inputs.target_env}}
           pid: ${{ needs.setup.outputs.pid }}
           vars: ${{ needs.setup.outputs.vars }}
 
-      - name: Ensure assets (only on first promote / prod merge)
-        uses: dhillon-shawn/Local-CICD-UTILS/migrate-assets@v0
 
   CLI:
     runs-on: windows-latest
-    needs: [setup, Resolve]
-    if: ((  needs.setup.outputs.skip_ci  == 'false')  && inputs.target_env == 'test')
+    needs: [setup, ensure]
+    if: ((  needs.setup.outputs.skip_ci  == 'false')  && inputs.target_env == 'test') && needs.setup.outputs.ptype == 'Process'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -101,7 +101,7 @@ jobs:
           skip_ci: ${{ needs.setup.outputs.skip_ci}}
 
   Deploy:
-    needs: [setup, Resolve, CLI]
+    needs: [setup, ensure, CLI]
     runs-on: ubuntu-latest
     if: ${{ always() && needs.CLI.result != 'failure' && !cancelled() }}
     steps:
@@ -122,9 +122,10 @@ jobs:
           target_env: ${{ inputs.target_env}}
           version: ${{ needs.setup.outputs.version }}
           pid: ${{ needs.setup.outputs.pid }}
+          ptype: ${{ needs.setup.outputs.ptype }}
 
   send:
-    needs: [setup, Resolve, Deploy]
+    needs: [setup, ensure, Deploy]
     if: ${{ always() && !cancelled() }}
     uses: dhillon-shawn/Local-Uipath-CICD/.github/workflows/send-email.yml@main
     secrets: inherit

@@ -26,8 +26,8 @@ jobs:
       skip_ci: ${{ steps.setup.outputs.skip_ci }}
       vars: ${{ steps.capture.outputs.vars }}
       notes: ${{ steps.setup.outputs.notes }}
-      version: ${{ steps.compute.outputs.version }}
-      fid: ${{ steps.folder.outputs.fid }}
+      bump_version: ${{ steps.setup.outputs.bump_major }}
+
 
     steps:
       - name: Checkout exact source ref
@@ -41,7 +41,6 @@ jobs:
           echo "vars<<EOF" >> "$GITHUB_OUTPUT"
           echo '${{ toJSON(vars) }}' >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
-
       - name: Pipeline Setup
         id: setup
         uses: dhillon-shawn/Local-CICD-UTILS/setup@v0
@@ -49,6 +48,26 @@ jobs:
           target_env: ${{ inputs.target_env }}
           everything: "true"
 
+      - name: Scan assets
+        id: scan
+        uses: dhillon-shawn/Local-CICD-UTILS/parse-assets@v0
+
+      - name: Upload assets.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: uipath-assets
+          path: assets.json
+
+  ensure:
+    runs-on: windows-latest
+    needs: [setup]
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+    steps:
+      - name: Checkout exact source ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
       - name: auth
         uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
         with:
@@ -63,10 +82,11 @@ jobs:
         uses: dhillon-shawn/Local-CICD-UTILS/compute-version@v0
         with:
           target_env: ${{ inputs.target_env }}
-          pid: ${{ steps.setup.outputs.pid }}
+          pid: ${{ needs.setup.outputs.pid }}
+          bump_major: ${{ needs.setup.outputs.bump_major }}
 
       - name: auth
-        if: inputs.target_env != 'dev'
+        if: inputs.target_env != 'dev' && needs.setup.outputs.ptype == 'Process'
         uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
         with:
           target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
@@ -77,15 +97,15 @@ jobs:
 
       - id: folder
         name: Resolve / create folder
+        if: needs.setup.outputs.ptype == 'Process'
         uses: dhillon-shawn/Local-CICD-UTILS/ensure-folder@v0
         with:
           target_env: ${{ inputs.target_env }}
-          pid: ${{ steps.setup.outputs.pid }}
-          vars: ${{ steps.capture.outputs.vars}}
-
+          pid: ${{ needs.setup.outputs.pid }}
+          vars: ${{ needs.setup.outputs.vars}}
   CLI:
     runs-on: windows-latest
-    needs: [setup]
+    needs: [setup, ensure]
     steps:
       - name: Checkout exact source ref
         uses: actions/checkout@v4
@@ -97,7 +117,7 @@ jobs:
 
       - name: auth
         uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
-        if: ((  needs.setup.outputs.skip_ci  == 'false')  && inputs.target_env == 'test') || inputs.target_env == 'dev'
+        if: (((  needs.setup.outputs.skip_ci  == 'false')  && inputs.target_env == 'test') || inputs.target_env == 'dev') && needs.setup.outputs.ptype == 'Process'
         with:
           target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
           role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
@@ -106,7 +126,7 @@ jobs:
           scopes: ${{ env.scope }}
 
       - name: CI
-        if: ((  needs.setup.outputs.skip_ci  == 'false')  && inputs.target_env == 'test') || inputs.target_env == 'dev'
+        if: (((  needs.setup.outputs.skip_ci  == 'false')  && inputs.target_env == 'test') || inputs.target_env == 'dev') && needs.setup.outputs.ptype == 'Process'
         id: CI
         uses: dhillon-shawn/Local-CICD-UTILS/ci@v0
         with:
@@ -129,12 +149,12 @@ jobs:
         uses: dhillon-shawn/Local-CICD-UTILS/pack@v0
         with:
           ptype: ${{ needs.setup.outputs.ptype }}
-          version: ${{ needs.setup.outputs.version }}
+          version: ${{ needs.ensure.outputs.version }}
           release_notes: ${{ needs.setup.outputs.notes }}
 
   Deploy:
     runs-on: ubuntu-latest
-    needs: [setup, CLI]
+    needs: [setup, ensure, CLI]
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.setup.outputs.deployment_matrix) }}
@@ -162,11 +182,12 @@ jobs:
         with:
           folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
           target_env: ${{ matrix.env }}
-          version: ${{ needs.setup.outputs.version }}
+          version: ${{ needs.ensure.outputs.version }}
           pid: ${{ needs.setup.outputs.pid }}
+          ptype: ${{needs.setup.outputs.ptype}}
 
   rc:
-    needs: [setup, Deploy]
+    needs: [setup, ensure, Deploy]
     runs-on: ubuntu-latest
     steps:
       - name: Create RC + upload package/meta data
@@ -174,21 +195,21 @@ jobs:
         uses: dhillon-shawn/Local-CICD-UTILS/rc-upload@v0
         with:
           PID: ${{ needs.setup.outputs.pid }}
-          VERSION: ${{ needs.setup.outputs.version }}
+          VERSION: ${{ needs.ensure.outputs.version }}
           SHA: ${{ inputs.sha }}
           RC_TAG: ${{ inputs.rc_tag }}
           PR_NUM: ${{ inputs.pr_num }}
           FOLDER: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
 
   send:
-    needs: [setup, CLI, Deploy, rc]
+    needs: [setup, ensure, CLI, Deploy, rc]
     if: ${{ always() && !cancelled() }}
     uses: dhillon-shawn/Local-Uipath-CICD/.github/workflows/send-email.yml@main
     secrets: inherit
     with:
       target_env: ${{ inputs.target_env }}
       result: ${{ needs.DEPLOY.result }}
-      version: ${{ needs.setup.outputs.version }}
+      version: ${{ needs.ensure.outputs.version }}
       folder_name: ${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}
       pid: ${{ needs.setup.outputs.pid }}
       email: ${{ needs.setup.outputs.email }}

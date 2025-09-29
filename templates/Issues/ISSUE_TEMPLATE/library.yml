@@ -1,6 +1,6 @@
-name: "Hotfix"
-description: "Urgent fix needed"
-labels: ["hotfix","process"]
+name: "Release - Library"
+description: "Library Release"
+labels: ["release","library"]
 body:
   - type: input
     id: impact
@@ -17,3 +17,4 @@ body:
     id: scope
     attributes:
       label: Scope / Constraints
+

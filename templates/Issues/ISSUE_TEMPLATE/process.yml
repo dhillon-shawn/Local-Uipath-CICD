@@ -1,6 +1,6 @@
-name: "Release"
+name: "Release - Process"
 description: "Request a new release"
-labels: ["release"]
+labels: ["release","process"]
 body:
   - type: input
     id: user
