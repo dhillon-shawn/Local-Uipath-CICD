@@ -31,14 +31,14 @@ env:
                 "test": {
                   "MID": "5335969",
                   "DEV_RID": "6144536",
-                  "DEV_UID": "12616150",
+                  "DEV_UID": "11775485",
                   "BOT_UID": "12607102",
                   "BOT_RID": "6144537",
                 },
                 "prod": {
                   "MID": "",
                   "DEV_RID": "6144536",
-                  "DEV_UID": "12616150",
+                  "DEV_UID": "12662731",
                   "BOT_UID": "",
                   "BOT_RID": "6144535",
                 }
@@ -622,7 +622,7 @@ jobs:
             echo "Response: $res"
             echo "Assigned User/User Role to Created Folder"
 
-            if [ "${{ env.target_env }}" != "prod" ]; then
+            if [ "${{ matrix.target }}" != "prod" ]; then
               re=$(curl  --location --request POST \
                   --header "Authorization: Bearer ${{ env.TOKEN }}" \
                   --header "Content-Type: application/json" \
