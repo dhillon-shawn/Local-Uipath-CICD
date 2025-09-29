@@ -454,7 +454,7 @@ jobs:
       - name: Auth
         uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
         with:
-          target_env: ${{matrix.env}}
+          target_env: ${{matrix.target}}
           role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
           aws_region: "us-west-2"
           secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
