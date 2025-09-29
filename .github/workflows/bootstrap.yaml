@@ -287,7 +287,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          for env in dev test prod hotfix; do
+          for env in dev test prod prod-bypass; do
               echo "Creating $env" 
               reviewers_block="$(
                 jq -nc --arg ids "$REVIEWER_IDS" --arg env "$env" '
@@ -332,7 +332,7 @@ jobs:
                 "prod": {
                   "FOLDER_NAME" : "${{ env.FOLDER_TO_SET}}"
                 },
-                "hotfix": {
+                "prod-bypass": {
                   "FOLDER_NAME" : "${{ env.FOLDER_TO_SET}}"
                 }
               }'

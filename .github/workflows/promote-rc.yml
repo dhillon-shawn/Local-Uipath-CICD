@@ -47,34 +47,10 @@ jobs:
         with:
           rc_tag: ${{ inputs.rc_tag }}
 
-  ensure:
-    runs-on: ubuntu-latest
-    if: needs.setup.outputs.ptype == 'Process'
-    needs: setup
-    steps:
-      - name: checkout
-        uses: actions/checkout@v4
-      - name: auth
-        uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
-        with:
-          target_env: ${{ inputs.target_env}}
-          role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
-          aws_region: "us-west-2"
-          secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
-          scopes: ${{ env.scope }}
-
-      - id: folder
-        name: ensure / create folder
-        uses: dhillon-shawn/Local-CICD-UTILS/ensure-folder@v0
-        with:
-          target_env: ${{ inputs.target_env}}
-          pid: ${{ needs.setup.outputs.pid }}
-          vars: ${{ needs.setup.outputs.vars }}
-
 
   CLI:
     runs-on: windows-latest
-    needs: [setup, ensure]
+    needs: [setup]
     if: ((  needs.setup.outputs.skip_ci  == 'false')  && inputs.target_env == 'test') && needs.setup.outputs.ptype == 'Process'
     steps:
       - name: Checkout
@@ -101,7 +77,7 @@ jobs:
           skip_ci: ${{ needs.setup.outputs.skip_ci}}
 
   Deploy:
-    needs: [setup, ensure, CLI]
+    needs: [setup,  CLI]
     runs-on: ubuntu-latest
     if: ${{ always() && needs.CLI.result != 'failure' && !cancelled() }}
     steps:
@@ -125,7 +101,7 @@ jobs:
           ptype: ${{ needs.setup.outputs.ptype }}
 
   send:
-    needs: [setup, ensure, Deploy]
+    needs: [setup,  Deploy]
     if: ${{ always() && !cancelled() }}
     uses: dhillon-shawn/Local-Uipath-CICD/.github/workflows/send-email.yml@main
     secrets: inherit
