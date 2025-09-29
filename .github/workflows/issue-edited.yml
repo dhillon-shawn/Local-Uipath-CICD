@@ -1,0 +1,14 @@
+name: Create branch, PR, Ticket for issues
+
+on:
+    workflow_call:
+
+permissions: write-all
+
+jobs:
+    parse:
+        runs-on: ubuntu-latest
+        steps:
+            - name: placeholder
+              run: |
+                echo "Placeholder"
