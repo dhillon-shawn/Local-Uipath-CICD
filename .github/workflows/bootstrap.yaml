@@ -19,10 +19,36 @@ permissions: write-all
 
 env:
   scope: "OR.Folders OR.BackgroundTasks OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Settings.Read OR.Robots.Read OR.Machines OR.Execution OR.Assets OR.Users.Read OR.Jobs OR.Monitoring OR.Robots"
+  FOLDER_VARS: |
+                "dev": {
+                  "MID": "",
+                  "DEV_RID": "6144536",
+                  "DEV_UID": "12616150",
+                  "BOT_UID": "",
+                  "BOT_RID": "6144535",
+                },
+                "test": {
+                  "MID": "5296531",
+                  "DEV_RID": "6951189",
+                  "DEV_UID": "12506499",
+                  "BOT_UID": "12507013",
+                  "BOT_RID": "6144537",
+                },
+                "prod": {
+                  "MID": "",
+                  "DEV_RID": "6144536",
+                  "DEV_UID": "12616150",
+                  "BOT_UID": "",
+                  "BOT_RID": "6144535",
+                }
+              
 
 jobs:
   BOOTSTRAP:
     runs-on: ubuntu-latest
+    outputs:
+      pid: ${{ steps.repo.outputs.PID }}
+      folder: ${{ steps.folder.outputs.FOLDER_TO_SET}}
     steps:
       - name: Checkout controller repo
         uses: actions/checkout@v4
@@ -55,7 +81,8 @@ jobs:
         run: |
           echo "${{ steps.get_default.outputs.DEFAULT_BRANCH }} "
 
-      - name: Repo Level (update main; rebase+sync .github on non-prod)
+      - name: Repo Level
+        id: repo
         env:
           repo: ${{ inputs.repo_name }}
           default_branch: ${{ steps.get_default.outputs.DEFAULT_BRANCH }}
@@ -101,6 +128,7 @@ jobs:
           if [[ -f "./project.json" ]]; then
             PID="$(jq -er '.name' ./project.json)"
             echo "PID=$PID" >> "$GITHUB_ENV"
+            echo "PID=$PID" >> "$GITHUB_OUTPUT"
             echo "Project ID: $PID"
           fi
 
@@ -235,6 +263,7 @@ jobs:
           fi
 
       - name: Resolve folder
+        id: folder
         env:
           folder_name: ${{ inputs.folder_name }}
         run: |
@@ -247,6 +276,7 @@ jobs:
 
           echo "Will set FOLDER_NAME='${FOLDER_NAME}'"
           echo "FOLDER_TO_SET=${FOLDER_NAME}" >> "$GITHUB_ENV"
+          echo "FOLDER_TO_SET=${FOLDER_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Create/update environments + vars (uses App token)
         env:
@@ -292,35 +322,15 @@ jobs:
              
               VARIABLES_JSON='{
                 "dev": {
-                  "MID": "",
-                  "DEV_RID": "6144536",
-                  "DEV_UID": "12616150",
-                  "BOT_UID": "",
-                  "BOT_RID": "6144535",
                   "FOLDER_NAME" : "${{ env.FOLDER_TO_SET}}"
                 },
                 "test": {
-                  "MID": "5296531",
-                  "DEV_RID": "6951189",
-                  "DEV_UID": "12506499",
-                  "BOT_UID": "12507013",
-                  "BOT_RID": "6144537",
                   "FOLDER_NAME" : "${{ env.FOLDER_TO_SET}}"
                 },
                 "prod": {
-                  "MID": "",
-                  "DEV_RID": "6144536",
-                  "DEV_UID": "12616150",
-                  "BOT_UID": "",
-                  "BOT_RID": "6144535",
                   "FOLDER_NAME" : "${{ env.FOLDER_TO_SET}}"
                 },
                 "hotfix": {
-                  "MID": "",
-                  "DEV_RID": "6144536",
-                  "DEV_UID": "12616150",
-                  "BOT_UID": "",
-                  "BOT_RID": "6144535",
                   "FOLDER_NAME" : "${{ env.FOLDER_TO_SET}}"
                 }
               }'
@@ -405,15 +415,7 @@ jobs:
           echo "response: $response"
 
           echo "Labels added."
-
-      - name: PRINT RESULTS - UPDATE
-        run: |
-          echo " "
-          echo "====================================================================================="
-          echo "Link to existing repo: https://github.com/${{ github.repository_owner }}/${{inputs.repo_name}}"
-          echo "====================================================================================="
-          echo " "
-
+          
       - name: set token permissions
         env:
           REPO: ${{ inputs.repo_name }}
@@ -429,7 +431,214 @@ jobs:
             -d "${payload}"
           )
           echo "Response: $response"
+          
+      - name: PRINT RESULTS - UPDATE
+        run: |
+          echo " "
+          echo "====================================================================================="
+          echo "Link to existing repo: https://github.com/${{ github.repository_owner }}/${{inputs.repo_name}}"
+          echo "====================================================================================="
+          echo " "
 
+  ensure-folders:
+    runs-on: ubuntu-latest
+    needs: BOOTSTRAP
+    strategy:
+      matrix:
+        env: [dev, test, prod]
+
+    steps:
+      - name: set vars
+        shell: bash
+        run: |
+          {
+            echo "dev_rid=${{ fromJSON(env.FOLDER_VARS).DEV_RID }}"
+            echo "bot_rid=${{ fromJSON(env.FOLDER_VARS).BOT_RID }}"
+            echo "mid=${{ fromJSON(env.FOLDER_VARS).MID }}"
+            echo "bot_uid=${{ fromJSON(env.FOLDER_VARS).BOT_UID }}"
+            echo "dev_uid=${{ fromJSON(env.FOLDER_VARS).DEV_UID }}"
+          } >> "$GITHUB_ENV"
+
+      - name: Create folders
+        id: ensure
+        shell: bash
+        run: |
+          # --------------------------------------------------------------------------------
+          # Example: GreatGrandma/Grandma/Mom/Daughter
+          # PARENT_FQN == everything before our target subfolder == GreatGrandma/Grandma
+          # PARENT_NAME == The direct parent of our target subfolder == Mom
+          # CHILD_NAME == our target subfolder == Daughter
+
+          # orphan                              -> orphan
+          # GreatGrandma/Grandma/Mom/Daughter   -> Daughter
+          # GreatGrandma/Grandma                -> Grandma
+          # --------------------------------------------------------------------------------
+          
+          FULLY_QUALIFIED="${{ needs.BOOTSTRAP.outputs.folder }}"
+
+          trimmed="${FULLY_QUALIFIED%/}"
+          folder="${trimmed##*/}"
+
+          echo "FULLY_QUALIFIED='${FULLY_QUALIFIED}' -> folder='${folder}'"
+
+          if [[ "${trimmed}" == *"/"* ]]; then
+            PARENT_FQN="${trimmed%/*}"   
+            PARENT_NAME="${PARENT_FQN##*/}" 
+          else
+            PARENT_FQN=""
+            PARENT_NAME=""
+          fi
+
+          echo "parent_fqn='${PARENT_FQN}' parent_name='${PARENT_NAME}'"
+
+          echo "folder=${folder}" >> "$GITHUB_OUTPUT"
+          
+          
+          FOUND_ID=""
+          FOUND_NAME=""
+          if [ -n "$FULLY_QUALIFIED" ]; then
+              echo "Searching by name: $FULLY_QUALIFIED"
+              response=$(curl  -H "Authorization: Bearer ${{ env.TOKEN }}" \
+                "${{ env.OR_URL }}/odata/Folders?\$filter=FullyQualifiedName%20eq%20'$FULLY_QUALIFIED'&\$select=Id,FullyQualifiedName")
+              echo "Response: $response"
+              
+              FOUND_ID=$(echo "$response" | jq -r '.value[0].Id // empty')
+              FOUND_NAME=$(echo "$response" | jq -r '.value[0].FullyQualifiedName // empty')
+              if [ -n "$FOUND_ID" ] && [ -n "$FOUND_NAME" ]; then
+                echo "Folder Found: $FOUND_NAME ($FOUND_ID)"
+                echo "FID=$FOUND_ID" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "Did not find folder by FullyQualifiedName"
+          fi
+
+
+          # ===============================================================================================
+          # Create
+          # must check if fully qualified name includes sub folders
+          # we are only creating the last subfolder and using the second to last folder as the parent id
+          # ex: FullyQualifiedName: Grandma/Mom/Daughter -> we create daughter folder using Mom id
+          # *Note:this process isn't recursive so if Grandma or Mom folder don't exist we fail*
+          # ===============================================================================================
+
+          if [ -z "$FULLY_QUALIFIED" ]; then
+            echo "No FOLDER NAME to Create"
+            exit 1;
+          fi
+
+          if [ -z "$FOUND_ID" ]; then
+            if [ -n "$PARENT_NAME" ]; then
+              echo "Getting parent folder id"
+              parent_response=$(curl  --location  \
+                --header "Authorization: Bearer ${{ env.TOKEN }}" \
+                --header "Content-Type: application/json" \
+                "${{ env.OR_URL }}/odata/Folders?\$select=Id&\$filter=DisplayName%20eq%20'$PARENT_NAME'"
+              )
+              echo "Response: $parent_response"
+              PARENT_ID=$(echo "$parent_response" | jq -r '.Id // .value[0].Id // empty')
+
+              echo "Creating Sub Folder"
+              response=$(curl  --location --request POST \
+                --header "Authorization: Bearer ${{ env.TOKEN }}" \
+                --header "Content-Type: application/json" \
+                --data "{
+                    \"DisplayName\": \"$folder\",
+                    \"Description\": \"Created via API\",
+                    \"FullyQualifiedName\": \"$FULLY_QUALIFIED\",
+                    \"ProvisionType\": \"Automatic\",
+                    \"PermissionModel\": \"FineGrained\",
+                    \"FeedType\": \"Processes\",
+                    \"ParentId\": $PARENT_ID
+                }" \
+                "${{ env.OR_URL }}/odata/Folders"
+              )
+              echo "Response: $response"
+            else
+              echo "Creating Folder (Not a SubFolder)"
+              response=$(curl --fail --location --request POST \
+                --header "Authorization: Bearer ${{ env.TOKEN }}" \
+                --header "Content-Type: application/json" \
+                --data "{
+                    \"DisplayName\": \"$FULLY_QUALIFIED\",
+                    \"Description\": \"Created via API\",
+                    \"FullyQualifiedName\": \"$FULLY_QUALIFIED\",
+                    \"ProvisionType\": \"Automatic\",
+                    \"PermissionModel\": \"FineGrained\",
+                    \"FeedType\": \"Processes\"
+                }" \
+                "${{ env.OR_URL }}/odata/Folders"
+              )
+              echo "Response: $response"
+            fi
+
+            FOUND_ID=$(echo "$response" | jq -r '.Id // .value[0].Id // empty')
+            FOUND_NAME=$(echo "$response" | jq -r '.FullyQualifiedName // .value[0].FullyQualifiedName // empty')
+
+            echo "FID=$FOUND_ID" >> "$GITHUB_OUTPUT"
+
+          # ===============================================================================================
+          # Now That Folder is Created We Allocate
+          # We assign a bot user with robot role
+          # We assign user/directory group with a developer role
+          # We assign a machine with testing license
+          # ===============================================================================================
+
+
+            res=$(curl  --location --request POST \
+                --header "Authorization: Bearer ${{ env.TOKEN }}" \
+                --header "Content-Type: application/json" \
+                --header "X-UIPATH-OrganizationUnitId: $FOUND_ID" \
+                --data "{
+                        \"assignments\": {
+                          \"UserIds\": [ ${{ env.dev_uid}} ],
+                          \"RolesPerFolder\": [
+                            { \"FolderId\": $FOUND_ID,
+                              \"RoleIds\": [ ${{ env.dev_rid }} ] }
+                          ]
+                        }
+                      }" \
+                "${{ env.OR_URL }}/odata/Folders/UiPath.Server.Configuration.OData.AssignUsers"
+            )
+            echo "Response: $res"
+            echo "Assigned User/User Role to Created Folder"
+
+            if [ "${{ env.target_env }}" != "prod" ]; then
+              re=$(curl  --location --request POST \
+                  --header "Authorization: Bearer ${{ env.TOKEN }}" \
+                  --header "Content-Type: application/json" \
+                  --header "X-UIPATH-OrganizationUnitId: $FOUND_ID" \
+                  --data "{
+                          \"assignments\": {
+                            \"UserIds\": [ ${{ env.bot_uid}} ],
+                            \"RolesPerFolder\": [
+                              { \"FolderId\": $FOUND_ID,
+                                \"RoleIds\": [ ${{ env.bot_rid }} ] }
+                            ]
+                          }
+                        }" \
+                  "${{ env.OR_URL }}/odata/Folders/UiPath.Server.Configuration.OData.AssignUsers"
+              )
+              echo "Response: $re"
+              echo "Assigned Bot/Bot Role to Created Folder"
+
+              r=$(curl  --location --request POST \
+                  --header "Authorization: Bearer ${{ env.TOKEN }}" \
+                  --header "Content-Type: application/json" \
+                  --header "X-UIPATH-OrganizationUnitId: $FOUND_ID" \
+                  --data "{
+                            \"assignments\": {
+                              \"FolderIds\": [ $FOUND_ID ],
+                              \"MachineIds\": [ ${{ env.mid }} ]
+                            }
+                          }" \
+                  "${{ env.OR_URL }}/odata/Folders/UiPath.Server.Configuration.OData.AssignMachines"
+              )
+              echo "Response: $r"
+              echo "Assigned Machine to Created Folder"
+              exit 0
+            fi
+          fi
+          echo "Failed to find or create a folder"
   copy:
     runs-on: ubuntu-latest
     needs: [BOOTSTRAP]
