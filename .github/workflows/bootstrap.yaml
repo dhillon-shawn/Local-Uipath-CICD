@@ -610,10 +610,10 @@ jobs:
                 --header "X-UIPATH-OrganizationUnitId: $FOUND_ID" \
                 --data "{
                         \"assignments\": {
-                          \"UserIds\": [ ${{ env.dev_uid}} ],
+                          \"UserIds\": [ ${{ env.DEV_UID}} ],
                           \"RolesPerFolder\": [
                             { \"FolderId\": $FOUND_ID,
-                              \"RoleIds\": [ ${{ env.dev_rid }} ] }
+                              \"RoleIds\": [ ${{ env.DEV_RID }} ] }
                           ]
                         }
                       }" \
@@ -629,10 +629,10 @@ jobs:
                   --header "X-UIPATH-OrganizationUnitId: $FOUND_ID" \
                   --data "{
                           \"assignments\": {
-                            \"UserIds\": [ ${{ env.bot_uid}} ],
+                            \"UserIds\": [ ${{ env.BOT_UID}} ],
                             \"RolesPerFolder\": [
                               { \"FolderId\": $FOUND_ID,
-                                \"RoleIds\": [ ${{ env.bot_rid }} ] }
+                                \"RoleIds\": [ ${{ env.BOT_RID }} ] }
                             ]
                           }
                         }" \
@@ -648,7 +648,7 @@ jobs:
                   --data "{
                             \"assignments\": {
                               \"FolderIds\": [ $FOUND_ID ],
-                              \"MachineIds\": [ ${{ env.mid }} ]
+                              \"MachineIds\": [ ${{ env.MID }} ]
                             }
                           }" \
                   "${{ env.OR_URL }}/odata/Folders/UiPath.Server.Configuration.OData.AssignMachines"
