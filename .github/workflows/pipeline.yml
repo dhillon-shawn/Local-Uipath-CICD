@@ -85,24 +85,7 @@ jobs:
           pid: ${{ needs.setup.outputs.pid }}
           bump_major: ${{ needs.setup.outputs.bump_major }}
 
-      - name: auth
-        if: inputs.target_env != 'dev' && needs.setup.outputs.ptype == 'Process'
-        uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
-        with:
-          target_env: ${{ inputs.target_env == 'hotfix' && 'prod' || inputs.target_env }}
-          role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
-          aws_region: "us-west-2"
-          secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
-          scopes: ${{ env.scope }}
 
-      - id: folder
-        name: Resolve / create folder
-        if: needs.setup.outputs.ptype == 'Process'
-        uses: dhillon-shawn/Local-CICD-UTILS/ensure-folder@v0
-        with:
-          target_env: ${{ inputs.target_env }}
-          pid: ${{ needs.setup.outputs.pid }}
-          vars: ${{ needs.setup.outputs.vars}}
   CLI:
     runs-on: windows-latest
     needs: [setup, ensure]

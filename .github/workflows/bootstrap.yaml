@@ -20,6 +20,7 @@ permissions: write-all
 env:
   scope: "OR.Folders OR.BackgroundTasks OR.TestSets OR.TestSetExecutions OR.TestSetSchedules OR.Settings.Read OR.Robots.Read OR.Machines OR.Execution OR.Assets OR.Users.Read OR.Jobs OR.Monitoring OR.Robots"
   FOLDER_VARS: |
+              {
                 "dev": {
                   "MID": "",
                   "DEV_RID": "6144536",
@@ -41,7 +42,8 @@ env:
                   "BOT_UID": "",
                   "BOT_RID": "6144535",
                 }
-              
+              }
+
 
 jobs:
   BOOTSTRAP:
@@ -445,7 +447,7 @@ jobs:
     needs: BOOTSTRAP
     strategy:
       matrix:
-        env: [dev, test, prod]
+        target: [dev, test, prod]
 
     steps:
 
@@ -457,17 +459,26 @@ jobs:
           aws_region: "us-west-2"
           secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
           scopes: ${{ env.scope }}
-      - name: set vars
+      - name: Set vars for this matrix target
         shell: bash
         run: |
           {
-            echo "dev_rid=${{ fromJSON(env.FOLDER_VARS)[matrix.env].DEV_RID }}"
-            echo "bot_rid=${{ fromJSON(env.FOLDER_VARS)[matrix.env].BOT_RID }}"
-            echo "mid=${{ fromJSON(env.FOLDER_VARS)[matrix.env].MID }}"
-            echo "bot_uid=${{ fromJSON(env.FOLDER_VARS)[matrix.env].BOT_UID }}"
-            echo "dev_uid=${{ fromJSON(env.FOLDER_VARS)[matrix.env].DEV_UID }}"
+            echo "DEV_RID=${{ fromJSON(env.FOLDER_VARS)[matrix.target].DEV_RID }}"
+            echo "BOT_RID=${{ fromJSON(env.FOLDER_VARS)[matrix.target].BOT_RID }}"
+            echo "MID=${{ fromJSON(env.FOLDER_VARS)[matrix.target].MID }}"
+            echo "BOT_UID=${{ fromJSON(env.FOLDER_VARS)[matrix.target].BOT_UID }}"
+            echo "DEV_UID=${{ fromJSON(env.FOLDER_VARS)[matrix.target].DEV_UID }}"
           } >> "$GITHUB_ENV"
-
+           
+      - name: Show values
+        run: |
+          echo "target: ${{ matrix.target }}"
+          echo "DEV_RID=$DEV_RID"
+          echo "BOT_RID=$BOT_RID"
+          echo "MID=$MID"
+          echo "BOT_UID=$BOT_UID"
+          echo "DEV_UID=$DEV_UID"
+          
       - name: Create folders
         id: ensure
         shell: bash
