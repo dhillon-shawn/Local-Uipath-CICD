@@ -448,15 +448,24 @@ jobs:
         env: [dev, test, prod]
 
     steps:
+
+      - name: Auth
+        uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
+        with:
+          target_env: ${{matrix.env}}
+          role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
+          aws_region: "us-west-2"
+          secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
+          scopes: ${{ env.scope }}
       - name: set vars
         shell: bash
         run: |
           {
-            echo "dev_rid=${{ fromJSON(env.FOLDER_VARS).DEV_RID }}"
-            echo "bot_rid=${{ fromJSON(env.FOLDER_VARS).BOT_RID }}"
-            echo "mid=${{ fromJSON(env.FOLDER_VARS).MID }}"
-            echo "bot_uid=${{ fromJSON(env.FOLDER_VARS).BOT_UID }}"
-            echo "dev_uid=${{ fromJSON(env.FOLDER_VARS).DEV_UID }}"
+            echo "dev_rid=${{ fromJSON(env.FOLDER_VARS)[matrix.env].DEV_RID }}"
+            echo "bot_rid=${{ fromJSON(env.FOLDER_VARS)[matrix.env].BOT_RID }}"
+            echo "mid=${{ fromJSON(env.FOLDER_VARS)[matrix.env].MID }}"
+            echo "bot_uid=${{ fromJSON(env.FOLDER_VARS)[matrix.env].BOT_UID }}"
+            echo "dev_uid=${{ fromJSON(env.FOLDER_VARS)[matrix.env].DEV_UID }}"
           } >> "$GITHUB_ENV"
 
       - name: Create folders
