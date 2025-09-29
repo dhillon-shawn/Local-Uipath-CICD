@@ -49,14 +49,14 @@ jobs:
           everything: "true"
 
       - name: Scan assets
-        id: scan
+        id: parse
         uses: dhillon-shawn/Local-CICD-UTILS/parse-assets@v0
 
       - name: Upload assets.json
         uses: actions/upload-artifact@v4
         with:
           name: uipath-assets
-          path: assets.json
+          path: ${{ steps.parse.outputs.assets_json_path }}
 
   ensure:
     runs-on: windows-latest
