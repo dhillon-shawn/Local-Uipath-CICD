@@ -22,6 +22,7 @@ jobs:
       ptype: ${{ steps.setup.outputs.ptype }}
       entry_point: ${{ steps.setup.outputs.entry_point }}
       deployment_matrix: ${{ steps.setup.outputs.deployment_matrix }}
+      migration_matrix: ${{ steps.setup.outputs.migration_matrix }}
       email: ${{ steps.setup.outputs.EMAIL }}
       skip_ci: ${{ steps.setup.outputs.skip_ci }}
       vars: ${{ steps.capture.outputs.vars }}
@@ -57,12 +58,9 @@ jobs:
 
 
 
-  ensure:
-    runs-on: windows-latest
+  prep:
+    runs-on: ubuntu-latest
     needs: [setup]
-    strategy:
-      matrix: ${{ fromJSON(needs.setup.outputs.deployment_matrix) }}
-      max-parallel: 1
     outputs:
       version: ${{ steps.compute.outputs.version }}
 
@@ -74,7 +72,7 @@ jobs:
       - name: auth
         uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
         with:
-          target_env: ${{ matrix.env == 'prod-bypass' && 'prod' || matrix.env }}
+          target_env: dev
           role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
           aws_region: "us-west-2"
           secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
@@ -82,7 +80,6 @@ jobs:
 
       - name: Compute version
         id: compute
-        if: matrix.env == 'dev'
         uses: dhillon-shawn/Local-CICD-UTILS/compute-version@v0
         with:
           pid: ${{ needs.setup.outputs.pid }}
@@ -90,24 +87,44 @@ jobs:
 
       - name: Get asset values
         id: get
-        if: matrix.env == 'dev'
+        if: inputs.target_env != 'dev'
         uses: dhillon-shawn/Local-CICD-UTILS/get-assets@v0
         with:
           folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
           asset_filter: ${{ needs.setup.outputs.asset_filter }}
 
+
+
+  migrate-assets:
+    runs-on: ubuntu-latest
+    if: inputs.target_env != 'dev'
+    needs: [setup,prep]
+    strategy:
+      matrix: ${{ fromJSON(needs.setup.outputs.migration_matrix) }}
+      max-parallel: 1
+    steps:
+      - name: Checkout exact source ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+      - name: auth
+        uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
+        with:
+          target_env: ${{ matrix.env }}
+          role_arn: ${{ secrets.RPA_UIPATH_CICD_ROLE_ARN }}
+          aws_region: "us-west-2"
+          secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
+          scopes: ${{ env.scope }}
+
       - name: Migrate assets
-        if: matrix.env != 'dev'
-        id: mig
+        id: migrate
         uses: dhillon-shawn/Local-CICD-UTILS/migrate-assets@v0
         with:
           folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
           asset_names: ${{ needs.setup.outputs.asset_names }}
-
-
   CLI:
     runs-on: windows-latest
-    needs: [setup, ensure]
+    needs: [setup, prep, migrate-assets]
     steps:
       - name: Checkout exact source ref
         uses: actions/checkout@v4
@@ -151,17 +168,14 @@ jobs:
         uses: dhillon-shawn/Local-CICD-UTILS/pack@v0
         with:
           ptype: ${{ needs.setup.outputs.ptype }}
-          version: ${{ needs.ensure.outputs.version }}
+          version: ${{ needs.prep.outputs.version }}
           release_notes: ${{ needs.setup.outputs.notes }}
 
   Deploy:
     runs-on: ubuntu-latest
-    needs: [setup, ensure, CLI]
+    needs: [setup, prep,migrate-assets, CLI]
     strategy:
       matrix: ${{ fromJSON(needs.setup.outputs.deployment_matrix) }}
-    concurrency:
-      group: deploy-${{ matrix.env }}-${{ github.ref }}
-      cancel-in-progress: false
     steps:
       - name: Checkout exact source ref
         uses: actions/checkout@v4
@@ -177,19 +191,17 @@ jobs:
           secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
           scopes: ${{ env.scope }}
 
-
-
       - name: Deploy
         id: CD
         uses: dhillon-shawn/Local-CICD-UTILS/cd@v0
         with:
           folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
-          version: ${{ needs.ensure.outputs.version }}
+          version: ${{ needs.prep.outputs.version }}
           pid: ${{ needs.setup.outputs.pid }}
           ptype: ${{needs.setup.outputs.ptype}}
 
   rc:
-    needs: [setup, ensure, Deploy]
+    needs: [setup, prep,migrate-assets,CLI, Deploy]
     runs-on: ubuntu-latest
     steps:
       - name: Create RC + upload package/meta data
@@ -197,21 +209,21 @@ jobs:
         uses: dhillon-shawn/Local-CICD-UTILS/rc-upload@v0
         with:
           PID: ${{ needs.setup.outputs.pid }}
-          VERSION: ${{ needs.ensure.outputs.version }}
+          VERSION: ${{ needs.prep.outputs.version }}
           SHA: ${{ inputs.sha }}
           RC_TAG: ${{ inputs.rc_tag }}
           PR_NUM: ${{ inputs.pr_num }}
           FOLDER: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
 
   send:
-    needs: [setup, ensure, CLI, Deploy, rc]
+    needs: [setup, prep,migrate-assets, CLI, Deploy, rc]
     if: ${{ always() && !cancelled() }}
     uses: dhillon-shawn/Local-Uipath-CICD/.github/workflows/send-email.yml@main
     secrets: inherit
     with:
       target_env: ${{ inputs.target_env }}
       result: ${{ needs.DEPLOY.result }}
-      version: ${{ needs.ensure.outputs.version }}
+      version: ${{ needs.prep.outputs.version }}
       folder_name: ${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}
       pid: ${{ needs.setup.outputs.pid }}
       email: ${{ needs.setup.outputs.email }}
