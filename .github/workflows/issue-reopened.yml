@@ -86,6 +86,7 @@ jobs:
 
   rollback_pr:
     runs-on: ubuntu-latest
+    needs: prep
 
     steps:
       # 1) Load the issue & derive a slug
@@ -161,32 +162,44 @@ jobs:
           git switch -c "$BRANCH"
 
           mode="${MODE}"
-          # Parse JSON array to lines
           mapfile -t targets < <(echo "${TARGETS}" | jq -r '.[]')
 
           if [ "${#targets[@]}" -eq 0 ]; then
             echo "No revert targets found in pr-merge-meta"; exit 1
           fi
 
-          # For rebase merges, revert the series in reverse order
+          # Rebase merges revert oldest-first
           if [ "$mode" = "rebase" ]; then
             mapfile -t targets < <(printf "%s\n" "${targets[@]}" | tac)
           fi
 
-          if [ "$mode" = "merge" ]; then
-            for sha in "${targets[@]}"; do
-              echo "Reverting MERGE commit $sha (-m 1)"
-              git revert -m 1 --no-edit "$sha"
-            done
+          had_conflict=0
+
+          # Build the revert without committing so we can handle conflicts gracefully
+          for sha in "${targets[@]}"; do
+            if [ "$mode" = "merge" ]; then
+              echo "Reverting MERGE commit $sha (-m 1, --no-commit)"
+              # Allow conflicts; we'll handle after the loop
+              git revert -m 1 --no-commit "$sha" || had_conflict=1
+            else
+              echo "Reverting commit $sha (--no-commit)"
+              git revert --no-commit "$sha" || had_conflict=1
+            fi
+          done
+
+          if [ "$had_conflict" -eq 1 ]; then
+            echo "::warning::Conflicts detected during revert. Creating WIP commit for manual resolution."
+            # Stage whatever state we have (including conflict markers) and commit
+            git add -A
+            git commit -m "WIP rollback: automatic revert encountered conflicts; manual resolution required"
           else
-            for sha in "${targets[@]}"; do
-              echo "Reverting commit $sha"
-              git revert --no-edit "$sha"
-            done
+            # Clean revert, make a tidy message with the list of shas
+            msg="rollback: revert ${#targets[@]} commit(s): $(printf '%s ' "${targets[@]}")"
+            git commit -m "$msg"
           fi
 
           git push --set-upstream origin "$BRANCH"
-          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
       # 5) Open the rollback PR (hard-link to the reopened issue)
       - name: open rollback PR
