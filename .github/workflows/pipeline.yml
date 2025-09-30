@@ -122,6 +122,7 @@ jobs:
         with:
           folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
           asset_names: ${{ needs.setup.outputs.asset_names }}
+          target: ${{ matrix.env }}
   CLI:
     runs-on: windows-latest
     needs: [setup, prep, migrate-assets]
