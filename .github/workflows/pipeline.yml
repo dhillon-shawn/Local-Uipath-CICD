@@ -30,6 +30,7 @@ jobs:
       bump_major: ${{ steps.setup.outputs.bump_major }}
       asset_filter:       ${{ steps.parse.outputs.asset_filter }}
       asset_names:       ${{ steps.parse.outputs.asset_names }}
+    
 
 
 
