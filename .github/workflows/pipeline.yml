@@ -61,6 +61,10 @@ jobs:
     needs: [setup]
     outputs:
       version: ${{ steps.compute.outputs.version }}
+      text_json: ${{ steps.get.outputs.text_json }}
+      int_json: ${{ steps.get.outputs.int_json }}
+      bool_json: ${{ steps.get.outputs.bool_json }}
+      file: ${{ steps.get.outputs.file }}
     steps:
       - name: Checkout exact source ref
         uses: actions/checkout@v4
@@ -90,12 +94,6 @@ jobs:
           folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
           asset_filter: ${{ needs.setup.outputs.asset_filter }}
 
-
-      - name: Upload values
-        uses: actions/upload-artifact@v4
-        with:
-          name: assets-values
-          path: ${{ steps.get.outputs.path }}
 
   CLI:
     runs-on: windows-latest
@@ -171,20 +169,16 @@ jobs:
           scopes: ${{ env.scope }}
 
 
-
-      - name: Download values
-        if: matrix.env != 'dev'
-        uses: actions/download-artifact@v4
-        with:
-          name: assets-values
-
       - name: Migrate assets
         if: matrix.env != 'dev'
         id: mig
         uses: dhillon-shawn/Local-CICD-UTILS/migrate-assets@v0
         with:
           folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
-          values_path: assets.values.json
+          text_json: ${{ needs.ensure.outputs.text_json }}
+          int_json: ${{ needs.ensure.outputs.int_json }}
+          bool_json: ${{ needs.ensure.outputs.bool_json }}
+          file: ${{ needs.ensure.outputs.file }}
 
       - name: Results
         if: matrix.env != 'dev'
