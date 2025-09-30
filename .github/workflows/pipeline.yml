@@ -27,10 +27,8 @@ jobs:
       vars: ${{ steps.capture.outputs.vars }}
       notes: ${{ steps.setup.outputs.notes }}
       bump_major: ${{ steps.setup.outputs.bump_major }}
-      text_names:       ${{ steps.parse.outputs.text_names }}
-      int_names:        ${{ steps.parse.outputs.int_names }}
-      bool_names:       ${{ steps.parse.outputs.bool_names }}
-      credential_names: ${{ steps.parse.outputs.credential_names }}
+      asset_filter:       ${{ steps.parse.outputs.asset_filter }}
+
 
 
     steps:
@@ -90,9 +88,8 @@ jobs:
         uses: dhillon-shawn/Local-CICD-UTILS/get-assets@v0
         with:
           folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
-          text_names:  ${{ needs.setup.outputs.text_names }}
-          int_names:   ${{ needs.setup.outputs.int_names }}
-          bool_names:  ${{ needs.setup.outputs.bool_names }}
+          asset_filter: ${{ needs.setup.outputs.asset_filter }}
+
 
       - name: Upload values
         uses: actions/upload-artifact@v4
@@ -175,7 +172,7 @@ jobs:
 
 
 
-      - name: Download values 
+      - name: Download values
         if: matrix.env != 'dev'
         uses: actions/download-artifact@v4
         with:
