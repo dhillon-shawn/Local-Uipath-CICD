@@ -175,10 +175,6 @@ jobs:
         uses: dhillon-shawn/Local-CICD-UTILS/migrate-assets@v0
         with:
           folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
-          text_json: ${{ needs.ensure.outputs.text_json }}
-          int_json: ${{ needs.ensure.outputs.int_json }}
-          bool_json: ${{ needs.ensure.outputs.bool_json }}
-          file: ${{ needs.ensure.outputs.file }}
 
       - name: Results
         if: matrix.env != 'dev'
