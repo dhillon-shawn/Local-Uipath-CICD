@@ -228,3 +228,4 @@ jobs:
       folder_name: ${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}
       pid: ${{ needs.setup.outputs.pid }}
       email: ${{ needs.setup.outputs.email }}
+      asset_names: ${{needs.setup.outputs.asset_names}}

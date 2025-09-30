@@ -9,7 +9,7 @@ on:
       folder_name: { type: string, required: true }
       pid: { type: string, required: true }
       publishable: { type: string, required: false }
-      migrate: { type: string, required: false }
+      asset_names: { type: string, required: false }
     secrets: {}
 
 jobs:
@@ -34,7 +34,7 @@ jobs:
           version: ${{ inputs.version }}
           folder_name: ${{ inputs.folder_name }}
           project_id: ${{ inputs.pid }}
-          migrate: ${{ inputs.migrate }}
+          asset_names: ${{inputs.asset_names}}
 
 
   send:
