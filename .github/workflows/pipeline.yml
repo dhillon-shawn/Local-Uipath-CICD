@@ -85,6 +85,20 @@ jobs:
           pid: ${{ needs.setup.outputs.pid }}
           bump_major: ${{ needs.setup.outputs.bump_major }}
 
+      - name: Get asset values
+        id: get
+        uses: dhillon-shawn/Local-CICD-UTILS/get-assets@v0
+        with:
+          folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
+          text_names:  ${{ needs.setup.outputs.text_names }}
+          int_names:   ${{ needs.setup.outputs.int_names }}
+          bool_names:  ${{ needs.setup.outputs.bool_names }}
+
+      - name: Upload values
+        uses: actions/upload-artifact@v4
+        with:
+          name: assets-values
+          path: ${{ steps.get.outputs.path }}
 
   CLI:
     runs-on: windows-latest
@@ -159,30 +173,15 @@ jobs:
           secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
           scopes: ${{ env.scope }}
 
-      - name: Get asset values (dev)
-        if: matrix.env == 'dev'
-        id: get
-        uses: dhillon-shawn/Local-CICD-UTILS/get-assets@v0
-        with:
-          folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
-          text_names:  ${{ needs.parse-assets.outputs.text_names }}
-          int_names:   ${{ needs.parse-assets.outputs.int_names }}
-          bool_names:  ${{ needs.parse-assets.outputs.bool_names }}
 
-      - name: Upload values (dev only)
-        if: matrix.env == 'dev'
-        uses: actions/upload-artifact@v4
-        with:
-          name: assets-values
-          path: ${{ steps.get.outputs.path }}
 
-      - name: Download values (non-dev)
+      - name: Download values 
         if: matrix.env != 'dev'
         uses: actions/download-artifact@v4
         with:
           name: assets-values
 
-      - name: Migrate assets (non-dev)
+      - name: Migrate assets
         if: matrix.env != 'dev'
         id: mig
         uses: dhillon-shawn/Local-CICD-UTILS/migrate-assets@v0
