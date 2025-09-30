@@ -27,6 +27,10 @@ jobs:
       vars: ${{ steps.capture.outputs.vars }}
       notes: ${{ steps.setup.outputs.notes }}
       bump_version: ${{ steps.setup.outputs.bump_major }}
+      text_names:       ${{ steps.parse.outputs.text_names }}
+      int_names:        ${{ steps.parse.outputs.int_names }}
+      bool_names:       ${{ steps.parse.outputs.bool_names }}
+      credential_names: ${{ steps.parse.outputs.credential_names }}
 
 
     steps:
@@ -159,6 +163,43 @@ jobs:
           secret_id: ${{ secrets.RPA_UIPATH_CICD_SECRET_ARN }}
           scopes: ${{ env.scope }}
 
+      - name: Get asset values (dev)
+        if: matrix.env == 'dev'
+        id: get
+        uses: dhillon-shawn/Local-CICD-UTILS/get-assets@v0
+        with:
+          folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
+          text_names:  ${{ needs.parse-assets.outputs.text_names }}
+          int_names:   ${{ needs.parse-assets.outputs.int_names }}
+          bool_names:  ${{ needs.parse-assets.outputs.bool_names }}
+
+      - name: Upload values (dev only)
+        if: matrix.env == 'dev'
+        uses: actions/upload-artifact@v4
+        with:
+          name: assets-values
+          path: ${{ steps.get.outputs.path }}
+
+      - name: Download values (non-dev)
+        if: matrix.env != 'dev'
+        uses: actions/download-artifact@v4
+        with:
+          name: assets-values
+
+      - name: Migrate assets (non-dev)
+        if: matrix.env != 'dev'
+        id: mig
+        uses: dhillon-shawn/Local-CICD-UTILS/migrate-assets@v0
+        with:
+          folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
+          values_path: assets.values.json
+
+      - name: Results
+        if: matrix.env != 'dev'
+        run: |
+          echo "Migrated OK:    ${{ steps.mig.outputs.migrated_ok }}"
+          echo "Migrated FAIL:  ${{ steps.mig.outputs.migrated_fail }}"
+          
       - name: Deploy
         id: CD
         uses: dhillon-shawn/Local-CICD-UTILS/cd@v0
