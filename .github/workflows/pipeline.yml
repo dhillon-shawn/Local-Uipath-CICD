@@ -26,7 +26,7 @@ jobs:
       skip_ci: ${{ steps.setup.outputs.skip_ci }}
       vars: ${{ steps.capture.outputs.vars }}
       notes: ${{ steps.setup.outputs.notes }}
-      bump_version: ${{ steps.setup.outputs.bump_major }}
+      bump_major: ${{ steps.setup.outputs.bump_major }}
       text_names:       ${{ steps.parse.outputs.text_names }}
       int_names:        ${{ steps.parse.outputs.int_names }}
       bool_names:       ${{ steps.parse.outputs.bool_names }}
