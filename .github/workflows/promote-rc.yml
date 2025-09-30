@@ -78,7 +78,7 @@ jobs:
         with:
           folder_name: "${{ fromJSON(needs.setup.outputs.vars).FOLDER_NAME }}"
           asset_filter: ${{ needs.setup.outputs.asset_filter }}
-          
+
       - name: auth
         uses: dhillon-shawn/Local-CICD-UTILS/auth@v0
         with:
@@ -97,7 +97,7 @@ jobs:
           target: ${{ inputs.target_env }}
   CLI:
     runs-on: windows-latest
-    needs: [setup]
+    needs: [setup,migrate-assets]
     if: ((  needs.setup.outputs.skip_ci  == 'false')  && inputs.target_env == 'test') && needs.setup.outputs.ptype == 'Process'
     steps:
       - name: Checkout
@@ -124,7 +124,7 @@ jobs:
           skip_ci: ${{ needs.setup.outputs.skip_ci}}
 
   Deploy:
-    needs: [setup,  CLI]
+    needs: [setup, migrate-assets, CLI]
     runs-on: ubuntu-latest
     if: ${{ always() && needs.CLI.result != 'failure' && !cancelled() }}
     steps:
@@ -147,7 +147,7 @@ jobs:
           ptype: ${{ needs.setup.outputs.ptype }}
 
   send:
-    needs: [setup,  Deploy]
+    needs: [setup, migrate-assets, Deploy]
     if: ${{ always() && !cancelled() }}
     uses: dhillon-shawn/Local-Uipath-CICD/.github/workflows/send-email.yml@main
     secrets: inherit
