@@ -1,240 +1,163 @@
-name: Create branch, PR, Ticket for issues
+name: Issue → Branch + PR
 
 on:
-    workflow_call:
+  issues:
+    types: [opened, edited]
 
-permissions: write-all
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
 
 jobs:
-    parse:
-        outputs:
-            user_email: ${{ steps.parse.outputs.user_email }}
-            start: ${{ steps.parse.outputs.start }}
-            end: ${{ steps.parse.outputs.end }}
-            effort: ${{ steps.parse.outputs.effort }}
-            justification: ${{ steps.parse.outputs.justification }}
-            plan: ${{ steps.parse.outputs.plan }}
-            test_plan: ${{ steps.parse.outputs.test_plan }}
-            risk: ${{ steps.parse.outputs.risk }}
-            impacted_groups: ${{ steps.parse.outputs.impacted_groups }}
-            impacted_users: ${{ steps.parse.outputs.impacted_users }}
-            notified_when: ${{ steps.parse.outputs.notified_when }}
-            notified_how: ${{ steps.parse.outputs.notified_how }}
-            backup: ${{ steps.parse.outputs.backup }}
-            public: ${{ steps.parse.outputs.public }}
-            cdt: ${{ steps.parse.outputs.cdt }}
-            new_app: ${{ steps.parse.outputs.new_app }}
-            title: ${{ steps.parse.outputs.title }}
-            url: ${{ steps.parse.outputs.url }}
-        runs-on: ubuntu-latest
-        steps:
-            - name: assign check
-              id: check
-              run: |
-                  echo "issue_number=${{ github.event.issue.number }}"
-                  echo "assignees_json=${{ toJson(github.event.issue.assignees) }}"
-                  if [ "${{ toJson(github.event.issue.assignees) }}" = "[]" ]; then
-                    echo "has_assignees=false" >> $GITHUB_OUTPUT
-                    echo "result=no current assignee"
-                  else
-                    echo "has_assignees=true" >> $GITHUB_OUTPUT
-                    echo "result=already assigned"
-                  fi
+  issue_to_pr:
+    # run only if it looks like release or hotfix work
+    if: contains(join(github.event.issue.labels.*.name, ','), 'release') ||
+        contains(join(github.event.issue.labels.*.name, ','), 'hotfix')
+    runs-on: ubuntu-latest
 
-            - name: assign ensure
-              if: steps.check.outputs.has_assignees == 'false'
-              uses: pozil/auto-assign-issue@v2
-              with:
-                  assignees: "${{ github.event.issue.user.login }}"
-                  numOfAssignee: 1
+    steps:
+      - name: Decide mode (release vs hotfix)
+        id: mode
+        run: |
+          labels="${{ join(github.event.issue.labels.*.name, ',') }}"
+          if echo "$labels" | grep -qi hotfix; then
+            echo "mode=hotfix" >> $GITHUB_OUTPUT
+            echo "pr_draft=false" >> $GITHUB_OUTPUT
+          else
+            echo "mode=release" >> $GITHUB_OUTPUT
+            echo "pr_draft=true"  >> $GITHUB_OUTPUT  # your convention: release PRs start as draft
+          fi
 
-            - name: issue refresh
-              id: issue
-              uses: actions/github-script@v7
-              with:
-                  script: |
-                      const repo = context.repo;
-                      const num = context.payload.issue.number;
-                      const { data: issue } = await github.rest.issues.get({ ...repo, issue_number: num });
-                      const labels = (issue.labels || []).map(l => typeof l === 'string' ? l : l.name);
-                      const mode = labels.includes('hotfix') ? 'hotfix' : 'release';
-                      core.info(`issue: #${num} | mode=${mode} | labels=[${labels.join(', ')}] | assignees=[${(issue.assignees||[]).map(a=>a.login).join(', ')}]`);
-                      core.setOutput('title', issue.title || '');
-                      core.setOutput('body', issue.body || '');
-                      core.setOutput('labels', JSON.stringify(labels));
-                      core.setOutput('assignees', JSON.stringify((issue.assignees || []).map(a => a.login)));
-                      core.setOutput('milestone', issue.milestone ? String(issue.milestone.number) : '');
-                      core.setOutput('mode', mode);
+      - name: Ensure assignee (fallback to issue author)
+        if: ${{ toJson(github.event.issue.assignees) == '[]' }}
+        uses: actions-ecosystem/action-add-assignees@v1
+        with:
+          github_token: ${{ github.token }}
+          assignees: ${{ github.event.issue.user.login }}
 
-            - name: meta derive
-              id: meta
-              uses: actions/github-script@v7
-              with:
-                  script: |
-                      const issueNum = context.payload.issue.number;
-                      const nextPrNumber = issueNum + 1;
-                      const defaultBranch = context.payload.repository.default_branch;
-                      const mode = '${{ steps.issue.outputs.mode }}';
-                      const rawTitle = ${{ toJson(steps.issue.outputs.title) }};
-                      const title = rawTitle || mode;
-                      const slug = title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,50) || mode;
-                      const branch = `${mode}/${nextPrNumber}-${slug}`;
-                      const isDraft = mode === 'release';
-                      const prefix = isDraft ? 'Release: ' : 'Hotfix: ';
-                      core.info(`meta: issue=${issueNum} -> planned_pr=${nextPrNumber} | mode=${mode} | draft=${isDraft} | branch=${branch} | default=${defaultBranch}`);
-                      core.setOutput('default', defaultBranch);
-                      core.setOutput('branch', branch);
-                      core.setOutput('plannedPr', String(nextPrNumber));
-                      core.setOutput('isDraft', String(isDraft));
-                      core.setOutput('prefix', prefix);
-                      core.setOutput('slug', slug);
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
 
-            - name: checkout default
-              uses: actions/checkout@v4
-              with:
-                  ref: ${{ steps.meta.outputs.default }}
+      - name: Compute names
+        id: names
+        run: |
+          title="${{ github.event.issue.title }}"
+          num="${{ github.event.issue.number }}"
+          slug=$(echo "$title" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g;s/^-+|-+$//g' | cut -c1-50)
+          prefix="${{ steps.mode.outputs.mode }}"
+          echo "branch=${prefix}/${num}-${slug}" >> $GITHUB_OUTPUT
+          echo "pr_title=${title} (#${num})"     >> $GITHUB_OUTPUT
 
-            - name: branch init
-              env:
-                  BRANCH: ${{ steps.meta.outputs.branch }}
-                  ISSUE_NUMBER: ${{ github.event.issue.number }}
-                  MODE: ${{ steps.issue.outputs.mode }}
-              run: |
-                  echo "creating branch=$BRANCH from default=${{ steps.meta.outputs.default }} for issue #$ISSUE_NUMBER mode=$MODE"
-                  git config user.name  "github-actions[bot]"
-                  git config user.email "github-actions[bot]@users.noreply.github.com"
-                  git switch -c "$BRANCH"
-                  git commit --allow-empty -m "chore: init $MODE branch for #$ISSUE_NUMBER [skip ci]"
-                  git push --set-upstream origin "$BRANCH"
-                  echo "pushed branch=$BRANCH"
+      # --- Parse Issue Form ONLY for the "release - process" template (labels: process + release)
+      - name: Parse Issue Form (release–process only)
+        id: parse
+        if: contains(join(github.event.issue.labels.*.name, ','), 'release') &&
+            contains(join(github.event.issue.labels.*.name, ','), 'process')
+        uses: zentered/issue-forms-body-parser@v2.0.0
+        # outputs:
+        #   steps.parse.outputs.data  -> JSON string of the form values
+        #   steps.parse.outputs.fields -> CSV
+        # Zero-config; no template path required.
 
-            - name: pr open
-              id: createpr
-              uses: actions/github-script@v7
-              with:
-                  script: |
-                      const repo = context.repo;
-                      const issue_number = context.payload.issue.number;
-                      const base = '${{ steps.meta.outputs.default }}';
-                      const head = '${{ steps.meta.outputs.branch }}';
-                      const isDraft = '${{ steps.meta.outputs.isDraft }}' === 'true';
-                      const title = '${{ steps.meta.outputs.prefix }}' + ${{ toJson(steps.issue.outputs.title) }};
-                      const body = [
-                        `${isDraft ? 'Draft PR' : 'PR'} for issue #${issue_number}`,
-                        '',
-                        `Closes #${issue_number}`,
-                        '',
-                        '---',
-                        ${{ toJson(steps.issue.outputs.body) }}
-                      ].join('\n');
-                      const { data: pr } = await github.rest.pulls.create({ ...repo, title, head, base, body, draft: isDraft });
-                      const labels = JSON.parse('${{ steps.issue.outputs.labels }}');
-                      if (labels.length) await github.rest.issues.addLabels({ ...repo, issue_number: pr.number, labels });
-                      const milestone = '${{ steps.issue.outputs.milestone }}';
-                      if (milestone) await github.rest.issues.update({ ...repo, issue_number: pr.number, milestone: Number(milestone) });
-                      const assignees = JSON.parse('${{ steps.issue.outputs.assignees }}');
-                      const finalAssignees = assignees.length ? assignees : ['${{ github.event.issue.user.login }}'];
-                      await github.rest.issues.addAssignees({ ...repo, issue_number: pr.number, assignees: finalAssignees });
-                      core.info(`pr: actual=${pr.number} | planned=${'${{ steps.meta.outputs.plannedPr }}'} | url=${pr.html_url} | head=${head} -> base=${base} | draft=${isDraft}`);
-                      core.setOutput('pr_number', String(pr.number));
-                      core.setOutput('pr_url', pr.html_url)
+      # --- OPTIONAL: Validate required CR fields here (release–process only)
+      - name: Validate CR fields (release–process only)
+        if: steps.parse.outcome == 'success'
+        run: |
+          required=("start" "end" "justification" "plan" "risk" "test_plan")
+          MISSING=()
+          for key in "${required[@]}"; do
+            val=$(echo '${{ steps.parse.outputs.data }}' | jq -r --arg k "$key" '.[$k] // ""')
+            if [ -z "$val" ] || [ "$val" = "null" ]; then MISSING+=("$key"); fi
+          done
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "Missing required CR fields: ${MISSING[*]}"
+            exit 1
+          fi
 
-            - name: pr verify
-              if: always()
-              uses: actions/github-script@v7
-              with:
-                  script: |
-                      const planned = Number('${{ steps.meta.outputs.plannedPr }}');
-                      const actual  = Number('${{ steps.createpr.outputs.pr_number }}');
-                      if (planned !== actual) {
-                        core.warning(`verify: planned_pr=${planned} != actual_pr=${actual} (branch remains '${{ steps.meta.outputs.branch }}')`);
-                      } else {
-                        core.info(`verify: planned_pr matches actual_pr=${actual}`);
-                      }
+      # --- Create branch idempotently (no-op if it already exists)
+      - name: Create/init branch
+        env:
+          BRANCH: ${{ steps.names.outputs.branch }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          MODE: ${{ steps.mode.outputs.mode }}
+        run: |
+          set -e
+          echo "Ensuring branch=$BRANCH from default=${{ github.event.repository.default_branch }} for issue #$ISSUE_NUMBER mode=$MODE"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
+            echo "Branch already exists."
+            git fetch origin "$BRANCH"
+            git checkout "$BRANCH"
+          else
+            git checkout -b "$BRANCH"
+            git commit --allow-empty -m "ci: init $MODE branch for #$ISSUE_NUMBER [skip ci]"
+            git push --set-upstream origin "$BRANCH"
+            echo "Created branch=$BRANCH"
+          fi
 
-            - name: Comment PR link + meta on the issue
-              uses: actions/github-script@v7
-              with:
-                  script: |
-                      const repo = context.repo;
-                      const issue_number = context.payload.issue.number;
-                      const pr_number = Number('${{ steps.createpr.outputs.pr_number }}');
-                      const { data: pr } = await github.rest.pulls.get({ ...repo, pull_number: pr_number });
+      # --- Open or update PR (idempotent)
+      - name: Open/Update PR
+        id: cpr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          title: ${{ steps.names.outputs.pr_title }}
+          body: |
+            > ✨ Managed by CI — edit the Issue Form; we’ll keep this block in sync.
 
-                      const meta = {
-                          pr: pr.number,
-                          pr_url: pr.html_url,
-                          branch: pr.head.ref,
-                          base: pr.base.ref,
-                          issue: issue_number,
-                          source_head_sha: pr.head.sha,
-                          slug: '${{ steps.meta.outputs.slug }}',
-                          created_by: context.actor,
-                          created_at: new Date().toISOString()
-                      };
+            Linked issue: #${{ github.event.issue.number }}
 
-                      const body = [
-                          `Opened PR: ${pr.html_url}`,
-                          `Branch: \`${pr.head.ref}\``,
-                          '',
-                          '<!-- pr-meta:',
-                          JSON.stringify(meta),
-                          '-->'
-                      ].join('\n');
+            <!-- BEGIN:FORM -->
+            ${{ github.event.issue.body }}
+            <!-- END:FORM -->
 
-                      await github.rest.issues.createComment({ ...repo, issue_number, body });
+            <!-- RAW:JSON (present only for release–process) -->
+            ```json
+            ${{ steps.parse.outputs.data }}
+            ```
+          base: ${{ github.event.repository.default_branch }}
+          branch: ${{ steps.names.outputs.branch }}
+          draft: ${{ steps.mode.outputs.pr_draft }}
 
-            - name: Parse issue
-              if: contains(github.event.issue.labels.*.name, 'process')
-              id: parse
-              uses: actions/github-script@v7
-              with:
-                  script: |
-                      const issue = context.payload.issue;
-                      if (!issue) { core.setFailed('No issue payload.'); return; }
-                      const body = '\n' + (issue.body || '') + '\n';
-                      const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-                      function block(label) {
-                        const re = new RegExp(
-                          `\\n\\s*#{1,6}\\s*${esc(label)}\\s*\\n([\\s\\S]*?)(?=\\n\\s*#{1,6}\\s*|$)`,
-                          'i'
-                        );
-                        const m = body.match(re);
-                        return (m ? m[1].trim() : '');
-                      }
-                      function line(label) {
-                        return block(label).split('\n').map(s => s.trim()).filter(Boolean)[0] || '';
-                      }
 
-                      const cb = block('Confirmations').split('\n');
-                      const pick = (label) => {
-                        const row = cb.find(l => new RegExp(`^-\\s*\\[( |x|X)\\]\\s*${esc(label)}\\s*$`).test(l));
-                        if (!row) return 'No';
-                        const m = row.match(/^-\\s*\\[( |x|X)\\]/);
-                        return (m && (m[1] === 'x' || m[1] === 'X')) ? 'Yes' : 'No';
-                      };
+      # --- Comment PR link back on the issue (nice DX)
+      - name: Comment PR link + meta on the issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const repo = context.repo;
+            const issue_number = context.payload.issue.number;
+            const pr_number = Number(process.env.PR_NUM);
+            const { data: pr } = await github.rest.pulls.get({ ...repo, pull_number: pr_number });
 
-                      const out = {
-                        start:         line('Start date'),
-                        end:           line('End date'),
-                        user_email:        line('Assignee email'),
-                        effort:        line('Effort/Project'),
-                        justification:           block('Justification'),
-                        plan:          block('Implementation plan'),
-                        risk:          block('Risk'),
-                        test_plan:  block('Test plan'),
-                        impacted_groups:        line('Impacted groups'),
-                        impacted_users:        line('Impacted users (emails)'),
-                        notified_when: line('When were impacted users last notified?'),
-                        notified_how:  line('How were impacted users last notified?'),
-                        backup:        line('Backup contact (email)'),
-                        public:        pick('Impacts the public.'),
-                        cdt:           pick('Involves CDT.'),
-                        new_app:       pick('New app (ESD needs to know).'),
-                        issue_num:         String(issue.number),
-                        title:         issue.title || '',
-                        url:           issue.html_url || ''
-                      };
+            const meta = {
+              pr: pr.number,
+              pr_url: pr.html_url,
+              branch: pr.head.ref,
+              base: pr.base.ref,
+              issue: issue_number,
+              source_head_sha: pr.head.sha,
+              created_by: context.actor,
+              created_at: new Date().toISOString()
+            };
 
-                      Object.entries(out).forEach(([k,v]) => core.setOutput(k, v ?? ''));
+            const body = [
+              `Opened/updated PR: ${pr.html_url}`,
+              `Branch: \`${pr.head.ref}\``,
+              '',
+              '<!-- pr-meta:',
+              JSON.stringify(meta),
+              '-->'
+            ].join('\n');
+
+            await github.rest.issues.createComment({ ...repo, issue_number, body });
+        env:
+          PR_NUM: ${{ steps.cpr.outputs.pull-request-number }}

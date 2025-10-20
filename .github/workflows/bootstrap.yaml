@@ -6,11 +6,6 @@ on:
       repo_name:
         description: "Target repo name"
         required: true
-
-      reviewers:
-        description: "GitHub usernames for prod reviewers"
-        required: false
-
       folder_name:
         description: "New Projects - FullyQualified Folder Name - Ex: Grandma/Mom/Daughter (creates Daughter SubFolder) or Orphan (Creates Standalone Folder)"
         default: ""
@@ -193,19 +188,6 @@ jobs:
             "https://api.github.com/repos/${{ github.repository_owner }}/$REPO" \
             -d '{"allow_auto_merge": true, "delete_branch_on_merge": true}'
 
-      - name: Parse reviewers → numeric IDs (for prod env gate)
-        id: parse_reviewers
-        env:
-          REVIEWERS: ${{ inputs.reviewers }}
-        run: |
-          set -euo pipefail
-          users=$(echo "$REVIEWERS" | tr ', ' '\n' | sed '/^$/d' | sort -u)
-          ids=()
-          for u in $users; do
-            id=$(gh api "users/$u" --jq .id || echo "")
-            [ -n "$id" ] && ids+=("$id")
-          done
-          echo "gh_ids=$(IFS=,; echo "${ids[*]}")" >> $GITHUB_OUTPUT
 
       - name: Auth
         if: inputs.folder_name == ''
@@ -289,23 +271,10 @@ jobs:
 
           for env in dev test prod prod-bypass; do
               echo "Creating $env" 
-              reviewers_block="$(
-                jq -nc --arg ids "$REVIEWER_IDS" --arg env "$env" '
-                  if $env == "prod" and ($ids|length>0) then
-                    ($ids
-                    | split(",")
-                    | map(select(length>0) | tonumber)
-                    | map({type:"User", id:.}))
-                  else
-                    []
-                  end
-                '
-              )"
 
               payload="$(jq -nc --argjson reviewers "$reviewers_block" '
                 {
-                  wait_timer: 0,
-                  reviewers: $reviewers
+                  wait_timer: 0
                 }
               ')"
 
@@ -700,7 +669,6 @@ jobs:
           set -euo pipefail
           [ -n "${SECRET_VALUE:-}" ] || { echo "::error::Secret '${SECRET_NAME}' is not set in this repo"; exit 1; }
 
-          # Single-line Python (no leading spaces, no heredoc)
           ENC_VALUE="$(python3 -c "import os,base64; from nacl.public import PublicKey,SealedBox; pk=PublicKey(base64.b64decode(os.environ['PUBKEY'])); val=os.environ['SECRET_VALUE'].encode('utf-8'); print(base64.b64encode(SealedBox(pk).encrypt(val)).decode('ascii'))")"
 
           curl -sS -X PUT \
