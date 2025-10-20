@@ -1,13 +1,10 @@
 name: Issue → Branch + PR
 
 on:
-  issues:
-    types: [opened, edited]
+  workflow_call:
 
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
+  write-all
 
 concurrency:
   group: issue-${{ github.event.issue.number }}
