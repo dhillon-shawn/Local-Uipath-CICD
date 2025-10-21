@@ -17,77 +17,57 @@ jobs:
 
     runs-on: ubuntu-latest
     steps:
-      - name: Decide routing + meta
+      - name: Decide routing
         id: meta
         uses: actions/github-script@v7
         with:
           script: |
             const issue = context.payload.issue;
-            const repo  = context.repo;
             const labels = issue.labels.map(l => typeof l === 'string' ? l : l.name);
             const has = (n) => labels.includes(n);
 
-            // Decide type (priority hotfix > library > process)
             let type, prefix, draft;
             if (has('hotfix'))      { type='hotfix';  prefix='hotfix';  draft=false; }
             else if (has('library')){ type='library'; prefix='library'; draft=true;  }
             else if (has('process')){ type='process'; prefix='release'; draft=true;  }
-            else {
-              core.info('No matching labels (hotfix/library/process). Exiting quietly.');
-              core.setOutput('proceed', 'false');
-              return;
-            }
+            else { core.setOutput('proceed','false'); return; }
 
-            const slug = (issue.title || '')
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, '-')
-              .replace(/^-+|-+$/g, '')
-              .replace(/-+/g, '-');
-
-            const branch = `${prefix}/${issue.number}-${slug}`;
-            const defaultBranch = context.payload.repository.default_branch;
-
-            core.info(`Type=${type} Draft=${draft} Branch=${branch} Base=${defaultBranch}`);
-            core.setOutput('proceed', 'true');
+            const slug = (issue.title||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').replace(/-+/g,'-');
+            core.setOutput('proceed','true');
             core.setOutput('type', type);
             core.setOutput('draft', String(draft));
-            core.setOutput('branch', branch);
             core.setOutput('slug', slug);
-            core.setOutput('default_branch', defaultBranch);
+            core.setOutput('branch', `${prefix}/${issue.number}-${slug}`);
+            core.setOutput('base', context.payload.repository.default_branch);
 
       - name: Stop if not applicable
         if: steps.meta.outputs.proceed != 'true'
-        run: echo "No-op."
+        run: echo "No matching template labels; exiting."
 
-      # 2) Ensure branch exists + add a single empty init commit (idempotent)
+      # 2) Ensure branch + a single empty init commit
       - name: Ensure branch + empty commit
         if: steps.meta.outputs.proceed == 'true'
         id: branch
         uses: actions/github-script@v7
         with:
           script: |
-            const repo = context.repo;
-            const issue = context.payload.issue;
-            const branch = core.getInput('branch') || '${{ steps.meta.outputs.branch }}';
-            const base   = core.getInput('default_branch') || '${{ steps.meta.outputs.default_branch }}';
-            const type   = core.getInput('type') || '${{ steps.meta.outputs.type }}';
+            const repo   = context.repo;
+            const issue  = context.payload.issue;
+            const branch = '${{ steps.meta.outputs.branch }}';
+            const base   = '${{ steps.meta.outputs.base }}';
+            const type   = '${{ steps.meta.outputs.type }}';
 
-            // Resolve base SHA
-            const baseRef = await github.rest.git.getRef({ ...repo, ref: `heads/${base}` });
-            const baseSha = baseRef.data.object.sha;
+            const { data: baseRef } = await github.rest.git.getRef({ ...repo, ref: `heads/${base}` });
+            const baseSha = baseRef.object.sha;
 
-            // Ensure branch exists
             let headSha = baseSha;
             try {
               const r = await github.rest.git.getRef({ ...repo, ref: `heads/${branch}` });
               headSha = r.data.object.sha;
-              core.info(`Branch already exists: ${branch} @ ${headSha}`);
             } catch {
               await github.rest.git.createRef({ ...repo, ref: `refs/heads/${branch}`, sha: baseSha });
-              core.info(`Created branch: ${branch} from ${base}@${baseSha}`);
             }
 
-            // Add one empty commit iff head doesn't already have the init message
             const initMsg = `chore(${type}): initialize (#${issue.number})`;
             const headCommit = await github.rest.git.getCommit({ ...repo, commit_sha: headSha });
             if (headCommit.data.message !== initMsg) {
@@ -95,74 +75,50 @@ jobs:
                 ...repo, message: initMsg, tree: headCommit.data.tree.sha, parents: [headSha]
               });
               await github.rest.git.updateRef({ ...repo, ref: `heads/${branch}`, sha: newCommit.data.sha, force: false });
-              core.info(`Pushed empty init commit: ${newCommit.data.sha}`);
-            } else {
-              core.info('Init commit already present; skipping.');
             }
 
-      # 3) Create or update the PR (with collapsible issue body + Closes #)
-      - name: Create or update PR
+      # 3) Create or update the PR (collapsible issue body + Closes #)
+      - name: Create/update PR
         if: steps.meta.outputs.proceed == 'true'
         id: pr
         uses: actions/github-script@v7
         with:
           script: |
-            const repo = context.repo;
-            const issue = context.payload.issue;
-
+            const repo   = context.repo;
+            const issue  = context.payload.issue;
             const branch = '${{ steps.meta.outputs.branch }}';
-            const base   = '${{ steps.meta.outputs.default_branch }}';
+            const base   = '${{ steps.meta.outputs.base }}';
             const type   = '${{ steps.meta.outputs.type }}';
             const draft  = '${{ steps.meta.outputs.draft }}' === 'true';
 
-            const prTitle = `${issue.title} (#${issue.number})`;
-
-            const collapsible = [
+            const title = `${issue.title} (#${issue.number})`;
+            const body  = [
+              `Closes #${issue.number}`,
+              `Type: ${type}`,
+              '',
+              '---',
+              '',
               '<details>',
               '<summary><strong>Issue body</strong></summary>',
               '',
               issue.body || '_No description provided._',
               '',
-              '</details>',
+              '</details>'
             ].join('\n');
 
-            const prBody = [
-              `Closes #${issue.number}`,      // ensures linking + auto-close on merge
-              `Type: ${type}`,
-              '',
-              '---',
-              '',
-              collapsible
-            ].join('\n');
-
-            // Find by head
             const headRef = `${repo.owner}:${branch}`;
             let pr = (await github.rest.pulls.list({ ...repo, state: 'open', head: headRef })).data[0];
 
             if (!pr) {
-              pr = (await github.rest.pulls.create({
-                ...repo,
-                title: prTitle,
-                head: branch,
-                base,
-                body: prBody,
-                draft
-              })).data;
-              core.info(`Created PR #${pr.number} (draft=${draft})`);
-            } else {
-              // Ensure body contains our header & collapsible
-              if (!(pr.body || '').includes(`Closes #${issue.number}`) || !(pr.body || '').includes('<details>')) {
-                await github.rest.pulls.update({ ...repo, pull_number: pr.number, body: prBody });
-                core.info(`Updated PR #${pr.number} body.`);
-              } else {
-                core.info(`PR #${pr.number} already has the desired body.`);
-              }
+              pr = (await github.rest.pulls.create({ ...repo, title, head: branch, base, body, draft })).data;
+            } else if ((pr.body||'') !== body) {
+              await github.rest.pulls.update({ ...repo, pull_number: pr.number, body });
             }
 
             core.setOutput('number', String(pr.number));
 
-      # 4) Copy labels + milestone from Issue → PR (PRs are issues under the hood)
-      - name: Sync labels + milestone to PR
+      # 4) Sync labels + milestone
+      - name: Sync labels & milestone
         if: steps.meta.outputs.proceed == 'true'
         uses: actions/github-script@v7
         with:
@@ -170,38 +126,14 @@ jobs:
             const repo = context.repo;
             const issue = context.payload.issue;
             const prNumber = Number('${{ steps.pr.outputs.number }}');
+            if (!prNumber) return;
 
-            if (!prNumber) { core.info('No PR number; skipping labels/milestone.'); return; }
-
-            // Labels
             const labels = issue.labels.map(l => typeof l === 'string' ? l : l.name);
-            if (labels.length) {
-              try {
-                await github.rest.issues.addLabels({ ...repo, issue_number: prNumber, labels });
-                core.info(`Applied labels to PR #${prNumber}: ${labels.join(', ')}`);
-              } catch (e) {
-                core.warning(`Failed to add labels: ${e.message}`);
-              }
-            } else {
-              core.info('Issue has no labels to copy.');
-            }
+            if (labels.length) await github.rest.issues.addLabels({ ...repo, issue_number: prNumber, labels }).catch(()=>{});
+            if (issue.milestone) await github.rest.issues.update({ ...repo, issue_number: prNumber, milestone: issue.milestone.number }).catch(()=>{});
 
-            // Milestone (if any)
-            if (issue.milestone) {
-              try {
-                await github.rest.issues.update({
-                  ...repo,
-                  issue_number: prNumber,
-                  milestone: issue.milestone.number
-                });
-                core.info(`Applied milestone "${issue.milestone.title}" to PR #${prNumber}`);
-              } catch (e) {
-                core.warning(`Failed to set milestone: ${e.message}`);
-              }
-            }
-
-      # 5) Ensure assignee(s) exist on issue (fallback to author) and mirror to PR
-      - name: Ensure assignees on issue + mirror to PR
+      # 5) Ensure assignees on issue (fallback to author) and mirror to PR
+      - name: Ensure & mirror assignees
         if: steps.meta.outputs.proceed == 'true'
         uses: actions/github-script@v7
         with:
@@ -210,35 +142,16 @@ jobs:
             const issue = context.payload.issue;
             const prNumber = Number('${{ steps.pr.outputs.number }}');
 
-            // Build desired assignee list from the (possibly still empty) issue
-            const desired = new Set((issue.assignees || []).map(a => a.login).filter(Boolean));
+            const desired = new Set((issue.assignees||[]).map(a=>a.login).filter(Boolean));
             if (!desired.size && issue.user?.login) desired.add(issue.user.login);
             const assignees = [...desired];
+            if (!assignees.length) return;
 
-            // Ensure issue has at least one assignee (idempotent)
-            if (assignees.length) {
-              try {
-                await github.rest.issues.addAssignees({ ...repo, issue_number: issue.number, assignees });
-                console.log(`Issue #${issue.number} assignees: ${assignees.join(', ')}`);
-              } catch (e) {
-                core.warning(`Could not assign issue: ${e.message}`);
-              }
-            } else {
-              core.info('No assignee available for issue.');
-            }
+            await github.rest.issues.addAssignees({ ...repo, issue_number: issue.number, assignees }).catch(()=>{});
+            if (prNumber) await github.rest.issues.addAssignees({ ...repo, issue_number: prNumber, assignees }).catch(()=>{});
 
-            // Mirror to PR
-            if (prNumber && assignees.length) {
-              try {
-                await github.rest.issues.addAssignees({ ...repo, issue_number: prNumber, assignees });
-                console.log(`PR #${prNumber} assignees: ${assignees.join(', ')}`);
-              } catch (e) {
-                core.warning(`Could not assign PR: ${e.message}`);
-              }
-            }
-
-      # 6) Comment meta on the originating issue (once)
-      - name: Comment PR link + meta on issue
+      # 6) Comment meta on the issue (once)
+      - name: Comment PR meta on issue
         if: steps.meta.outputs.proceed == 'true'
         uses: actions/github-script@v7
         with:
@@ -246,11 +159,9 @@ jobs:
             const repo = context.repo;
             const issue = context.payload.issue;
             const prNumber = Number('${{ steps.pr.outputs.number }}');
-            if (!prNumber) { core.info('No PR; skipping meta comment.'); return; }
+            if (!prNumber) return;
 
             const { data: pr } = await github.rest.pulls.get({ ...repo, pull_number: prNumber });
-
-            const slug = '${{ steps.meta.outputs.slug }}';
             const meta = {
               pr: pr.number,
               pr_url: pr.html_url,
@@ -258,7 +169,7 @@ jobs:
               base: pr.base.ref,
               issue: issue.number,
               source_head_sha: pr.head.sha,
-              slug,
+              slug: '${{ steps.meta.outputs.slug }}',
               created_by: context.actor,
               created_at: new Date().toISOString()
             };
@@ -272,12 +183,7 @@ jobs:
               '-->'
             ].join('\n');
 
-            // Avoid duplicates
             const comments = await github.rest.issues.listComments({ ...repo, issue_number: issue.number, per_page: 50 });
             const exists = comments.data.some(c => (c.body||'').includes('<!-- pr-meta:') && (c.body||'').includes(`"pr": ${pr.number}`));
-            if (!exists) {
-              await github.rest.issues.createComment({ ...repo, issue_number: issue.number, body });
-              core.info('Posted meta comment.');
-            } else {
-              core.info('Meta comment already present; skipping.');
-            }
+            if (!exists) await github.rest.issues.createComment({ ...repo, issue_number: issue.number, body });
+
