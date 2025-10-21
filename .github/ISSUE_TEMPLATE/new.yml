@@ -6,101 +6,86 @@ labels:
   - process
 
 body:
-  - type: markdown
-    attributes:
-      value: >
-        Please fill out the fields below. These are used to create/update the
-        Change Request and to open a draft PR.
-        _Start date is assumed to be today by automation, so it's omitted here._
-
-  # --- Who's filing this
+  # --- Top essentials --------------------------------------------------------
   - type: input
-    id: user_email
+    id: requester_email
     attributes:
-      label: Assignee email
-      description: Email of the person creating this issue.
+      label: Requester email
+      description: We'll use this to contact you about this change.
       placeholder: "email@noreply.com"
     validations:
       required: true
 
-  # --- Scheduling
   - type: input
-    id: end
+    id: target_end_date
     attributes:
-      label: End date
-      placeholder: "MM/DD/YY"
+      label: Target end date
+      description: "When should this be completed? Use YYYY-MM-DD."
+      placeholder: "YYYY-MM-DD"
     validations:
       required: true
 
-  # --- Effort / Project
-  - type: dropdown
-    id: effort
+  - type: markdown
     attributes:
-      label: Effort/Project
-      options:
-        - Defect Resolution
-        - Executive Sponsor Projects
-        - Maintenance and Operation
-        - Legislative Mandate
-        - User Request
-        - Test Environment
-    validations:
-      required: true
+      value: |
+        ## Overview
+        Provide context up front so reviewers can quickly understand the change.
 
-  # --- Business + Technical details
   - type: textarea
     id: description
     attributes:
       label: Description
-      description: What is changing at a high level?
-      placeholder: "One or two sentences describing the change."
+      description: Put as much detail as possible about the change.
+      placeholder: >
+        What is changing? Why now? Scope, systems, dependencies, risks, milestones…
     validations:
       required: true
 
-  - type: textarea
+  - type: input
     id: business_value
     attributes:
-      label: Business value
-      description: Why are we doing this now? What outcome/value will be delivered?
+      label: Business value (executive summary)
+      description: "Business-speak version of the update: benefits, outcomes, KPIs."
+      placeholder: "E.g., Reduces processing time by 30%, enables compliance with X, improves NPS."
     validations:
       required: true
 
-  - type: textarea
-    id: plan
+  - type: input
+    id: implementation_plan
     attributes:
       label: Implementation plan
-      description: Step-by-step plan to implement the change.
-      placeholder: |
-        1) ...
-        2) ...
-        3) ...
+      placeholder: "High-level steps, owners, sequence."
     validations:
       required: true
 
-  - type: textarea
-    id: validation_plan
-    attributes:
-      label: Validation plan
-      description: How will you verify the change is working as expected?
-      placeholder: "Test cases, acceptance criteria, monitoring checks…"
-    validations:
-      required: true
-
-  - type: textarea
+  - type: input
     id: backout_plan
     attributes:
       label: Backout plan
-      description: If something goes wrong, how will you safely roll back?
-      placeholder: "Rollback steps, data restore, toggles to flip…"
+      placeholder: "How to revert if needed; triggers and steps."
     validations:
       required: true
 
-  # --- Audience & Contacts
+  - type: input
+    id: validation_plan
+    attributes:
+      label: Validation plan
+      placeholder: "Pre/post checks, success criteria, monitoring, sign-off."
+    validations:
+      required: true
+
+  # --- Audience & contacts ----------------------------------------------------
   - type: markdown
     attributes:
       value: |
         ## Audience & Contacts
         _Who is impacted and how they were told._
+
+  - type: input
+    id: backup_contact
+    attributes:
+      label: Backup contact (email)
+      placeholder: "email@noreply.com"
 
   - type: input
     id: impacted_groups
@@ -139,14 +124,21 @@ body:
     validations:
       required: true
 
-  - type: input
-    id: backup_contact
+  - type: dropdown
+    id: effort
     attributes:
-      label: Backup contact (email)
-      placeholder: "email@noreply.com"
+      label: Effort/Project
+      options:
+        - Defect Resolution
+        - Executive Sponsor Projects
+        - Maintenance and Operation
+        - Legislative Mandate
+        - User Request
+        - Test Environment
     validations:
-      required: false
+      required: true
 
+  # --- Confirmations (keep at bottom) ----------------------------------------
   - type: checkboxes
     id: checklist
     attributes:
