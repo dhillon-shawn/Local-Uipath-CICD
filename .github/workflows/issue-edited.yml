@@ -9,6 +9,66 @@ jobs:
     parse:
         runs-on: ubuntu-latest
         steps:
-            - name: placeholder
-              run: |
-                echo "Placeholder"
+              - uses: actions/checkout@v4
+              - name: Parse Issue Form
+                id: parse
+                uses: edumserrano/github-issue-forms-parser@v1
+                with:
+                    template-filepath: '.github/ISSUE_TEMPLATE/process.yml'
+                    issue-form-body: '${{ github.event.issue.body }}'
+
+              - name: Compose API payload
+                id: compose
+                shell: bash
+                env:
+                    FORM_JSON: ${{ steps.parse.outputs.parsed-issue }}
+                    ISSUE_TITLE: ${{ github.event.issue.title }}
+                run: |
+                    echo "$FORM_JSON" > form.json
+                    NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+                    PAYLOAD=$(jq -c --arg title "$ISSUE_TITLE" --arg now "$NOW" '
+                        def yesno($b): if $b then "Yes" else "No" end;
+
+                        . as $f |
+                        {
+                        "category": "Software",
+                        "business_service": "UiPath",
+                        "type": "Normal",
+                        "assignment_group": "ISD EAB: Intelligent Automation Product (IAP) Unit ",
+                        "u_environment": "Production",
+                        "u_nagios_alerts": "No",
+                        "u_sos_impact": "No",
+                        "u_new_app_system": "No",
+                        
+                        "u_public_impact":               yesno($f.checklist["Impacts the public."]),
+                        "u_does_change_invovle_a_vedor": yesno($f.checklist["Impact a Vendors."]),
+                        "u_involve_cdt":                 yesno($f.checklist["Involves CDT."]),
+                        "u_new_app_esd":                 yesno($f.checklist["New app (ESD needs to know)."]),
+
+                        "backout_plan":        $f.backout_plan,
+                        "implementation_plan": $f.implementation_plan,
+                        "validation_plan":     $f.validation_plan,
+
+                        "assigned_to":         $f.requester_email,
+                        "u_effort_project":    $f.effort,
+
+                        "description":         $f.description,
+                        "short_description":   ("UiPath - Prod - " + $title),
+                        "business_value":      $f.business_value,
+
+                        "cab_delegate":        ($f.backup_contact // ""),
+                        "u_impacted_users":    $f.impacted_groups,
+
+                        "u_who_was_notified":          $f.impacted_users_emails,
+                        "impacted_users_emails":       $f.impacted_users_emails,
+                        "u_impacted_user_notify_date": $f.last_notified_when,
+                        "u_how_impacted_notified":     $f.last_notified_how,
+
+                        "start_date": $now,
+                        "end_date":   $f.target_end_date
+                        }
+                    ' form.json)
+
+                    echo "payload=$PAYLOAD" >> "$GITHUB_OUTPUT"
+                    echo "Payload: $PAYLOAD"
