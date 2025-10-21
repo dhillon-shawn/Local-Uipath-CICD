@@ -12,10 +12,54 @@ concurrency:
 
 
 jobs:
- issue_to_pr:
+
+  parse:
+    if: >
+      contains(join(github.event.issue.labels.*.name, ','), 'release') ||
+      contains(join(github.event.issue.labels.*.name, ','), 'hotfix')
     runs-on: ubuntu-latest
     steps:
-      - name: Create branch, empty commit, PR, labels, and meta (idempotent)
+      - name: assign check
+        id: check
+        run: |
+          echo "issue_number=${{ github.event.issue.number }}"
+          echo "assignees_json=${{ toJson(github.event.issue.assignees) }}"
+          if [ "${{ toJson(github.event.issue.assignees) }}" = "[]" ]; then
+            echo "has_assignees=false" >> $GITHUB_OUTPUT
+            echo "result=no current assignee"
+          else
+            echo "has_assignees=true" >> $GITHUB_OUTPUT
+            echo "result=already assigned"
+          fi
+
+      - name: assign ensure
+        if: steps.check.outputs.has_assignees == 'false'
+        uses: pozil/auto-assign-issue@v2
+        with:
+          assignees: "${{ github.event.issue.user.login }}"
+          numOfAssignee: 1
+
+      - name: issue refresh
+        id: issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const repo = context.repo;
+            const num = context.payload.issue.number;
+            const { data: issue } = await github.rest.issues.get({ ...repo, issue_number: num });
+            const labels = (issue.labels || []).map(l => typeof l === 'string' ? l : l.name);
+            const mode = labels.includes('hotfix') ? 'hotfix' : 'release';
+            core.info(`issue: #${num} | mode=${mode} | labels=[${labels.join(', ')}] | assignees=[${(issue.assignees||[]).map(a=>a.login).join(', ')}]`);
+            core.setOutput('title', issue.title || '');
+            core.setOutput('body', issue.body || '');
+            core.setOutput('labels', JSON.stringify(labels));
+            core.setOutput('assignees', JSON.stringify((issue.assignees || []).map(a => a.login)));
+            core.setOutput('milestone', issue.milestone ? String(issue.milestone.number) : '');
+            core.setOutput('mode', mode);
+
+
+            
+      - name: Create branch + empty commit + PR, then comment (API-only, idempotent)
         uses: actions/github-script@v7
         with:
           script: |
@@ -24,15 +68,12 @@ jobs:
             const labels = issue.labels.map(l => typeof l === 'string' ? l : l.name);
             const has = (n) => labels.includes(n);
 
-            // Decide type by priority: hotfix > library > process
+            // Decide type (priority hotfix > library > process)
             let type = null, prefix = null, draft = null;
-            if (has('hotfix')) { type = 'hotfix'; prefix = 'hotfix'; draft = false; }
-            else if (has('library')) { type = 'library'; prefix = 'library'; draft = true; }
-            else if (has('process')) { type = 'process'; prefix = 'release'; draft = true; }
-            else {
-              core.info('No matching labels; exit quietly.');
-              return;
-            }
+            if (has('hotfix'))      { type = 'hotfix';  prefix = 'hotfix';  draft = false; }
+            else if (has('library')){ type = 'library'; prefix = 'library'; draft = true;  }
+            else if (has('process')){ type = 'process'; prefix = 'release'; draft = true;  }
+            else { return; } // quietly exit if not one of the three
 
             // Branch name: <prefix>/<issue-number>-<slug>
             const slug = (issue.title || '')
@@ -42,107 +83,50 @@ jobs:
               .replace(/-+/g, '-');
             const branch = `${prefix}/${issue.number}-${slug}`;
 
-            // Resolve default branch + SHA
+            // Base branch + SHA
             const defaultBranch = context.payload.repository.default_branch;
-            const baseRef = await github.rest.git.getRef({ ...repo, ref: `heads/${defaultBranch}` });
-            const baseSha = baseRef.data.object.sha;
+            const { data: baseRef } = await github.rest.git.getRef({ ...repo, ref: `heads/${defaultBranch}` });
+            const baseSha = baseRef.object.sha;
 
-            // Ensure branch exists (idempotent)
-            let branchSha = null;
+            // Ensure branch exists
+            let branchSha;
             try {
               const r = await github.rest.git.getRef({ ...repo, ref: `heads/${branch}` });
               branchSha = r.data.object.sha;
-              core.info(`Branch ${branch} already exists.`);
-            } catch (e) {
-              core.info(`Creating branch ${branch} from ${defaultBranch}@${baseSha}`);
-              await github.rest.git.createRef({
-                ...repo,
-                ref: `refs/heads/${branch}`,
-                sha: baseSha
-              });
+            } catch {
+              await github.rest.git.createRef({ ...repo, ref: `refs/heads/${branch}`, sha: baseSha });
               branchSha = baseSha;
             }
 
-            // Ensure an empty commit exists (diverge from base) — idempotent-ish by message check
-            // We create a new commit with the same tree to guarantee a diff-less but separate commit.
-            // First, read the commit to reuse its tree
-            const baseCommit = await github.rest.git.getCommit({ ...repo, commit_sha: branchSha });
-            const treeSha = baseCommit.data.tree.sha;
-
-            // Check for a recent "initialize" message on branch head; if not, add one
-            // (If someone already pushed work, we won't force; we’ll still open the PR.)
+            // Ensure an empty commit exists on the branch (to guarantee a PR-able head)
             const initMsg = `chore(${type}): initialize (#${issue.number})`;
-            let needInitCommit = true;
             try {
-              const headCommit = await github.rest.repos.listCommits({
-                ...repo, sha: branch, per_page: 1
-              });
-              if (headCommit.data[0] && headCommit.data[0].commit.message === initMsg) {
-                needInitCommit = false;
+              const head = await github.rest.repos.listCommits({ ...repo, sha: branch, per_page: 1 });
+              if (!(head.data[0] && head.data[0].commit.message === initMsg)) {
+                const { data: headCommit } = await github.rest.git.getCommit({ ...repo, commit_sha: branchSha });
+                const { data: newCommit } = await github.rest.git.createCommit({
+                  ...repo, message: initMsg, tree: headCommit.tree.sha, parents: [branchSha]
+                });
+                await github.rest.git.updateRef({ ...repo, ref: `heads/${branch}`, sha: newCommit.sha, force: false });
               }
-            } catch (_) { /* ignore */ }
+            } catch { /* noop */ }
 
-            if (needInitCommit) {
-              const newCommit = await github.rest.git.createCommit({
-                ...repo,
-                message: initMsg,
-                tree: treeSha,
-                parents: [branchSha]
-              });
-              await github.rest.git.updateRef({
-                ...repo,
-                ref: `heads/${branch}`,
-                sha: newCommit.data.sha,
-                force: false
-              });
-            } else {
-              core.info('Empty init commit already present; skipping.');
-            }
-
-            // Find existing PR for this branch
-            const headRef = `${repo.owner}:${branch}`;
-            const existing = await github.rest.pulls.list({ ...repo, state: 'open', head: headRef });
-            let pr = existing.data[0];
-
+            // Find or create PR
             const prTitle = `${issue.title} (#${issue.number})`;
-            const prBody = [
-              `Refs #${issue.number}`,
-              `Type: ${type}`,
-              '',
-              '---',
-              '',
-              issue.body || ''
-            ].join('\n');
-
+            const prBody = [`Refs #${issue.number}`, `Type: ${type}`, '', '---', '', issue.body || ''].join('\n');
+            const headRef = `${repo.owner}:${branch}`;
+            let { data: prs } = await github.rest.pulls.list({ ...repo, state: 'open', head: headRef });
+            let pr = prs[0];
             if (!pr) {
-              // Create PR directly with correct draft flag
               const created = await github.rest.pulls.create({
-                ...repo,
-                title: prTitle,
-                head: branch,
-                base: defaultBranch,
-                body: prBody,
-                draft
+                ...repo, title: prTitle, head: branch, base: defaultBranch, body: prBody, draft
               });
               pr = created.data;
-              core.info(`Created PR #${pr.number}`);
-            } else {
-              // Ensure body has the "Refs" header at least once
-              if (!(pr.body || '').includes(`Refs #${issue.number}`)) {
-                await github.rest.pulls.update({ ...repo, pull_number: pr.number, body: prBody });
-              }
+            } else if (!(pr.body || '').includes(`Refs #${issue.number}`)) {
+              await github.rest.pulls.update({ ...repo, pull_number: pr.number, body: prBody });
             }
 
-            // Carry over issue labels to PR (PRs are issues under the hood)
-            if (labels.length) {
-              await github.rest.issues.addLabels({
-                ...repo,
-                issue_number: pr.number,
-                labels
-              }).catch(() => {});
-            }
-
-            // Comment PR link + meta on originating issue (your snippet, with slug injected)
+            // Comment back on the issue with meta
             const meta = {
               pr: pr.number,
               pr_url: pr.html_url,
@@ -154,7 +138,6 @@ jobs:
               created_by: context.actor,
               created_at: new Date().toISOString()
             };
-
             const commentBody = [
               `Opened PR: ${pr.html_url}`,
               `Branch: \`${pr.head.ref}\``,
@@ -164,13 +147,8 @@ jobs:
               '-->'
             ].join('\n');
 
-            // Post once per issue: if an identical meta block exists, skip
             const existingComments = await github.rest.issues.listComments({ ...repo, issue_number: issue.number, per_page: 50 });
             const already = existingComments.data.some(c => (c.body || '').includes(`"pr": ${pr.number}`) && (c.body || '').includes('<!-- pr-meta:'));
             if (!already) {
               await github.rest.issues.createComment({ ...repo, issue_number: issue.number, body: commentBody });
             }
-
-            core.info(`Done. Type=${type} Draft=${draft} Branch=${branch} PR=#${pr.number}`);
-
-
