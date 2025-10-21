@@ -251,4 +251,4 @@ jobs:
           ' form.json)
 
           echo "payload=$PAYLOAD" >> "$GITHUB_OUTPUT"
-          echo "Payload: $payload"
+          echo "Payload: $PAYLOAD"
