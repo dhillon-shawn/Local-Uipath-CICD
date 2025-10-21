@@ -39,7 +39,7 @@ jobs:
           assignees: "${{ github.event.issue.user.login }}"
           numOfAssignee: 1
 
-      - name: issue refresh assignee
+      - name: issue refresh
         id: issue
         uses: actions/github-script@v7
         with:
@@ -47,11 +47,39 @@ jobs:
             const repo = context.repo;
             const num = context.payload.issue.number;
             const { data: issue } = await github.rest.issues.get({ ...repo, issue_number: num });
+            const labels = (issue.labels || []).map(l => typeof l === 'string' ? l : l.name);
+            const mode = labels.includes('hotfix') ? 'hotfix' : 'release';
+            core.info(`issue: #${num} | mode=${mode} | labels=[${labels.join(', ')}] | assignees=[${(issue.assignees||[]).map(a=>a.login).join(', ')}]`);
+            core.setOutput('title', issue.title || '');
+            core.setOutput('body', issue.body || '');
+            core.setOutput('labels', JSON.stringify(labels));
             core.setOutput('assignees', JSON.stringify((issue.assignees || []).map(a => a.login)));
+            core.setOutput('milestone', issue.milestone ? String(issue.milestone.number) : '');
+            core.setOutput('mode', mode);
+
+
+      - name: meta derive
+        id: meta
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNum = context.payload.issue.number;
+            const defaultBranch = context.payload.repository.default_branch;
+            const title = rawTitle || mode;
+            const slug = title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,50) || mode;
+            const branch = `${mode}/${nextPrNumber}-${slug}`;
+            const isDraft = mode === 'release';
+            const prefix = isDraft ? 'Release: ' : 'Hotfix: ';
+            core.info(`meta: issue=${issueNum} | mode=${mode} | draft=${isDraft} | branch=${branch} | default=${defaultBranch}`);
+            core.setOutput('default', defaultBranch);
+            core.setOutput('branch', branch);
+            core.setOutput('plannedPr', String(nextPrNumber));
+            core.setOutput('isDraft', String(isDraft));
+            core.setOutput('prefix', prefix);
+            core.setOutput('slug', slug);
 
 
 
-            
       - name: Create branch + empty commit + PR, then comment (API-only, idempotent)
         uses: actions/github-script@v7
         with:
