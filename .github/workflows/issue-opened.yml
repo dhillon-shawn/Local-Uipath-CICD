@@ -58,25 +58,6 @@ jobs:
             core.setOutput('mode', mode);
 
 
-      - name: meta derive
-        id: meta
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const issueNum = context.payload.issue.number;
-            const defaultBranch = context.payload.repository.default_branch;
-            const title = rawTitle || mode;
-            const slug = title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,50) || mode;
-            const branch = `${mode}/${nextPrNumber}-${slug}`;
-            const isDraft = mode === 'release';
-            const prefix = isDraft ? 'Release: ' : 'Hotfix: ';
-            core.info(`meta: issue=${issueNum} | mode=${mode} | draft=${isDraft} | branch=${branch} | default=${defaultBranch}`);
-            core.setOutput('default', defaultBranch);
-            core.setOutput('branch', branch);
-            core.setOutput('plannedPr', String(nextPrNumber));
-            core.setOutput('isDraft', String(isDraft));
-            core.setOutput('prefix', prefix);
-            core.setOutput('slug', slug);
 
 
 
