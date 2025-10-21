@@ -10,7 +10,7 @@ body:
     id: requester_email
     attributes:
       label: Requester email
-      description: Email of the user who's email the CR will be assigned to.
+      description: Email of the user whom the CR will be assigned to.
       placeholder: "email@noreply.com"
     validations:
       required: true
