@@ -39,7 +39,7 @@ jobs:
           assignees: "${{ github.event.issue.user.login }}"
           numOfAssignee: 1
 
-      - name: issue refresh
+      - name: issue refresh assignee
         id: issue
         uses: actions/github-script@v7
         with:
@@ -47,15 +47,8 @@ jobs:
             const repo = context.repo;
             const num = context.payload.issue.number;
             const { data: issue } = await github.rest.issues.get({ ...repo, issue_number: num });
-            const labels = (issue.labels || []).map(l => typeof l === 'string' ? l : l.name);
-            const mode = labels.includes('hotfix') ? 'hotfix' : 'release';
-            core.info(`issue: #${num} | mode=${mode} | labels=[${labels.join(', ')}] | assignees=[${(issue.assignees||[]).map(a=>a.login).join(', ')}]`);
-            core.setOutput('title', issue.title || '');
-            core.setOutput('body', issue.body || '');
-            core.setOutput('labels', JSON.stringify(labels));
             core.setOutput('assignees', JSON.stringify((issue.assignees || []).map(a => a.login)));
-            core.setOutput('milestone', issue.milestone ? String(issue.milestone.number) : '');
-            core.setOutput('mode', mode);
+
 
 
             
@@ -75,7 +68,7 @@ jobs:
             else if (has('process')){ type = 'process'; prefix = 'release'; draft = true;  }
             else { return; } // quietly exit if not one of the three
 
-            // Branch name: <prefix>/<issue-number>-<slug>
+            // Branch name: <prefix>/<issue-number>-<slug>  (e.g., library/8-fix-x)
             const slug = (issue.title || '')
               .toLowerCase()
               .replace(/[^a-z0-9]+/g, '-')
@@ -83,12 +76,12 @@ jobs:
               .replace(/-+/g, '-');
             const branch = `${prefix}/${issue.number}-${slug}`;
 
-            // Base branch + SHA
+            // Resolve base (default) branch SHA
             const defaultBranch = context.payload.repository.default_branch;
             const { data: baseRef } = await github.rest.git.getRef({ ...repo, ref: `heads/${defaultBranch}` });
             const baseSha = baseRef.object.sha;
 
-            // Ensure branch exists
+            // Ensure branch exists (idempotent)
             let branchSha;
             try {
               const r = await github.rest.git.getRef({ ...repo, ref: `heads/${branch}` });
@@ -98,11 +91,12 @@ jobs:
               branchSha = baseSha;
             }
 
-            // Ensure an empty commit exists on the branch (to guarantee a PR-able head)
+            // Ensure an empty commit exists on the branch (so a PR can be opened cleanly)
             const initMsg = `chore(${type}): initialize (#${issue.number})`;
             try {
               const head = await github.rest.repos.listCommits({ ...repo, sha: branch, per_page: 1 });
-              if (!(head.data[0] && head.data[0].commit.message === initMsg)) {
+              const hasInit = head.data[0] && head.data[0].commit.message === initMsg;
+              if (!hasInit) {
                 const { data: headCommit } = await github.rest.git.getCommit({ ...repo, commit_sha: branchSha });
                 const { data: newCommit } = await github.rest.git.createCommit({
                   ...repo, message: initMsg, tree: headCommit.tree.sha, parents: [branchSha]
@@ -111,9 +105,16 @@ jobs:
               }
             } catch { /* noop */ }
 
-            // Find or create PR
+            // Find or create PR (link with auto-close keyword)
             const prTitle = `${issue.title} (#${issue.number})`;
-            const prBody = [`Refs #${issue.number}`, `Type: ${type}`, '', '---', '', issue.body || ''].join('\n');
+            const prBody = [
+              `Closes #${issue.number}`,  // <-- ensures link + auto-close on merge
+              `Type: ${type}`,
+              '',
+              '---',
+              '',
+              issue.body || ''
+            ].join('\n');
             const headRef = `${repo.owner}:${branch}`;
             let { data: prs } = await github.rest.pulls.list({ ...repo, state: 'open', head: headRef });
             let pr = prs[0];
@@ -122,11 +123,19 @@ jobs:
                 ...repo, title: prTitle, head: branch, base: defaultBranch, body: prBody, draft
               });
               pr = created.data;
-            } else if (!(pr.body || '').includes(`Refs #${issue.number}`)) {
+            } else if (!(pr.body || '').includes(`Closes #${issue.number}`)) {
               await github.rest.pulls.update({ ...repo, pull_number: pr.number, body: prBody });
             }
 
-            // Comment back on the issue with meta
+            // Copy assignees from issue → PR (PRs are issues under the hood)
+            const assignees = (issue.assignees || []).map(a => a.login).filter(Boolean);
+            if (assignees.length) {
+              await github.rest.issues.addAssignees({
+                ...repo, issue_number: pr.number, assignees
+              }).catch(() => {});
+            }
+
+            // Comment back on the originating issue with meta
             const meta = {
               pr: pr.number,
               pr_url: pr.html_url,
@@ -147,8 +156,9 @@ jobs:
               '-->'
             ].join('\n');
 
-            const existingComments = await github.rest.issues.listComments({ ...repo, issue_number: issue.number, per_page: 50 });
-            const already = existingComments.data.some(c => (c.body || '').includes(`"pr": ${pr.number}`) && (c.body || '').includes('<!-- pr-meta:'));
+            // Post once per issue (avoid duplicates)
+            const existing = await github.rest.issues.listComments({ ...repo, issue_number: issue.number, per_page: 50 });
+            const already = existing.data.some(c => (c.body || '').includes(`"pr": ${pr.number}`) && (c.body || '').includes('<!-- pr-meta:'));
             if (!already) {
               await github.rest.issues.createComment({ ...repo, issue_number: issue.number, body: commentBody });
             }
