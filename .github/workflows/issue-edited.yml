@@ -26,27 +26,29 @@ jobs:
                     FORM_JSON: ${{ steps.parse.outputs.parsed-issue }}
                     ISSUE_TITLE: ${{ github.event.issue.title }}
                 run: |
-                    echo "$FORM_JSON" > form.json
-                    NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+                    set -euo pipefail
 
-                    PAYLOAD=$(jq -c --arg title "$ISSUE_TITLE" --arg now "$NOW" '
+                    echo "$FORM_JSON" > form.json
+                    END_RAW=$(jq -r '.target_end_date' form.json)
+
+                    IFS='-' read -r MM DD YY <<<"$END_RAW"
+                    if [ ${#YY} -eq 2 ]; then YY="20$YY"; fi
+
+                    PT_DT="$MM-$DD-$YY 06:00:00"
+                    EPOCH=$(TZ=America/Los_Angeles date -d "$PT_DT" +%s)
+                    END_UTC=$(date -u -d @"$EPOCH" +%Y-%m-%dT%H:%M:%SZ)
+
+                    NOW_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+                    PAYLOAD=$(jq -c --arg title "$ISSUE_TITLE" --arg now "$NOW_UTC" --arg end "$END_UTC" '
                         def yesno($b): if $b then "Yes" else "No" end;
 
                         . as $f |
                         {
-                        "category": "Software",
-                        "business_service": "UiPath",
-                        "type": "Normal",
-                        "assignment_group": "ISD EAB: Intelligent Automation Product (IAP) Unit ",
-                        "u_environment": "Production",
-                        "u_nagios_alerts": "No",
-                        "u_sos_impact": "No",
-                        "u_new_app_system": "No",
-                        
-                        "u_public_impact":               yesno($f.checklist["Impacts the public."]),
-                        "u_does_change_invovle_a_vedor": yesno($f.checklist["Impact a Vendors."]),
-                        "u_involve_cdt":                 yesno($f.checklist["Involves CDT."]),
-                        "u_new_app_esd":                 yesno($f.checklist["New app (ESD needs to know)."]),
+                        "u_public_impact":               yesno($f.checklist["impacts-the-public"]),
+                        "u_does_change_invovle_a_vedor": yesno($f.checklist["impact-a-vendors"]),
+                        "u_involve_cdt":                 yesno($f.checklist["involves-cdt"]),
+                        "u_new_app_esd":                 yesno($f.checklist["new-app-esd-needs-to-know"]),
 
                         "backout_plan":        $f.backout_plan,
                         "implementation_plan": $f.implementation_plan,
@@ -54,21 +56,20 @@ jobs:
 
                         "assigned_to":         $f.requester_email,
                         "u_effort_project":    $f.effort,
-
+                        
                         "description":         $f.description,
-                        "short_description":   ("UiPath - Prod - " + $title),
+                        "short_description":   ("Prod - " + $title),
                         "business_value":      $f.business_value,
 
-                        "cab_delegate":        ($f.backup_contact // ""),
+                        "cab_delegate":        $f.backup_contact,
                         "u_impacted_users":    $f.impacted_groups,
-
-                        "u_who_was_notified":          $f.impacted_users_emails,
-                        "impacted_users_emails":       $f.impacted_users_emails,
+                        "u_who_was_notified":  $f.impacted_users_emails,
+                        "impacted_users_emails": $f.impacted_users_emails,
                         "u_impacted_user_notify_date": $f.last_notified_when,
                         "u_how_impacted_notified":     $f.last_notified_how,
 
                         "start_date": $now,
-                        "end_date":   $f.target_end_date
+                        "end_date":   $end
                         }
                     ' form.json)
 
