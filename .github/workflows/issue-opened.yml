@@ -203,11 +203,21 @@ jobs:
 
           echo "$FORM_JSON" > form.json
           END_RAW=$(jq -r '.target_end_date' form.json)
+          END_RAW=${END_RAW//\//-}   # allow MM/DD/YY too
 
           IFS='-' read -r MM DD YY <<<"$END_RAW"
-          if [ ${#YY} -eq 2 ]; then YY="20$YY"; fi
-          PT_DT="$MM-$DD-$YY 06:00:00"
-          EPOCH=$(TZ=America/Los_Angeles date -d "$PT_DT" +%s)
+
+          # Normalize 2-digit year to 4-digit (00–69 → 2000–2069, 70–99 → 1970–1999)
+          if [ ${#YY} -eq 2 ]; then
+            YY=$((10#$YY))
+            if [ $YY -le 69 ]; then YY=$((2000 + YY)); else YY=$((1900 + YY)); fi
+          fi
+
+          # Build a *valid* local datetime string for GNU date: YYYY-MM-DD HH:MM:SS
+          PT_DT="${YY}-${MM}-${DD} 06:00:00"
+
+          # Convert Pacific time → epoch → UTC ISO (DST-aware thanks to TZ)
+          EPOCH=$(LC_ALL=C TZ=America/Los_Angeles date -d "$PT_DT" +%s) || { echo "Invalid date: $PT_DT"; exit 1; }
           END_UTC=$(date -u -d @"$EPOCH" +%Y-%m-%dT%H:%M:%SZ)
 
           NOW_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)
