@@ -1,0 +1,161 @@
+name: Release - Process 2
+description: Start the Release Process (fields used by CI and Change Request automation)
+title: "Release: <short summary>"
+labels:
+  - release
+  - process
+
+body:
+  - type: markdown
+    attributes:
+      value: >
+        Please fill out the fields below. These are used to create/update the
+        Change Request and to open a draft PR.
+        _Start date is assumed to be today by automation, so it's omitted here._
+
+  # --- Who's filing this
+  - type: input
+    id: user_email
+    attributes:
+      label: Assignee email
+      description: Email of the person creating this issue.
+      placeholder: "email@noreply.com"
+    validations:
+      required: true
+
+  # --- Scheduling
+  - type: input
+    id: end
+    attributes:
+      label: End date
+      placeholder: "MM/DD/YY"
+    validations:
+      required: true
+
+  # --- Effort / Project
+  - type: dropdown
+    id: effort
+    attributes:
+      label: Effort/Project
+      options:
+        - Defect Resolution
+        - Executive Sponsor Projects
+        - Maintenance and Operation
+        - Legislative Mandate
+        - User Request
+        - Test Environment
+    validations:
+      required: true
+
+  # --- Business + Technical details
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What is changing at a high level?
+      placeholder: "One or two sentences describing the change."
+    validations:
+      required: true
+
+  - type: textarea
+    id: business_value
+    attributes:
+      label: Business value
+      description: Why are we doing this now? What outcome/value will be delivered?
+    validations:
+      required: true
+
+  - type: textarea
+    id: plan
+    attributes:
+      label: Implementation plan
+      description: Step-by-step plan to implement the change.
+      placeholder: |
+        1) ...
+        2) ...
+        3) ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation_plan
+    attributes:
+      label: Validation plan
+      description: How will you verify the change is working as expected?
+      placeholder: "Test cases, acceptance criteria, monitoring checks…"
+    validations:
+      required: true
+
+  - type: textarea
+    id: backout_plan
+    attributes:
+      label: Backout plan
+      description: If something goes wrong, how will you safely roll back?
+      placeholder: "Rollback steps, data restore, toggles to flip…"
+    validations:
+      required: true
+
+  # --- Audience & Contacts
+  - type: markdown
+    attributes:
+      value: |
+        ## Audience & Contacts
+        _Who is impacted and how they were told._
+
+  - type: input
+    id: impacted_groups
+    attributes:
+      label: Impacted groups
+      placeholder: "Group name(s)"
+    validations:
+      required: true
+
+  - type: input
+    id: impacted_users_emails
+    attributes:
+      label: Impacted users (emails)
+      placeholder: "email@noreply.com"
+    validations:
+      required: true
+
+  - type: input
+    id: last_notified_when
+    attributes:
+      label: When were impacted users last notified?
+      placeholder: "MM/DD/YY"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: last_notified_how
+    attributes:
+      label: How were impacted users last notified?
+      options:
+        - Meeting
+        - Teams message
+        - Email
+        - Call
+        - In Person
+    validations:
+      required: true
+
+  - type: input
+    id: backup_contact
+    attributes:
+      label: Backup contact (email)
+      placeholder: "email@noreply.com"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Confirmations
+      description: Please check any that apply.
+      options:
+        - label: Impacts the public.
+          required: false
+        - label: Involves CDT.
+          required: false
+        - label: New app (ESD needs to know).
+          required: false
