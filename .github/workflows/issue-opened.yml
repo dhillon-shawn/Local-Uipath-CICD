@@ -234,10 +234,10 @@ jobs:
               "u_effort_project":    $f.effort,
 
               "description":         $f.description,
-              "short_description":   ("Prod - " + $title),
+              "short_description":   ("UiPath - Prod - " + $title),
               "business_value":      $f.business_value,
 
-              "cab_delegate":        $f.backup_contact,
+              "cab_delegate":        ($f.backup_contact // ""),
               "u_impacted_users":    $f.impacted_groups,
 
               "u_who_was_notified":          $f.impacted_users_emails,

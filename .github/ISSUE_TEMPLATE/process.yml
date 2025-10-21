@@ -1,4 +1,4 @@
-name: Release - Process 2
+name: Release - Process
 description: Creates CR for a Process
 title: "Release: <short summary>"
 labels:
@@ -14,6 +14,14 @@ body:
       placeholder: "email@noreply.com"
     validations:
       required: true
+
+
+  - type: input
+    id: backup_contact
+    attributes:
+      label: Backup contact (email)(required for CR approval)
+      placeholder: "email@noreply.com"
+
 
   - type: input
     id: target_end_date
@@ -79,12 +87,6 @@ body:
       value: |
         ## Audience & Contacts
         _Who is impacted and how they were told._
-
-  - type: input
-    id: backup_contact
-    attributes:
-      label: Backup contact (email)
-      placeholder: "email@noreply.com"
 
   - type: input
     id: impacted_groups

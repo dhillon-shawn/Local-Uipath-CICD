@@ -1,89 +1,87 @@
-name: "Release - Process"
-description: "Request a new release"
-labels: ["release","process"]
+name: Release - Process
+description: Creates CR for a Process
+title: "<short description of change>"
+labels:
+  - release
+  - process
+
 body:
   - type: input
-    id: user
+    id: user_email
     attributes:
-      label: Assignee email
+      label: Requester email
+      description: Email of the user whom the CR will be assigned to.
       placeholder: "email@noreply.com"
-  # ─────────────── Details ───────────────
+    validations:
+      required: true
+
+
+  - type: input
+    id: backup_contact
+    attributes:
+      label: Backup contact (email)(required for CR approval)
+      placeholder: "email@noreply.com"
+
+
+  - type: input
+    id: target_end_date
+    attributes:
+      label: Target end date
+      description: "When will this be completed/deployed? Use MM-DD-YY."
+      placeholder: "MM-DD-YY"
+    validations:
+      required: true
+
   - type: markdown
     attributes:
       value: |
-        ## Details
-        _Dates_
-
-  - type: input
-    id: start_date
-    attributes:
-      label: Start date
-      placeholder: "YYYY-MM-DD"
-    validations:
-      required: true
-
-  - type: input
-    id: end_date
-    attributes:
-      label: End date
-      placeholder: "YYYY-MM-DD"
-    validations:
-      required: true
-
-  - type: dropdown
-    id: effort
-    attributes:
-      label: Effort/Project
-      options:
-        - Defect Resolution
-        - Executive Sponsor Projects
-        - Maintenance and Operation
-        - Legistlative Mandate
-        - User Request
-        - Test Environment
-    validations:
-      required: true
-
-  # ─────────────── Rationale ───────────────
-  - type: markdown
-    attributes:
-      value: |
-        ## Rationale
-        _Why, how, and risks_
+        ## Overview
+        Provide context for reviewers to understand the change.
 
   - type: textarea
-    id: justification
+    id: description
     attributes:
-      label: Justification
-      placeholder: "Why this"
+      label: Description
+      description: Put as much detail as possible about the change.
+      placeholder: >
+        Describe the change in detail. Paste any neccessary info/technical details.
     validations:
       required: true
 
-  - type: textarea
+  - type: input
+    id: business_value
+    attributes:
+      label: Business value (executive summary)
+      description: "Business-speak version of the update: benefits, outcomes, KPIs, etc."
+      placeholder: "How does the DMV benefit from this change in laymans' terms."
+    validations:
+      required: true
+
+  - type: input
     id: implementation_plan
     attributes:
       label: Implementation plan
-      placeholder: "High-level steps"
+      placeholder: "Explain the implementation plan, providing details."
     validations:
       required: true
 
-  - type: textarea
-    id: test_plan
+  - type: input
+    id: backout_plan
     attributes:
-      label: Test plan
-      placeholder: "Testing strategy"
+      label: Backout plan
+      placeholder: "How to revert the change if needed."
     validations:
       required: true
 
-  - type: textarea
-    id: risk
+  - type: input
+    id: validation_plan
     attributes:
-      label: Risk
-      placeholder: "Top risks"
+      label: Validation plan
+      placeholder: "Pre/post checks, success criteria, monitoring, etc."
     validations:
       required: true
 
-  # ─────────────── Audience & Contacts ───────────────
+
   - type: markdown
     attributes:
       value: |
@@ -127,19 +125,19 @@ body:
     validations:
       required: true
 
-  # ─────────────── Backup & Confirmations ───────────────
-  - type: markdown
+  - type: dropdown
+    id: effort
     attributes:
-      value: |
-        ## Backup & Confirmations
-        _Point of contact and quick flags._
-
-  - type: input
-    id: backup_contact
-    attributes:
-      label: Backup contact (email)
-      placeholder: "email@noreply.com"
-
+      label: Effort/Project
+      options:
+        - Defect Resolution
+        - Executive Sponsor Projects
+        - Maintenance and Operation
+        - Legislative Mandate
+        - User Request
+        - Test Environment
+    validations:
+      required: true
 
   - type: checkboxes
     id: checklist
@@ -152,4 +150,6 @@ body:
         - label: Involves CDT.
           required: false
         - label: New app (ESD needs to know).
+          required: false
+        - label: Impact a Vendors.
           required: false
