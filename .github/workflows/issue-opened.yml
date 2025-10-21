@@ -17,142 +17,88 @@ jobs:
 
     runs-on: ubuntu-latest
     steps:
-      - name: assign check
-        id: check
-        run: |
-          echo "issue_number=${{ github.event.issue.number }}"
-          echo "assignees_json=${{ toJson(github.event.issue.assignees) }}"
-          if [ "${{ toJson(github.event.issue.assignees) }}" = "[]" ]; then
-            echo "has_assignees=false" >> $GITHUB_OUTPUT
-            echo "result=no current assignee"
-          else
-            echo "has_assignees=true" >> $GITHUB_OUTPUT
-            echo "result=already assigned"
-          fi
+        - name: Create branch + PR, link & assign, then comment (API-only, idempotent)
+          uses: actions/github-script@v7
+          with:
+            script: |
+              const repo = context.repo;
+              const issue = context.payload.issue;
+              const labels = issue.labels.map(l => typeof l === 'string' ? l : l.name);
+              const has = (n) => labels.includes(n);
 
-      - name: assign ensure
-        if: steps.check.outputs.has_assignees == 'false'
-        uses: pozil/auto-assign-issue@v2
-        with:
-          assignees: "${{ github.event.issue.user.login }}"
-          numOfAssignee: 1
+              // Decide type (priority: hotfix > library > process)
+              let type, prefix, draft;
+              if (has('hotfix'))      { type='hotfix';  prefix='hotfix';  draft=false; }
+              else if (has('library')){ type='library'; prefix='library'; draft=true;  }
+              else if (has('process')){ type='process'; prefix='release'; draft=true;  }
+              else return; // not one of the three → exit quietly
 
-      - name: Create branch and draft PR
-        id: cib
-        uses: robvanderleek/create-issue-branch@main
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              // Branch: <prefix>/<issue-number>-<slug>
+              const slug = (issue.title||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').replace(/-+/g,'-');
+              const branch = `${prefix}/${issue.number}-${slug}`;
 
+              // Base ref
+              const defaultBranch = context.payload.repository.default_branch;
+              const baseRef = await github.rest.git.getRef({ ...repo, ref: `heads/${defaultBranch}` });
+              const baseSha = baseRef.data.object.sha;
 
+              // Ensure branch exists
+              let headSha = baseSha;
+              try {
+                const r = await github.rest.git.getRef({ ...repo, ref: `heads/${branch}` });
+                headSha = r.data.object.sha;
+              } catch {
+                await github.rest.git.createRef({ ...repo, ref: `refs/heads/${branch}`, sha: baseSha });
+              }
 
-      - name: Sync PR assignees from issue (post-CIB)
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const repo = context.repo;
-            const issue = context.payload.issue;
-            const branchName = '${{ steps.cib.outputs.branchName }}';
+              // Ensure one empty init commit on branch (diff-less)
+              const initMsg = `chore(${type}): initialize (#${issue.number})`;
+              const headCommit = await github.rest.git.getCommit({ ...repo, commit_sha: headSha });
+              if (headCommit.data.message !== initMsg) {
+                const newCommit = await github.rest.git.createCommit({
+                  ...repo, message: initMsg, tree: headCommit.data.tree.sha, parents: [headSha]
+                });
+                await github.rest.git.updateRef({ ...repo, ref: `heads/${branch}`, sha: newCommit.data.sha, force: false });
+              }
 
-            if (!branchName) { core.info('No branchName from CIB; skipping assignee sync.'); return; }
+              // Create or find PR (include auto-close keyword)
+              const prTitle = `${issue.title} (#${issue.number})`;
+              const prBody  = [`Closes #${issue.number}`, `Type: ${type}`, '', '---', '', issue.body || ''].join('\n');
+              const headRef = `${repo.owner}:${branch}`;
+              let pr = (await github.rest.pulls.list({ ...repo, state: 'open', head: headRef })).data[0];
+              if (!pr) {
+                pr = (await github.rest.pulls.create({
+                  ...repo, title: prTitle, head: branch, base: defaultBranch, body: prBody, draft
+                })).data;
+              } else if (!(pr.body||'').includes(`Closes #${issue.number}`)) {
+                await github.rest.pulls.update({ ...repo, pull_number: pr.number, body: prBody });
+              }
 
-            // Find PR by head branch
-            const { data: prs } = await github.rest.pulls.list({
-              ...repo, state: 'open', head: `${repo.owner}:${branchName}`
-            });
-            if (!prs.length) { core.info('No PR found for branch; skipping assignee sync.'); return; }
-            const pr = prs[0];
+              // Assignees: ensure the issue has one (reporter) and mirror to PR
+              const want = new Set((issue.assignees||[]).map(a=>a.login).filter(Boolean));
+              if (!want.size && issue.user?.login) want.add(issue.user.login);
+              const assignees = [...want];
+              if (assignees.length) {
+                try { await github.rest.issues.addAssignees({ ...repo, issue_number: issue.number, assignees }); } catch {}
+                try { await github.rest.issues.addAssignees({ ...repo, issue_number: pr.number, assignees }); } catch {}
+              }
 
-            // Build desired assignee list: issue assignees, or fallback to issue author if still empty
-            const desired = new Set((issue.assignees || []).map(a => a.login).filter(Boolean));
-            if (!desired.size && issue.user?.login) desired.add(issue.user.login);
-            const finalAssignees = [...desired];
-            core.info(`Final desired assignees: ${JSON.stringify(finalAssignees)}`);
+              // Comment meta back on the issue (once)
+              const meta = {
+                pr: pr.number, pr_url: pr.html_url,
+                branch: pr.head.ref, base: pr.base.ref,
+                issue: issue.number, source_head_sha: pr.head.sha,
+                slug, created_by: context.actor, created_at: new Date().toISOString()
+              };
+              const commentBody = [
+                `Opened PR: ${pr.html_url}`,
+                `Branch: \`${pr.head.ref}\``,
+                '',
+                '<!-- pr-meta:',
+                JSON.stringify(meta),
+                '-->'
+              ].join('\n');
 
-            if (!finalAssignees.length) { core.info('No assignees to apply.'); return; }
-
-            try {
-              await github.rest.issues.addAssignees({ ...repo, issue_number: pr.number, assignees: finalAssignees });
-              core.info(`Assigned PR #${pr.number} to ${finalAssignees.join(', ')}`);
-            } catch (e) {
-              core.warning(`Failed to assign PR: ${e.message}`);
-            }
-
-      # Hotfix: convert draft → ready with detailed logging (API-only)
-      - name: Convert library/process PR to draft
-        if: >
-          contains(join(github.event.issue.labels.*.name, ','), 'library') ||
-          contains(join(github.event.issue.labels.*.name, ','), 'process')
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const repo = context.repo;
-            const branchName = '${{ steps.cib.outputs.branchName }}';
-            core.info(`Draft conversion step. branchName=${branchName}`);
-            if (!branchName) { core.warning('No branchName from CIB; cannot convert.'); return; }
-
-            const { data: prs } = await github.rest.pulls.list({
-              ...repo, state: 'open', head: `${repo.owner}:${branchName}`
-            });
-            core.info(`Found ${prs.length} PR(s) for branch.`);
-            if (!prs.length) return;
-
-            const pr = prs[0];
-            core.info(`PR #${pr.number} draft=${pr.draft}`);
-
-            if (pr.draft) { core.info('Already draft; nothing to do.'); return; }
-
-            // Preferred endpoint to convert to draft:
-            // POST /repos/{owner}/{repo}/pulls/{pull_number}/convert_to_draft
-            try {
-              await github.request('POST /repos/{owner}/{repo}/pulls/{pull_number}/convert_to_draft', {
-                owner: repo.owner, repo: repo.repo, pull_number: pr.number
-              });
-              core.info(`Converted PR #${pr.number} to draft.`);
-            } catch (e) {
-              core.setFailed(`Failed to convert PR #${pr.number} to draft: ${e.message}`);
-            }
-
-      # Your meta comment back on the issue
-      - name: Comment PR link + meta on the issue
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const repo = context.repo;
-            const issue = context.payload.issue;
-            const branchName = '${{ steps.cib.outputs.branchName }}';
-            if (!branchName) return;
-
-            const { data: prs } = await github.rest.pulls.list({
-              ...repo, state: 'open', head: `${repo.owner}:${branchName}`
-            });
-            if (!prs.length) return;
-            const pr = prs[0];
-
-            const slug = (issue.title || '')
-              .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').replace(/-+/g, '-');
-
-            const meta = {
-              pr: pr.number,
-              pr_url: pr.html_url,
-              branch: pr.head.ref,
-              base: pr.base.ref,
-              issue: issue.number,
-              source_head_sha: pr.head.sha,
-              slug,
-              created_by: context.actor,
-              created_at: new Date().toISOString()
-            };
-
-            const body = [
-              `Opened PR: ${pr.html_url}`,
-              `Branch: \`${pr.head.ref}\``,
-              '',
-              '<!-- pr-meta:',
-              JSON.stringify(meta),
-              '-->'
-            ].join('\n');
-
-            // Avoid duplicates
-            const comments = await github.rest.issues.listComments({ ...repo, issue_number: issue.number, per_page: 50 });
-            const exists = comments.data.some(c => (c.body||'').includes('<!-- pr-meta:') && (c.body||'').includes(`"pr": ${pr.number}`));
-            if (!exists) await github.rest.issues.createComment({ ...repo, issue_number: issue.number, body });
+              const comments = await github.rest.issues.listComments({ ...repo, issue_number: issue.number, per_page: 50 });
+              const exists = comments.data.some(c => (c.body||'').includes('<!-- pr-meta:') && (c.body||'').includes(`"pr": ${pr.number}`));
+              if (!exists) await github.rest.issues.createComment({ ...repo, issue_number: issue.number, body: commentBody });
