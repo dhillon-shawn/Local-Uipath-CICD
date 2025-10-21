@@ -206,7 +206,6 @@ jobs:
 
           IFS='-' read -r MM DD YY <<<"$END_RAW"
           if [ ${#YY} -eq 2 ]; then YY="20$YY"; fi
-
           PT_DT="$MM-$DD-$YY 06:00:00"
           EPOCH=$(TZ=America/Los_Angeles date -d "$PT_DT" +%s)
           END_UTC=$(date -u -d @"$EPOCH" +%Y-%m-%dT%H:%M:%SZ)
@@ -218,6 +217,15 @@ jobs:
 
             . as $f |
             {
+              "category": "Software",
+              "business_service": "UiPath",
+              "type": "Normal",
+              "assignment_group": "ISD EAB: Intelligent Automation Product (IAP) Unit ",
+              "u_environment": "Production",
+              "u_nagios_alerts": "No",
+              "u_sos_impact": "No",
+              "u_new_app_system": "No",
+              
               "u_public_impact":               yesno($f.checklist["impacts-the-public"]),
               "u_does_change_invovle_a_vedor": yesno($f.checklist["impact-a-vendors"]),
               "u_involve_cdt":                 yesno($f.checklist["involves-cdt"]),
