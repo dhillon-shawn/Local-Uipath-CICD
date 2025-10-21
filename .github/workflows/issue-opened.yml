@@ -70,7 +70,7 @@ jobs:
         env:
           FORM_JSON: ${{ steps.parse.outputs.data }}
         run: |
-          # Required form ids from your template
+          # Expected keys (what your workflow cares about)
           required=(
             user_email
             end
@@ -86,14 +86,39 @@ jobs:
             last_notified_how
           )
 
+          # Map expected -> actual keys in parsed JSON (from your log)
+          declare -A keymap=(
+            [user_email]=assignee-email
+            [end]=end-date
+            [effort]=effort-project
+            [description]=description
+            [business_value]=business-value
+            [plan]=implementation-plan
+            [validation_plan]=validation-plan
+            [backout_plan]=backout-plan
+            [impacted_groups]=impacted-groups
+            [impacted_users_emails]=impacted-users-emails
+            [last_notified_when]=when-were-impacted-users-last-notified
+            [last_notified_how]=how-were-impacted-users-last-notified
+          )
+
+          # helper: read .text or first .content safely; treat "*No response*" as empty
+          get_val () {
+            local actual="$1"
+            printf '%s' "$FORM_JSON" \
+            | jq -r --arg a "$actual" '
+                def grab($x):
+                  (.[$x].text // .[$x].content[0] // .[$x] // "");
+                grab($a)
+              '
+          }
+
           MISSING=()
-          for key in "${required[@]}"; do
-            val=$(printf '%s' "$FORM_JSON" \
-              | jq -r --arg k "$key" '(.[$k].text // .[$k].content[0] // .[$k] // "")')
-            # normalize and treat "*No response*" as empty
-            val="$(echo -n "$val" | tr -d '\r' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+          for k in "${required[@]}"; do
+            actual="${keymap[$k]:-$k}"
+            val="$(get_val "$actual" | tr -d '\r' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
             if [ -z "$val" ] || [ "$val" = "*No response*" ]; then
-              MISSING+=("$key")
+              MISSING+=("$k")
             fi
           done
 
@@ -102,6 +127,7 @@ jobs:
             exit 1
           fi
           echo "CR fields present."
+
 
       # --- Create/init branch idempotently (no-op if exists)
       - name: Create/init branch
