@@ -4,7 +4,9 @@ on:
     workflow_call:
 
 permissions: write-all
-
+concurrency:
+  group: issue-${{ github.event.issue.number }}
+  cancel-in-progress: true
 jobs:
     parse:
         runs-on: ubuntu-latest
