@@ -7,7 +7,7 @@ labels:
 
 body:
   - type: input
-    id: requester_email
+    id: user_email
     attributes:
       label: Requester email
       description: Email of the user whom the CR will be assigned to.
@@ -148,4 +148,6 @@ body:
         - label: Involves CDT.
           required: false
         - label: New app (ESD needs to know).
+          required: false
+        - label: Impact a Vendors.
           required: false
