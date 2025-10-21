@@ -10,9 +10,10 @@ concurrency:
   group: issue-${{ github.event.issue.number }}
   cancel-in-progress: false
 
+
 jobs:
   issue_to_pr:
-    # run only if it looks like release or hotfix work
+    # Only run for issues labeled release OR hotfix
     if: contains(join(github.event.issue.labels.*.name, ','), 'release') ||
         contains(join(github.event.issue.labels.*.name, ','), 'hotfix')
     runs-on: ubuntu-latest
@@ -27,7 +28,7 @@ jobs:
             echo "pr_draft=false" >> $GITHUB_OUTPUT
           else
             echo "mode=release" >> $GITHUB_OUTPUT
-            echo "pr_draft=true"  >> $GITHUB_OUTPUT  # your convention: release PRs start as draft
+            echo "pr_draft=true"  >> $GITHUB_OUTPUT  # release PRs start as draft
           fi
 
       - name: Ensure assignee (fallback to issue author)
@@ -44,6 +45,7 @@ jobs:
 
       - name: Compute names
         id: names
+        shell: bash
         run: |
           title="${{ github.event.issue.title }}"
           num="${{ github.event.issue.number }}"
@@ -52,34 +54,58 @@ jobs:
           echo "branch=${prefix}/${num}-${slug}" >> $GITHUB_OUTPUT
           echo "pr_title=${title} (#${num})"     >> $GITHUB_OUTPUT
 
-      # --- Parse Issue Form ONLY for the "release - process" template (labels: process + release)
+      # --- Parse Issue Form ONLY for Release - Process (labels: process + release)
       - name: Parse Issue Form (release–process only)
         id: parse
         if: contains(join(github.event.issue.labels.*.name, ','), 'release') &&
             contains(join(github.event.issue.labels.*.name, ','), 'process')
         uses: zentered/issue-forms-body-parser@v2.0.0
         # outputs:
-        #   steps.parse.outputs.data  -> JSON string of the form values
-        #   steps.parse.outputs.fields -> CSV
-        # Zero-config; no template path required.
+        #   steps.parse.outputs.data -> JSON string keyed by your `id`s
 
-      # --- OPTIONAL: Validate required CR fields here (release–process only)
+      # --- Validate required CR fields for release–process
       - name: Validate CR fields (release–process only)
         if: steps.parse.outcome == 'success'
+        shell: bash
+        env:
+          FORM_JSON: ${{ steps.parse.outputs.data }}
         run: |
-          required=("start" "end" "justification" "plan" "risk" "test_plan")
+          # Required form ids from your template
+          required=(
+            user_email
+            end
+            effort
+            description
+            business_value
+            plan
+            validation_plan
+            backout_plan
+            impacted_groups
+            impacted_users_emails
+            last_notified_when
+            last_notified_how
+          )
+
           MISSING=()
           for key in "${required[@]}"; do
-            val=$(echo '${{ steps.parse.outputs.data }}' | jq -r --arg k "$key" '.[$k] // ""')
-            if [ -z "$val" ] || [ "$val" = "null" ]; then MISSING+=("$key"); fi
+            val=$(printf '%s' "$FORM_JSON" \
+              | jq -r --arg k "$key" '(.[$k].text // .[$k].content[0] // .[$k] // "")')
+            # normalize and treat "*No response*" as empty
+            val="$(echo -n "$val" | tr -d '\r' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+            if [ -z "$val" ] || [ "$val" = "*No response*" ]; then
+              MISSING+=("$key")
+            fi
           done
+
           if [ ${#MISSING[@]} -gt 0 ]; then
             echo "Missing required CR fields: ${MISSING[*]}"
             exit 1
           fi
+          echo "CR fields present."
 
-      # --- Create branch idempotently (no-op if it already exists)
+      # --- Create/init branch idempotently (no-op if exists)
       - name: Create/init branch
+        shell: bash
         env:
           BRANCH: ${{ steps.names.outputs.branch }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -111,7 +137,7 @@ jobs:
 
             Linked issue: #${{ github.event.issue.number }}
 
-            <!-- BEGIN:FORM -->
+            <!-- BEGIN:FORM (raw issue body for readability) -->
             ${{ github.event.issue.body }}
             <!-- END:FORM -->
 
@@ -123,11 +149,11 @@ jobs:
           branch: ${{ steps.names.outputs.branch }}
           draft: ${{ steps.mode.outputs.pr_draft }}
 
-
-
-      # --- Comment PR link back on the issue (nice DX)
+      # --- Comment PR link + meta back on the issue
       - name: Comment PR link + meta on the issue
         uses: actions/github-script@v7
+        env:
+          PR_NUM: ${{ steps.cpr.outputs.pull-request-number }}
         with:
           script: |
             const repo = context.repo;
@@ -142,19 +168,20 @@ jobs:
               base: pr.base.ref,
               issue: issue_number,
               source_head_sha: pr.head.sha,
+              mode: "${{ steps.mode.outputs.mode }}",
+              draft: pr.draft,
               created_by: context.actor,
               created_at: new Date().toISOString()
             };
 
             const body = [
               `Opened/updated PR: ${pr.html_url}`,
-              `Branch: \`${pr.head.ref}\``,
+              `Branch: \`${pr.head.ref}\` → Base: \`${pr.base.ref}\``,
               '',
               '<!-- pr-meta:',
               JSON.stringify(meta),
               '-->'
             ].join('\n');
 
-            await github.rest.issues.createComment({ ...repo, issue_number, body });
-        env:
-          PR_NUM: ${{ steps.cpr.outputs.pull-request-number }}
+            await github.rest.issues.createComment({ ...repo, issue_number, body })
+
