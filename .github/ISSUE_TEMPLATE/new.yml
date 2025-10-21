@@ -1,17 +1,16 @@
 name: Release - Process 2
-description: Start the Release Process (fields used by CI and Change Request automation)
+description: Creates CR for a Process
 title: "Release: <short summary>"
 labels:
   - release
   - process
 
 body:
-  # --- Top essentials --------------------------------------------------------
   - type: input
     id: requester_email
     attributes:
       label: Requester email
-      description: We'll use this to contact you about this change.
+      description: Email of the user who's email the CR will be assigned to.
       placeholder: "email@noreply.com"
     validations:
       required: true
@@ -20,8 +19,8 @@ body:
     id: target_end_date
     attributes:
       label: Target end date
-      description: "When should this be completed? Use YYYY-MM-DD."
-      placeholder: "YYYY-MM-DD"
+      description: "When will this be completed/deployed? Use MM-DD-YY."
+      placeholder: "MM-DD-YY"
     validations:
       required: true
 
@@ -29,7 +28,7 @@ body:
     attributes:
       value: |
         ## Overview
-        Provide context up front so reviewers can quickly understand the change.
+        Provide context for reviewers to understand the change.
 
   - type: textarea
     id: description
@@ -37,7 +36,7 @@ body:
       label: Description
       description: Put as much detail as possible about the change.
       placeholder: >
-        What is changing? Why now? Scope, systems, dependencies, risks, milestones…
+        Describe the change in detail. Paste any neccessary info/technical details.
     validations:
       required: true
 
@@ -45,8 +44,8 @@ body:
     id: business_value
     attributes:
       label: Business value (executive summary)
-      description: "Business-speak version of the update: benefits, outcomes, KPIs."
-      placeholder: "E.g., Reduces processing time by 30%, enables compliance with X, improves NPS."
+      description: "Business-speak version of the update: benefits, outcomes, KPIs, etc."
+      placeholder: "How does the DMV benefit from this change in laymans' terms."
     validations:
       required: true
 
@@ -54,7 +53,7 @@ body:
     id: implementation_plan
     attributes:
       label: Implementation plan
-      placeholder: "High-level steps, owners, sequence."
+      placeholder: "Explain the implementation plan, providing details."
     validations:
       required: true
 
@@ -62,7 +61,7 @@ body:
     id: backout_plan
     attributes:
       label: Backout plan
-      placeholder: "How to revert if needed; triggers and steps."
+      placeholder: "How to revert the change if needed."
     validations:
       required: true
 
@@ -70,11 +69,11 @@ body:
     id: validation_plan
     attributes:
       label: Validation plan
-      placeholder: "Pre/post checks, success criteria, monitoring, sign-off."
+      placeholder: "Pre/post checks, success criteria, monitoring, etc."
     validations:
       required: true
 
-  # --- Audience & contacts ----------------------------------------------------
+
   - type: markdown
     attributes:
       value: |
@@ -138,7 +137,6 @@ body:
     validations:
       required: true
 
-  # --- Confirmations (keep at bottom) ----------------------------------------
   - type: checkboxes
     id: checklist
     attributes:
