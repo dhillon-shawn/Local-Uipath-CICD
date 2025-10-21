@@ -12,54 +12,85 @@ concurrency:
 
 
 jobs:
-  issue_to_pr:
+   issue_to_pr:
     runs-on: ubuntu-latest
     steps:
-      - name: Create branch and (draft) PR
+      - name: Create branch + PR
         id: cib
         uses: robvanderleek/create-issue-branch@main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # If it's a hotfix, immediately flip the PR from draft → ready
-      - name: Promote hotfix PR to ready-for-review
+      # Convert library/process PRs to DRAFT (hotfix stays ready — fires your ready_for_review CI now)
+      - name: Convert PR to draft for library/process
+        if: >
+          contains(join(github.event.issue.labels.*.name, ','), 'library') ||
+          contains(join(github.event.issue.labels.*.name, ','), 'process')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          BRANCH="${{ steps.cib.outputs.branchName }}"
+          [ -z "$BRANCH" ] && exit 0
+          # Find the PR created for this branch
+          PR_NUM=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' || true)
+          [ -z "${PR_NUM:-}" ] && exit 0
+          # Convert to draft
+          gh pr ready "$PR_NUM" --undo
+
+      # Ensure hotfix PR is explicitly "ready" (no-op if already ready)
+      - name: Ensure hotfix PR is ready-for-review
         if: contains(join(github.event.issue.labels.*.name, ','), 'hotfix')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          BRANCH="${{ steps.cib.outputs.branchName }}"
+          [ -z "$BRANCH" ] && exit 0
+          PR_NUM=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' || true)
+          [ -z "${PR_NUM:-}" ] && exit 0
+          gh pr ready "$PR_NUM" || true
+
+      # Add an explicit link to the originating issue at the top of the PR body
+      - name: Prefix PR body with "Refs #<issue>"
         uses: actions/github-script@v7
         with:
           script: |
             const repo = context.repo;
+            const issue_number = context.payload.issue.number;
+
+            // Find PR by branch created in previous step
             const branchName = '${{ steps.cib.outputs.branchName }}';
             if (!branchName) return;
-
-            // Find the PR created for this branch (state:open)
             const { data: prs } = await github.rest.pulls.list({
               ...repo, state: 'open', head: `${repo.owner}:${branchName}`
             });
             if (!prs.length) return;
-
             const pr = prs[0];
-            if (pr.draft) {
-              await github.rest.pulls.update({
-                ...repo, pull_number: pr.number, draft: false
-              }).catch(async () => {
-                // Fallback for some repos: use the "ready for review" endpoint
-                await github.request('POST /repos/{owner}/{repo}/pulls/{pull_number}/ready_for_review', {
-                  owner: repo.owner, repo: repo.repo, pull_number: pr.number
-                });
-              });
+
+            // Prepend a stable "Refs #<n>" header + Type
+            const hasRefs = (pr.body || '').includes(`Refs #${issue_number}`);
+            const type =
+              context.payload.issue.labels.map(l => typeof l === 'string' ? l : l.name)
+                .find(n => ['hotfix','library','process'].includes(n)) || 'unknown';
+            if (!hasRefs) {
+              const newBody = [`Refs #${issue_number}`, `Type: ${type}`, '', '---', '', pr.body || ''].join('\n');
+              await github.rest.pulls.update({ ...repo, pull_number: pr.number, body: newBody });
             }
 
-      # Your meta comment back on the originating issue (link + metadata)
+      # Comment link + meta back on the originating issue (your snippet, kept intact)
       - name: Comment PR link + meta on the issue
         uses: actions/github-script@v7
         with:
           script: |
             const repo = context.repo;
             const issue_number = context.payload.issue.number;
+
             const branchName = '${{ steps.cib.outputs.branchName }}';
             if (!branchName) return;
 
-            // Grab the PR we just opened (draft or promoted)
             const { data: prs } = await github.rest.pulls.list({
               ...repo, state: 'open', head: `${repo.owner}:${branchName}`
             });
@@ -91,6 +122,3 @@ jobs:
             ].join('\n');
 
             await github.rest.issues.createComment({ ...repo, issue_number, body });
-
-
-
