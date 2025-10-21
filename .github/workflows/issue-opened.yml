@@ -91,7 +91,7 @@ jobs:
             const type   = '${{ steps.meta.outputs.type }}';
             const draft  = '${{ steps.meta.outputs.draft }}' === 'true';
 
-            const title = `(issue: #${issue.number}) - ${issue.title}`;
+            const title = `issue: #${issue.number} - ${issue.title}`;
             const body  = [
               `Closes #${issue.number}`,
               `Type: ${type}`,
